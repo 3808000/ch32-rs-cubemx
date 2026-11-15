@@ -7,6 +7,10 @@
 - **桌面应用**（Tauri 2，推荐）：下载 [Releases](https://github.com/3808000/ch32-rs-cubemx/releases) 中的 Linux 产物，解压即用。
 - **浏览器模式**：`npm run dev`，或 `npm run build` 后部署 `dist/`。
 
+| 引脚配置 | 时钟树 | 外设 |
+|---|---|---|
+| ![](docs/images/pinout.png) | ![](docs/images/clock.png) | ![](docs/images/peripherals.png) |
+
 ## 下载桌面版
 
 | 平台 | 产物 | 说明 |
