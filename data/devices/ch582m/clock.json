@@ -1,0 +1,62 @@
+{
+  "chip": "CH582M",
+  "sysclkMaxMhz": 80,
+  "sources": [
+    { "id": "HSE", "label": "外部 32MHz 晶振", "freqMhz": 32 },
+    { "id": "PLL", "label": "PLL (480MHz VCO)", "pll": true }
+  ],
+  "pll": {
+    "outMaxMhz": 80,
+    "sourceOptions": ["HSE"],
+    "fixedOutMhz": 480,
+    "params": [
+      { "key": "div", "label": "分频", "kind": "select", "options": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32], "default": 8 }
+    ]
+  },
+  "ahb": { "options": [1], "maxMhz": 80, "default": 1 },
+  "apb1": { "options": [1], "maxMhz": 80, "default": 1 },
+  "apb2": { "options": [1], "maxMhz": 80, "default": 1 },
+  "adc": {
+    "options": [{ "id": "SYS", "label": "CK32M（HSE 32MHz 固定源，ADC 采样时钟另经 4/6/8/10 分频）", "source": "APB2", "div": 1 }],
+    "default": "SYS"
+  },
+  "timerClock": "sysclk",
+  "presets": [
+    {
+      "id": "60MHZ_PLL",
+      "label": "60MHz (PLL 480÷8)",
+      "match": { "source": "PLL", "pllSource": "HSE", "div": 8, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "80MHZ_PLL",
+      "label": "80MHz (PLL 480÷6)",
+      "match": { "source": "PLL", "pllSource": "HSE", "div": 6, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "48MHZ_PLL",
+      "label": "48MHz (PLL 480÷10)",
+      "match": { "source": "PLL", "pllSource": "HSE", "div": 10, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "32MHZ_PLL",
+      "label": "32MHz (PLL 480÷15)",
+      "match": { "source": "PLL", "pllSource": "HSE", "div": 15, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "24MHZ_PLL",
+      "label": "24MHz (PLL 480÷20)",
+      "match": { "source": "PLL", "pllSource": "HSE", "div": 20, "ahb": 1, "apb1": 1, "apb2": 1 }
+    }
+  ],
+  "codegen": {
+    "presetConstMap": {
+      "60MHZ_PLL": "config.clock.use_pll_60mhz()",
+      "80MHZ_PLL": "config.clock.use_pll_80mhz()",
+      "48MHZ_PLL": "config.clock.use_pll_48mhz()",
+      "32MHZ_PLL": "config.clock.use_pll_32mhz()",
+      "24MHZ_PLL": "config.clock.use_pll_24mhz()"
+    },
+    "fallback": "explicit"
+  },
+  "notes": "时钟模型来自 ch58x-hal（commit 611954e）src/sysctl.rs 并与《CH583/CH582 数据手册》CH583DS1.PDF V1.9 §7 交叉核对：①HSE 为固定 32MHz 晶振（X32MI/X32MO），PLL 为固定 480MHz VCO，Fsys=Fpll/RB_CLK_PLL_DIV 或 Fck32m/div，div 2..32（5 位寄存器，div=1 表示关 HCLK），数据手册 Fsys 范围 32KHz、2~10MHz、15~80MHz，故 div<6（>80MHz）或走 HSE 直连分频时部分档位超范围，校验器会报错属预期行为；②无 HSI（sysctl.rs 明确 No HSI）；③无 AHB/APB1/APB2 分频器（Clocks 仅 hclk，外设时钟=系统时钟），三总线 options 固定 [1]；④LSI/LSE 32KHz 为独立低频时钟域（Clock32KSrc，供 RTC/看门狗/embassy tick），SYSCLK 可选 CK32K 直连（ClockSrc::Clock32K）但无对应 HAL 预设，未在 sources 建模；⑤ADC 采样时钟实际取自 CK32M（32MHz 固定）经 4/6/8/10 分频得 8/5.33/4/3.2MHz（ch58x-hal adc.rs SamplingClock 枚举），受 schema 限制以 SYS/APB2 占位表示、不设 maxMhz；⑥上电默认 6.4MHz（CK32M÷5）；⑦presetConstMap 为 ch58x-hal sysctl::Config 方法名（备注性质，ch58x-hal 后端代码生成尚未接入）。"
+}

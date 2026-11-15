@@ -1,0 +1,26 @@
+{
+  "chip": "CH582M",
+  "irqs": [
+    { "name": "TMR0", "number": 16, "comment": "定时器 0" },
+    { "name": "GPIOA", "number": 17, "comment": "GPIOA 端口中断（按引脚独立使能）" },
+    { "name": "GPIOB", "number": 18, "comment": "GPIOB 端口中断（按引脚独立使能）" },
+    { "name": "SPI0", "number": 19, "comment": "SPI0" },
+    { "name": "BLEB", "number": 20, "comment": "BLE 基带 BB（PAC 注释名 BB_IRQHandler）" },
+    { "name": "BLEL", "number": 21, "comment": "BLE 链路层 LLE（PAC 注释名 LLE_IRQHandler）" },
+    { "name": "USB", "number": 22, "comment": "USB" },
+    { "name": "USB2", "number": 23, "comment": "USB2（PAC 存在，ch58x-hal impl_irqs 中被注释）" },
+    { "name": "TMR1", "number": 24, "comment": "定时器 1" },
+    { "name": "TMR2", "number": 25, "comment": "定时器 2" },
+    { "name": "UART0", "number": 26, "comment": "UART0" },
+    { "name": "UART1", "number": 27, "comment": "UART1" },
+    { "name": "RTC", "number": 28, "comment": "RTC" },
+    { "name": "ADC", "number": 29, "comment": "ADC" },
+    { "name": "I2C", "number": 30, "comment": "I2C" },
+    { "name": "PWMX", "number": 31, "comment": "PWMX（PAC 注释名 PPWMX_SPI1_IRQHandler，含 CH583 SPI1）" },
+    { "name": "TMR3", "number": 32, "comment": "定时器 3" },
+    { "name": "UART2", "number": 33, "comment": "UART2（PAC 注释误写 UART1_IRQHandler，实为 UART2）" },
+    { "name": "UART3", "number": 34, "comment": "UART3" },
+    { "name": "WDOG_BAT", "number": 35, "comment": "看门狗/电源（PAC 注释名 WDT_IRQHandler）" }
+  ],
+  "notes": "完整 PFIC 中断表提取自 ch58x PAC ch58x-0.4.0（crates.io，ch58x-hal commit 611954e 所依赖）src/ch58x/mod.rs 的 Interrupt 枚举（MAX_INTERRUPT_NUMBER=35），编号与 ch58x-hal interrupt.rs 的 qingke::pfic 使能路径一致；ch32-data CH582.yaml 骨架中的 WWDG:1 为占位错误数据，未采用。"
+}

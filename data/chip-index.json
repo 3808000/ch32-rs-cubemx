@@ -1,0 +1,1102 @@
+[
+  {
+    "name": "CH32F103C6T6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP48",
+    "deviceId": 0,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "10K"
+    }
+  },
+  {
+    "name": "CH32F103C8T6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP48",
+    "deviceId": 536887554,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32F103C8U6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN48X7",
+    "deviceId": 0,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32F103R8T6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP64M",
+    "deviceId": 536887567,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32F203C6T6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, small capacity",
+    "package": "LQFP48",
+    "deviceId": 540214272,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "10K"
+    }
+  },
+  {
+    "name": "CH32F203C8T6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, small capacity",
+    "package": "LQFP48",
+    "deviceId": 540083200,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32F203C8U6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, small capacity",
+    "package": "QFN48X7",
+    "deviceId": 540017664,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32F203CBT6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, large capacity",
+    "package": "LQFP48",
+    "deviceId": 540148740,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32F203K8T6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, small capacity",
+    "package": "LQFP32",
+    "deviceId": 540148736,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32F203RBT6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, large capacity",
+    "package": "LQFP64M",
+    "deviceId": 540214276,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32F203RCT6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, large capacity",
+    "package": "LQFP64M",
+    "deviceId": 540083204,
+    "memory": {}
+  },
+  {
+    "name": "CH32F203VCT6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "General-purpose, large capacity",
+    "package": "LQFP100",
+    "deviceId": 540017668,
+    "memory": {}
+  },
+  {
+    "name": "CH32F205RBT6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "Connectivity (USB high-speed, SDIO, CAN)",
+    "package": "LQFP64M",
+    "deviceId": 542114824,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32F207VCT6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, CAN, Ethernet, DVP, SDIO, FSMC)",
+    "package": "LQFP100",
+    "deviceId": 544211976,
+    "memory": {}
+  },
+  {
+    "name": "CH32F208RBT6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "Wireless (BLE5.X, CAN, USB, Ethernet)",
+    "package": "LQFP64M",
+    "deviceId": 545326092,
+    "memory": {}
+  },
+  {
+    "name": "CH32F208WBU6",
+    "family": "ARM Cortex-M-based, general-purpose MCU",
+    "subfamily": "Wireless (BLE5.X, CAN, USB, Ethernet)",
+    "package": "QFN68",
+    "deviceId": 545260556,
+    "memory": {}
+  },
+  {
+    "name": "CH32H415REU6",
+    "family": "CH32H4 (QingKe RISC-V dual-core, high-end)",
+    "subfamily": "Dual-core V3F+V5F, USB 2.0 only (no SS), 60-pin QFN",
+    "package": "QFN60",
+    "deviceId": 1095763213,
+    "memory": {}
+  },
+  {
+    "name": "CH32H416RDU6",
+    "family": "CH32H4 (QingKe RISC-V dual-core, high-end)",
+    "subfamily": "Dual-core V3F+V5F, USB 3.0, 480K Flash variant, 60-pin QFN",
+    "package": "QFN60",
+    "deviceId": 1096811789,
+    "memory": {}
+  },
+  {
+    "name": "CH32H417MEU6",
+    "family": "CH32H4 (QingKe RISC-V dual-core, high-end)",
+    "subfamily": "Dual-core V3F+V5F, USB 3.0, full feature, 88-pin QFN",
+    "package": "QFN88",
+    "deviceId": 1097925901,
+    "memory": {}
+  },
+  {
+    "name": "CH32H417QEU6",
+    "family": "CH32H4 (QingKe RISC-V dual-core, high-end)",
+    "subfamily": "Dual-core V3F+V5F, USB 3.0, Gigabit Ethernet, SerDes, LTDC",
+    "package": "QFN128",
+    "deviceId": 1097860365,
+    "memory": {}
+  },
+  {
+    "name": "CH32H417WEU6",
+    "family": "CH32H4 (QingKe RISC-V dual-core, high-end)",
+    "subfamily": "Dual-core V3F+V5F, USB 3.0, reduced feature, 68-pin QFN",
+    "package": "QFN68",
+    "deviceId": 1097991437,
+    "memory": {}
+  },
+  {
+    "name": "CH32L103C8T6",
+    "family": "QingKe RISC-V-based, low power MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP48",
+    "deviceId": 271648512,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32L103F7P6",
+    "family": "QingKe RISC-V-based, low power MCU",
+    "subfamily": "General-purpose",
+    "package": "TSSOP20",
+    "deviceId": 272041728,
+    "memory": {
+      "USR_1": "48K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32L103F8P6",
+    "family": "QingKe RISC-V-based, low power MCU",
+    "subfamily": "General-purpose",
+    "package": "TSSOP20",
+    "deviceId": 272238336,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32L103F8U6",
+    "family": "QingKe RISC-V-based, low power MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN20",
+    "deviceId": 272434944,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32L103G8R6",
+    "family": "QingKe RISC-V-based, low power MCU",
+    "subfamily": "General-purpose",
+    "package": "QSOP28",
+    "deviceId": 272303872,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32L103K8U6",
+    "family": "QingKe RISC-V-based, low power MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN32",
+    "deviceId": 271714048,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32M007",
+    "family": "Low price, motor control MCU",
+    "subfamily": "General-purpose",
+    "package": "QSOP24",
+    "deviceId": 7538688,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "8K"
+    }
+  },
+  {
+    "name": "CH32M030C8T7",
+    "family": "QingKe RISC-V-based, motor control MCU",
+    "subfamily": "Motor control, half-bridge gate driver",
+    "package": "LQFP48",
+    "deviceId": 61933568,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "12K"
+    }
+  },
+  {
+    "name": "CH32M030C8U3",
+    "family": "QingKe RISC-V-based, motor control MCU",
+    "subfamily": "Motor control, half-bridge gate driver",
+    "package": "QFN48X7_A",
+    "deviceId": 62064640,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "12K"
+    }
+  },
+  {
+    "name": "CH32M030C8U7",
+    "family": "QingKe RISC-V-based, motor control MCU",
+    "subfamily": "Motor control, half-bridge gate driver",
+    "package": "QFN48",
+    "deviceId": 61868032,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "12K"
+    }
+  },
+  {
+    "name": "CH32M030C9U7",
+    "family": "QingKe RISC-V-based, motor control MCU",
+    "subfamily": "Motor control, half-bridge gate driver",
+    "package": "QFN48",
+    "deviceId": 62457856,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "12K"
+    }
+  },
+  {
+    "name": "CH32M030G8R7",
+    "family": "QingKe RISC-V-based, motor control MCU",
+    "subfamily": "Motor control, half-bridge gate driver",
+    "package": "QSOP28",
+    "deviceId": 62588928,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "12K"
+    }
+  },
+  {
+    "name": "CH32M030K8U7",
+    "family": "QingKe RISC-V-based, motor control MCU",
+    "subfamily": "Motor control, half-bridge gate driver",
+    "package": "QFN32",
+    "deviceId": 61999104,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "12K"
+    }
+  },
+  {
+    "name": "CH32M103G8R6",
+    "family": "QingKe RISC-V-based, low power MCU",
+    "subfamily": "General-purpose",
+    "package": "QSOP28",
+    "deviceId": 271779584,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V002",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "TSSOP20",
+    "deviceId": 2098688,
+    "memory": {
+      "USR_1": "16K",
+      "RAM": "4K"
+    }
+  },
+  {
+    "name": "CH32V003",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "SOP8",
+    "deviceId": 3343616,
+    "memory": {
+      "USR_1": "16K",
+      "RAM": "2K"
+    }
+  },
+  {
+    "name": "CH32V003A4M6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "SOP16",
+    "deviceId": 3278080,
+    "memory": {
+      "USR_1": "16K",
+      "RAM": "2K"
+    }
+  },
+  {
+    "name": "CH32V003F4P6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "TSSOP20",
+    "deviceId": 3147008,
+    "memory": {
+      "USR_1": "16K",
+      "RAM": "2K"
+    }
+  },
+  {
+    "name": "CH32V003F4U6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN20",
+    "deviceId": 3212544,
+    "memory": {
+      "USR_1": "16K",
+      "RAM": "2K"
+    }
+  },
+  {
+    "name": "CH32V003J4M6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "SOP8",
+    "deviceId": 3343616,
+    "memory": {
+      "USR_1": "16K",
+      "RAM": "2K"
+    }
+  },
+  {
+    "name": "CH32V004",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "TSSOP20",
+    "deviceId": 4195840,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "6K"
+    }
+  },
+  {
+    "name": "CH32V005",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QSOP24",
+    "deviceId": 5244416,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "6K"
+    }
+  },
+  {
+    "name": "CH32V006",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN32",
+    "deviceId": 6292992,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "8K"
+    }
+  },
+  {
+    "name": "CH32V007",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QSOP24",
+    "deviceId": 7407104,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "8K"
+    }
+  },
+  {
+    "name": "CH32V103C6T6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP48",
+    "deviceId": 0,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "10K"
+    }
+  },
+  {
+    "name": "CH32V103C8T6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP48",
+    "deviceId": 620773634,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V103C8U6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN48X7",
+    "deviceId": 0,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V103R8T6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP64M",
+    "deviceId": 620773647,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V203C6T6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP48",
+    "deviceId": 540214528,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "10K"
+    }
+  },
+  {
+    "name": "CH32V203C8T6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose, Low Power MCU",
+    "package": "LQFP48",
+    "deviceId": 540083456,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V203C8U6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN48X7",
+    "deviceId": 540017920,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V203F6P6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "TSSOP20",
+    "deviceId": 540476672,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "10K"
+    }
+  },
+  {
+    "name": "CH32V203F8P6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "TSSOP20",
+    "deviceId": 540673280,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V203F8U6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN20",
+    "deviceId": 540869888,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V203G6U6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QFN28",
+    "deviceId": 540411136,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "10K"
+    }
+  },
+  {
+    "name": "CH32V203G8R6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "QSOP28",
+    "deviceId": 540738816,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V203K6T6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP32",
+    "deviceId": 540345600,
+    "memory": {
+      "USR_1": "32K",
+      "RAM": "10K"
+    }
+  },
+  {
+    "name": "CH32V203K8T6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP32",
+    "deviceId": 540148992,
+    "memory": {
+      "USR_1": "64K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32V203RBT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP64M",
+    "deviceId": 540280076,
+    "memory": {}
+  },
+  {
+    "name": "CH32V205CCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose, high-speed USB",
+    "package": "LQFP48",
+    "deviceId": 542246144,
+    "memory": {
+      "USR_1": "256K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V205RCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose, high-speed USB",
+    "package": "LQFP64",
+    "deviceId": 542180608,
+    "memory": {
+      "USR_1": "256K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V205VCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose, high-speed USB, FSMC",
+    "package": "LQFP100",
+    "deviceId": 542115072,
+    "memory": {
+      "USR_1": "256K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V208CBU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Wireless (BLE5.X, CAN, USB, Ethernet)",
+    "package": "QFN48",
+    "deviceId": 545391884,
+    "memory": {}
+  },
+  {
+    "name": "CH32V208GBU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Wireless (BLE5.X, CAN, USB, Ethernet)",
+    "package": "QFN28",
+    "deviceId": 545457420,
+    "memory": {}
+  },
+  {
+    "name": "CH32V208RBT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Wireless (BLE5.X, CAN, USB, Ethernet)",
+    "package": "LQFP64M",
+    "deviceId": 545326348,
+    "memory": {}
+  },
+  {
+    "name": "CH32V208WBU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Wireless (BLE5.X, CAN, USB, Ethernet)",
+    "package": "QFN68",
+    "deviceId": 545260812,
+    "memory": {}
+  },
+  {
+    "name": "CH32V303CBT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP48",
+    "deviceId": 808649988,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V303RBT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP64M",
+    "deviceId": 808584452,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V303RCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP64M",
+    "deviceId": 808518916,
+    "memory": {}
+  },
+  {
+    "name": "CH32V303VCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "General-purpose",
+    "package": "LQFP100",
+    "deviceId": 808453380,
+    "memory": {}
+  },
+  {
+    "name": "CH32V305FBP6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Connectivity (USB high-speed, SDIO, CAN)",
+    "package": "TSSOP20",
+    "deviceId": 810681608,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V305GBU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Connectivity (USB high-speed, SDIO, CAN)",
+    "package": "QFN28",
+    "deviceId": 811271432,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V305RBT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Connectivity (USB high-speed, SDIO, CAN)",
+    "package": "LQFP64M",
+    "deviceId": 810550536,
+    "memory": {
+      "USR_1": "128K",
+      "RAM": "32K"
+    }
+  },
+  {
+    "name": "CH32V307RCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, CAN, Ethernet, DVP, SDIO, FSMC)",
+    "package": "LQFP64M",
+    "deviceId": 812713224,
+    "memory": {}
+  },
+  {
+    "name": "CH32V307VCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, CAN, Ethernet, DVP, SDIO, FSMC)",
+    "package": "LQFP100",
+    "deviceId": 812647688,
+    "memory": {}
+  },
+  {
+    "name": "CH32V307WCU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, CAN, Ethernet, DVP, SDIO, FSMC)",
+    "package": "QFN68",
+    "deviceId": 812844296,
+    "memory": {}
+  },
+  {
+    "name": "CH32V317TCU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, CAN, Ethernet, DVP, SDIO, FSMC)",
+    "package": "QFN36",
+    "deviceId": 829797640,
+    "memory": {}
+  },
+  {
+    "name": "CH32V317VCT6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, CAN, Ethernet, DVP, SDIO, FSMC)",
+    "package": "LQFP100",
+    "deviceId": 829469960,
+    "memory": {}
+  },
+  {
+    "name": "CH32V317WCU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, CAN, Ethernet, DVP, SDIO, FSMC)",
+    "package": "QFN68",
+    "deviceId": 829666568,
+    "memory": {}
+  },
+  {
+    "name": "CH32V407RET6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, Ethernet, CAN, DVP, SDIO, LTDC)",
+    "package": "LQFP64",
+    "deviceId": 1181876226,
+    "memory": {}
+  },
+  {
+    "name": "CH32V407VET6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, Ethernet, CAN, DVP, SDIO, FSMC, LTDC)",
+    "package": "LQFP100",
+    "deviceId": 1181745152,
+    "memory": {}
+  },
+  {
+    "name": "CH32V407WEU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity (USB high-speed, Ethernet, CAN, DVP, SDIO, LTDC)",
+    "package": "QFN68",
+    "deviceId": 1181810689,
+    "memory": {}
+  },
+  {
+    "name": "CH32V467RET6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity with on-chip PSRAM (USB high-speed, Ethernet, CAN, DVP, SDIO, LTDC)",
+    "package": "LQFP64",
+    "deviceId": 1182072834,
+    "memory": {}
+  },
+  {
+    "name": "CH32V467VET6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity with on-chip PSRAM (USB high-speed, Ethernet, CAN, DVP, SDIO, FSMC, LTDC)",
+    "package": "LQFP100",
+    "deviceId": 1181941760,
+    "memory": {}
+  },
+  {
+    "name": "CH32V467WEU6",
+    "family": "QingKe RISC-V-based, general-purpose MCU",
+    "subfamily": "Interconnectivity with on-chip PSRAM (USB high-speed, Ethernet, CAN, DVP, SDIO, LTDC)",
+    "package": "QFN68",
+    "deviceId": 1182007297,
+    "memory": {}
+  },
+  {
+    "name": "CH32X033F8P6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "Connectivity (USB)",
+    "package": "TSSOP20",
+    "deviceId": 56231425,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X034F8P6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "null",
+    "package": "TSSOP20",
+    "deviceId": 0,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X034F8U6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "null",
+    "package": "QFN20",
+    "deviceId": 0,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X035C8T6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "Connectivity (USB, USB PD/Type C)",
+    "package": "LQFP48",
+    "deviceId": 55641601,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X035F7P6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "Connectivity (USB, USB PD/Type C)",
+    "package": "TSSOP20",
+    "deviceId": 56034817,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X035F8U6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "Connectivity (USB, USB PD/Type C)",
+    "package": "QFN20",
+    "deviceId": 56493569,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X035G8R6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "Connectivity (USB, USB PD/Type C)",
+    "package": "QSOP28",
+    "deviceId": 56296961,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X035G8U6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "Connectivity (USB, USB PD/Type C)",
+    "package": "QFN28",
+    "deviceId": 55969281,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X035R8T6",
+    "family": "QingKe RISC-V-based, dedicated architecture or special IO",
+    "subfamily": "Connectivity (USB, USB PD/Type C)",
+    "package": "LQFP64M",
+    "deviceId": 55576065,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH32X305RCT6",
+    "family": "QingKe RISC-V-based, multi-ADC MCU",
+    "subfamily": "Multi-channel ADC",
+    "package": "LQFP64",
+    "deviceId": 827523075,
+    "memory": {
+      "RAM": "64K"
+    }
+  },
+  {
+    "name": "CH32X315CCU6",
+    "family": "QingKe RISC-V-based, multi-ADC MCU",
+    "subfamily": "Multi-channel ADC, USB 3.0",
+    "package": "QFN48",
+    "deviceId": 827392001,
+    "memory": {
+      "RAM": "64K"
+    }
+  },
+  {
+    "name": "CH32X315MCU6",
+    "family": "QingKe RISC-V-based, multi-ADC MCU",
+    "subfamily": "Multi-channel ADC, USB 3.0",
+    "package": "QFN76",
+    "deviceId": 827326464,
+    "memory": {
+      "RAM": "64K"
+    }
+  },
+  {
+    "name": "CH32X315WCU6",
+    "family": "QingKe RISC-V-based, multi-ADC MCU",
+    "subfamily": "Multi-channel ADC, USB 3.0",
+    "package": "QFN68X7",
+    "deviceId": 827457538,
+    "memory": {
+      "RAM": "64K"
+    }
+  },
+  {
+    "name": "CH564",
+    "family": "QingKe RISC-V-based MCU",
+    "subfamily": "480Mbps Hi-Speed USB and 100M Ethernet MCUs",
+    "package": "LQFP128",
+    "deviceId": 1761607680,
+    "memory": {}
+  },
+  {
+    "name": "CH569",
+    "family": "QingKe RISC-V-based MCU",
+    "subfamily": "USB3.0 Super-Speed Interface MCU",
+    "package": "QFN68",
+    "deviceId": 1761607680,
+    "memory": {}
+  },
+  {
+    "name": "CH571",
+    "family": "QingKe RISC-V-based, BLE MCU",
+    "subfamily": "RISC-V Core BLE Wireless MCU",
+    "package": "QFN28",
+    "deviceId": 1895825408,
+    "memory": {}
+  },
+  {
+    "name": "CH573",
+    "family": "QingKe RISC-V-based, BLE MCU",
+    "subfamily": "RISC-V Core BLE Wireless MCU",
+    "package": "QFN32",
+    "deviceId": 1929379840,
+    "memory": {}
+  },
+  {
+    "name": "CH581",
+    "family": "QingKe RISC-V-based, BLE MCU",
+    "subfamily": "RISC-V Core BLE5.3 Wireless MCU",
+    "package": "QFN28",
+    "deviceId": 2164260864,
+    "memory": {}
+  },
+  {
+    "name": "CH582",
+    "family": "QingKe RISC-V-based, BLE MCU",
+    "subfamily": "RISC-V Core BLE5.3 Wireless MCU",
+    "package": "QFN48",
+    "deviceId": 2181038080,
+    "memory": {}
+  },
+  {
+    "name": "CH583",
+    "family": "QingKe RISC-V-based, BLE MCU",
+    "subfamily": "RISC-V Core BLE5.3 Wireless MCU",
+    "package": "QFN48",
+    "deviceId": 2197815296,
+    "memory": {}
+  },
+  {
+    "name": "CH591",
+    "family": "QingKe RISC-V-based, BLE MCU",
+    "subfamily": "BLE 5.4 MCU",
+    "package": "QFN28",
+    "deviceId": 2432696320,
+    "memory": {}
+  },
+  {
+    "name": "CH592",
+    "family": "QingKe RISC-V-based, BLE MCU",
+    "subfamily": "BLE 5.4 MCU",
+    "package": "QFN32",
+    "deviceId": 2449473536,
+    "memory": {}
+  },
+  {
+    "name": "CH641",
+    "family": "QingKe RISC-V-based MCU",
+    "subfamily": "Wireless Charging Dedicated MCU",
+    "package": "QFN28",
+    "deviceId": 1678771456,
+    "memory": {
+      "USR_1": "16K",
+      "RAM": "2K"
+    }
+  },
+  {
+    "name": "CH643",
+    "family": "QingKe RISC-V-based MCU",
+    "subfamily": "RGB Display Driver MCU",
+    "package": "QFN80",
+    "deviceId": 1680868865,
+    "memory": {
+      "USR_1": "62K",
+      "RAM": "20K"
+    }
+  },
+  {
+    "name": "CH645",
+    "family": "QingKe RISC-V-based MCU",
+    "subfamily": "USB Multi-Function MCU",
+    "package": "QFN68",
+    "deviceId": 0,
+    "memory": {}
+  }
+]

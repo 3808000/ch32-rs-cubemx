@@ -1,0 +1,81 @@
+{
+  "chip": "CH32V003F4P6",
+  "requests": [
+    {
+      "request": "ADC1",
+      "channel": 1
+    },
+    {
+      "request": "SPI1_RX",
+      "channel": 2
+    },
+    {
+      "request": "SPI1_TX",
+      "channel": 3
+    },
+    {
+      "request": "USART1_TX",
+      "channel": 4
+    },
+    {
+      "request": "USART1_RX",
+      "channel": 5
+    },
+    {
+      "request": "I2C1_TX",
+      "channel": 6
+    },
+    {
+      "request": "I2C1_RX",
+      "channel": 7
+    },
+    {
+      "request": "TIM1_CH1",
+      "channel": 2
+    },
+    {
+      "request": "TIM1_CH2",
+      "channel": 3
+    },
+    {
+      "request": "TIM1_CH4",
+      "channel": 4
+    },
+    {
+      "request": "TIM1_TRIG",
+      "channel": 4
+    },
+    {
+      "request": "TIM1_COM",
+      "channel": 4
+    },
+    {
+      "request": "TIM1_UP",
+      "channel": 5
+    },
+    {
+      "request": "TIM1_CH3",
+      "channel": 6
+    },
+    {
+      "request": "TIM2_CH3",
+      "channel": 1
+    },
+    {
+      "request": "TIM2_UP",
+      "channel": 2
+    },
+    {
+      "request": "TIM2_CH1",
+      "channel": 5
+    },
+    {
+      "request": "TIM2_CH2",
+      "channel": 7
+    },
+    {
+      "request": "TIM2_CH4",
+      "channel": 7
+    }
+  ]
+}

@@ -1,0 +1,1624 @@
+{
+  "chip": "CH32H417QEU6",
+  "family": "CH32H4",
+  "core": "QingKe V3F + V5F (dual-core)",
+  "package": "QFN128",
+  "packageKind": "quad",
+  "pinsPerSide": 32,
+  "flash": "960K",
+  "sram": "896K",
+  "deviceId": "0x4170050D",
+  "halFeature": "ch32h417qeu6-v3f",
+  "target": "riscv32imafc-unknown-none-elf",
+  "nightly": false,
+  "remapModel": "per_pin_af",
+  "unsupportedFeatures": [
+    "embassy"
+  ],
+  "cores": [
+    {
+      "id": "v3f",
+      "label": "V3F 控制核",
+      "halFeature": "ch32h417qeu6-v3f",
+      "target": "riscv32imafc-unknown-none-elf",
+      "mainCore": true
+    },
+    {
+      "id": "v5f",
+      "label": "V5F 计算核",
+      "halFeature": "ch32h417qeu6-v5f",
+      "target": "riscv32imafbc-unknown-none-elf"
+    }
+  ],
+  "source": "CH32H417DS0 V1.9 表 2-1-1（H417QEU6 列）+ 第 2.1.1 节 QFN128 引脚排列图（file.wch.cn id=529）；引脚编号 1..32 底边、33..64 右边、65..96 顶边、97..128 左边（逆时针；数据手册的 0 号脚为 EXPAD VSS，未计入）；交叉核对 ch32-data CH32H417QEU6.yaml（QFN128/0x4170050D/960K CodeFlash + 896K SRAM = 128K ITCM + 256K DTCM + 512K 共享）、CH32H4.yaml 的 GPIOA..GPIOF（PA0-15/PB0-15/PC0-15/PD0-15/PE0-15/PF0-14 共 95 个 GPIO）；FT 列取自表 2-1-1 特性列；ADC_IN0..15 取自 CH32H4.yaml ADC1/ADC2 的 pins 字段（PA0-PA7/PB0-PB1/PC0-PC5）；XI/XO 为 HSE 晶振专用脚（表 2-1-1 I/A、O/A），NRST 为专用复位脚，PB8/PB9 复用 SWCLK/SWDIO；H4 无 BOOT0 引脚（启动模式由选项字节控制）；PF8/PF9/PF10 的 HSADC_IN4..6 未建模（HAL HSADC 驱动未接入）",
+  "pins": [
+    {
+      "number": 1,
+      "name": "PE2",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PE2"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 2,
+      "name": "PE3",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PE3",
+        "SERDES_TXP"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 3,
+      "name": "PE4",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PE4",
+        "SERDES_TXN"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 4,
+      "name": "PE5",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PE5",
+        "SERDES_RXP"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 5,
+      "name": "PE6",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PE6",
+        "SERDES_RXN"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 6,
+      "name": "VDDIO",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VDDIO"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 7,
+      "name": "VBAT",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VBAT"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 8,
+      "name": "PC13",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PC13",
+        "RTC"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 9,
+      "name": "PC14",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PC14",
+        "OSC32_IN"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 10,
+      "name": "PC15",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PC15",
+        "OSC32_OUT"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 11,
+      "name": "VDDK",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VDDK"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 12,
+      "name": "MDIRN",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "MDIRN"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 13,
+      "name": "MDIRP",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "MDIRP"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 14,
+      "name": "MDITN",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "MDITN"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 15,
+      "name": "MDITP",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "MDITP"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 16,
+      "name": "VDD33",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VDD33"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 17,
+      "name": "PF6",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PF6"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 18,
+      "name": "PF7",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PF7"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 19,
+      "name": "PF8",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PF8",
+        "HSADC_IN4"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 20,
+      "name": "PF9",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PF9",
+        "HSADC_IN5"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 21,
+      "name": "PF10",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PF10",
+        "HSADC_IN6"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 22,
+      "name": "VSS",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VSS"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 23,
+      "name": "XI",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "XI"
+      ],
+      "special": "osc",
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 24,
+      "name": "XO",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "XO"
+      ],
+      "special": "osc",
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 25,
+      "name": "NRST",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "NRST"
+      ],
+      "special": "nrst",
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 26,
+      "name": "PC0",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PC0"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN10"
+      ]
+    },
+    {
+      "number": 27,
+      "name": "PC1",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PC1"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN11"
+      ]
+    },
+    {
+      "number": 28,
+      "name": "PC2",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PC2"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN12"
+      ]
+    },
+    {
+      "number": 29,
+      "name": "PC3",
+      "type": "IO",
+      "side": "bottom",
+      "aliases": [
+        "PC3"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN13"
+      ]
+    },
+    {
+      "number": 30,
+      "name": "VDDIO_1",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VDDIO"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 31,
+      "name": "VSSA",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VSSA"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 32,
+      "name": "VREFP",
+      "type": "POWER",
+      "side": "bottom",
+      "aliases": [
+        "VREFP"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 33,
+      "name": "VDD33A",
+      "type": "POWER",
+      "side": "right",
+      "aliases": [
+        "VDD33A"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 34,
+      "name": "PA0",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA0"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN0"
+      ]
+    },
+    {
+      "number": 35,
+      "name": "PA1",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA1"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN1"
+      ]
+    },
+    {
+      "number": 36,
+      "name": "PA2",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA2"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN2"
+      ]
+    },
+    {
+      "number": 37,
+      "name": "PA3",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA3"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN3"
+      ]
+    },
+    {
+      "number": 38,
+      "name": "VDDIO_2",
+      "type": "POWER",
+      "side": "right",
+      "aliases": [
+        "VDDIO"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 39,
+      "name": "PA4",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA4"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN4"
+      ]
+    },
+    {
+      "number": 40,
+      "name": "PA5",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA5"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN5"
+      ]
+    },
+    {
+      "number": 41,
+      "name": "PA6",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA6"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN6"
+      ]
+    },
+    {
+      "number": 42,
+      "name": "PA7",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PA7"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN7"
+      ]
+    },
+    {
+      "number": 43,
+      "name": "PC4",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PC4"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN14"
+      ]
+    },
+    {
+      "number": 44,
+      "name": "PC5",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PC5"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN15"
+      ]
+    },
+    {
+      "number": 45,
+      "name": "PB0",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PB0"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN8"
+      ]
+    },
+    {
+      "number": 46,
+      "name": "PB1",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PB1"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": [
+        "ADC_IN9"
+      ]
+    },
+    {
+      "number": 47,
+      "name": "PB2",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PB2"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 48,
+      "name": "PF11",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PF11"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 49,
+      "name": "PF12",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PF12"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 50,
+      "name": "PF13",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PF13"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 51,
+      "name": "VDDIO_3",
+      "type": "POWER",
+      "side": "right",
+      "aliases": [
+        "VDDIO"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 52,
+      "name": "PE7",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE7"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 53,
+      "name": "PE8",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE8"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 54,
+      "name": "PE9",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE9"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 55,
+      "name": "PE10",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE10"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 56,
+      "name": "PE11",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE11"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 57,
+      "name": "PE12",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE12"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 58,
+      "name": "PE13",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE13"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 59,
+      "name": "PE14",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE14"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 60,
+      "name": "PE15",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PE15"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 61,
+      "name": "PB10",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PB10"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 62,
+      "name": "PB11",
+      "type": "IO",
+      "side": "right",
+      "aliases": [
+        "PB11"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 63,
+      "name": "VIO18",
+      "type": "POWER",
+      "side": "right",
+      "aliases": [
+        "VIO18"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 64,
+      "name": "VDDIO_4",
+      "type": "POWER",
+      "side": "right",
+      "aliases": [
+        "VDDIO"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 65,
+      "name": "PB12",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PB12"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 66,
+      "name": "PB13",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PB13"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 67,
+      "name": "PB14",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PB14"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 68,
+      "name": "PB15",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PB15"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 69,
+      "name": "PD8",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD8"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 70,
+      "name": "PD9",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD9"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 71,
+      "name": "PD10",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD10"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 72,
+      "name": "PD11",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD11"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 73,
+      "name": "PD12",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD12"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 74,
+      "name": "PD13",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD13"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 75,
+      "name": "PD14",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD14"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 76,
+      "name": "PD15",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PD15"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 77,
+      "name": "PF0",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PF0"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 78,
+      "name": "PF1",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PF1"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 79,
+      "name": "PF2",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PF2"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 80,
+      "name": "VDDK_1",
+      "type": "POWER",
+      "side": "top",
+      "aliases": [
+        "VDDK"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 81,
+      "name": "VIO18_1",
+      "type": "POWER",
+      "side": "top",
+      "aliases": [
+        "VIO18"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 82,
+      "name": "VDDIO_5",
+      "type": "POWER",
+      "side": "top",
+      "aliases": [
+        "VDDIO"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 83,
+      "name": "PC6",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PC6"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 84,
+      "name": "PC7",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PC7"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 85,
+      "name": "PC8",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PC8"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 86,
+      "name": "PC9",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PC9"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 87,
+      "name": "PA8",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA8"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 88,
+      "name": "PA9",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA9",
+        "OTG_VBUS"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 89,
+      "name": "PA10",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA10",
+        "OTG_ID"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 90,
+      "name": "PA11",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA11",
+        "OTG_DM"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 91,
+      "name": "PA12",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA12",
+        "OTG_DP"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 92,
+      "name": "PA13",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA13"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 93,
+      "name": "VDD33_1",
+      "type": "POWER",
+      "side": "top",
+      "aliases": [
+        "VDD33"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 94,
+      "name": "PA14",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA14"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 95,
+      "name": "PA15",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PA15"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 96,
+      "name": "PC10",
+      "type": "IO",
+      "side": "top",
+      "aliases": [
+        "PC10"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 97,
+      "name": "PC11",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PC11"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 98,
+      "name": "PC12",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PC12"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 99,
+      "name": "PD0",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD0"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 100,
+      "name": "PD1",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD1"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 101,
+      "name": "PD2",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD2"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 102,
+      "name": "PD3",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD3"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 103,
+      "name": "PD4",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD4"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 104,
+      "name": "PD5",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD5"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 105,
+      "name": "VIO18_2",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "VIO18"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 106,
+      "name": "PD6",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD6"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 107,
+      "name": "PD7",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PD7"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 108,
+      "name": "PF3",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PF3"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 109,
+      "name": "PF4",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PF4"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 110,
+      "name": "PF5",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PF5"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 111,
+      "name": "PE0",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PE0"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 112,
+      "name": "PE1",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PE1"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 113,
+      "name": "PF14",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PF14"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 114,
+      "name": "VDDIO_6",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "VDDIO"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 115,
+      "name": "PB3",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PB3",
+        "CC1"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 116,
+      "name": "PB4",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PB4",
+        "CC2"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 117,
+      "name": "PB5",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PB5"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 118,
+      "name": "PB6",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PB6"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 119,
+      "name": "PB7",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PB7"
+      ],
+      "special": null,
+      "ft": true,
+      "adc": []
+    },
+    {
+      "number": 120,
+      "name": "PB8",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PB8",
+        "USB2DP",
+        "SWCLK"
+      ],
+      "special": "swd",
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 121,
+      "name": "PB9",
+      "type": "IO",
+      "side": "left",
+      "aliases": [
+        "PB9",
+        "USB2DM",
+        "SWDIO"
+      ],
+      "special": "swd",
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 122,
+      "name": "VSS_1",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "VSS"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 123,
+      "name": "SSTXB",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "SSTXB"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 124,
+      "name": "SSTXA",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "SSTXA"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 125,
+      "name": "VDD12A",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "VDD12A"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 126,
+      "name": "SSRXB",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "SSRXB"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 127,
+      "name": "SSRXA",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "SSRXA"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    },
+    {
+      "number": 128,
+      "name": "VDD33_2",
+      "type": "POWER",
+      "side": "left",
+      "aliases": [
+        "VDD33"
+      ],
+      "special": null,
+      "ft": false,
+      "adc": []
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+# ch32-rs-CubeMX 项目记忆
+
+> 供编码 Agent 使用：修改代码前先读本文件。最后更新：2026-11-15。
+
+## 1. 概述
+
+纯本地 Web 配置器：点引脚、配外设、调时钟树 → 导出可 `cargo build` 的 ch32-hal Rust 工程。
+技术栈：Vite + Vue3 + TS + Pinia + Element Plus + 原生 SVG + EJS(client:true) + JSZip + Vitest + Monaco。
+首颗芯片：CH32V003F4P6（TSSOP20，QingKe V2A RV32EC，16K Flash / 2K SRAM）。
+
+## 2. 架构地图
+
+- `src/types.ts`：ProjectConfig / 数据层 schema / Conflict / CodegenSelection 全部类型。
+- `src/data/device.ts`：器件注册表 + Lookup（remapsOfPin/pinsOfSignal/remapValuesFor/extiOfPin…）。新增芯片在此 register。
+- `src/stores/project.ts`：Pinia。assignments/groups/clock/peripherals/features/unlocked/selectedPin/activeView/dirty/lastExportSnapshot；config getter 组装 ProjectConfig；conflicts getter 跑 checkConflicts；save/restore 走 localStorage。
+- `src/lib/clock/index.ts`：computeClock/validateClock/solvePll/defaultClock/mergeClockConfig/matchPreset/nearestPreset。完全数据驱动。
+- `src/lib/clock/tree.ts`：时钟树 SVG 布局（Phase 2）。
+- `src/lib/conflicts/index.ts`：checkConflicts(config,data,unlocked?) 20 条规则 + labelToIdent。
+- `src/lib/packageSvg.ts`：computePackageGeometry(chip,rotation) dual/quad + pinColors。
+- `src/lib/peripherals/index.ts`：derivePeripheralUsage(config,data) → 外设实例启用/remap/引脚/参数归并。
+- `src/lib/codegen/`：index.ts（generateProject）+ templates.ts（EJS）+ halRev.ts（锁定 rev）。
+- `src/lib/{allocation,usage,groups,pinOverwrite}.ts`：分配枚举 / 使用归并 / 分组单归属 / 覆盖确认撤回。
+- `src/components/`：AppShell/TabStrip/IconRail/StatusBar（骨架）、PackageCanvas/PinTable/PinConfigPanel/ConflictsPanel（Pinout）、ClockCanvas/ClockDetail（Clock）、PeripheralList/PeripheralConfigCard/QuickMenu + 分配面板（Peripherals）、CodePreviewPanel（Monaco 只读+diff）、CodegenDialog（导出）。
+- `data/devices/ch32v003f4p6/`：chip/remap/exti/clock/peripherals/interrupts/dma 七份 JSON。
+- `scripts/`：import-ch32data.mjs（ch32-data → remap/interrupts/dma/索引）、validate-device-data.mjs（CI 门禁，vite ssrLoadModule 复用时钟库）、verify-build.mjs + verify-build-entry.ts（vite-node 同源代码生成 → cargo build）。
+
+## 3. 关键决策记录
+
+1. **HAL feature 名是完整小写型号**（ch32v003f4p6），不是家族名。提示词 §2.2 有误，以 Cargo.toml 为准。
+2. **V003 PLL 固定 ×2**，HSI=24MHz，无 APB1 分频（pclk1=hclk），AHB 支持 DIV1..8/16/32/64/128/256。clock.json 据此录入。
+3. **remap 数据从 ch32-data family YAML 导入**（与 HAL 同源）；提示词"ch32-data 无引脚表"结论部分过时——信号/remap 有，物理引脚编号仍需数据手册（已交叉核对 pinout-overview SVG）。
+4. **memory.x 由 ch32-hal 的 memory-x feature 提供**（metapac 渲染），生成器不手写 memory.x，与模板一致。
+5. **ADC 通道真实映射**：PA2=IN0 PA1=IN1 PC4=IN2 PD2=IN3 PD3=IN4 PD5=IN5 PD6=IN6 PD4=IN7（提示词示例 PD4=IN4 错误）。
+6. **枚举变体名逐字对应 HAL**：StopBits::STOP1（非 STOP_1）、SampleTime::CYCLES73（非 CYCLES_7_5）、Speed 仅 Low/Medium/High。
+7. **USART 阻塞构造参数顺序 rx 在前 tx 在后**，返回 Result；Config 均 non_exhaustive → default+赋值。
+8. **唯一性约束是 (pin,signal,remap) 三元组**（同引脚信号可跨 remap 档，如 SPI1_SCK@PC5）。
+9. 特殊引脚：PD7=NRST（默认启用，选项字节 RST_MODE 控制）、PD1=SWDIO、PA1/PA2=OSC。默认锁定，显式解锁才可配置。
+10. 生成区/用户区物理隔离：generated/** 每次重写，main.rs 永不覆盖（导出对话框可勾选排除）。
+11. 预设匹配要求 HSE 频率精确相等（HAL 预设硬编码 24MHz HSE）；不匹配走显式 Config 兜底。
+12. **导出工程内嵌完整 HAL 源码**（用户需求）：`vendor/ch32-hal/` + path 依赖，开箱可查阅/跳转 HAL 代码。浏览器端资产 `public/vendor/ch32-hal.zip` 由 `npm run vendor:hal` 从 reference/ch32-hal 打包（413 文件/0.73MB）；CodegenDialog 导出时合并进 ZIP。selection.vendorHal=false 时退回 git 锁 rev 依赖。verify:build 默认验证 vendor 模式（复制 HAL 源码到临时工程）。
+
+## 4. 数据 schema 要点
+
+见提示词 §4 与 src/types.ts。chip.json 不存 remap（只存 adc 通道），remap.json 为唯一信号源，校验器保证 peripherals.json 与 remap/chip 双向一致。
+
+## 5. 验证
+
+- `npm run validate:device`：引脚连续/每边数量、remap 三元组唯一、外设双向一致、EXTI 通道/IRQ、clock 预设可复现（ssrLoadModule 同源）、中断唯一、覆盖率报表。当前全绿（18/18 IO 有信号）。
+- `npm run verify:build`：vite-node 生成 → cargo build --release（V003 nightly rv32ec）。CH32_HAL_DIR 默认指向 reference/ch32-hal（path 覆盖加速）。
+- 单元测试目标 150+：clock/conflicts/packageSvg/deviceData/peripherals/allocation/groups/usage/codegen 快照。
+
+## 6. 状态与路线图
+
+- Phase 0（完成）：骨架 + 数据层 + 校验全绿。
+- Phase 1（完成）：封装图/引脚配置/冲突/codegen/Monaco 预览/**端到端编译通过**（V003 阻塞+embassy、V203 阻塞+embassy）。
+- Phase 2（完成）：时钟树画布（GLSP 风格、数据驱动布局）+ 频率链/校验/PLL 解算 + diff 预览 + 固定 VCO÷分频 PLL 模型。
+- Phase 3（完成）：外设视图（列表/卡片/参数/remap 切换）+ EXTI/ADC/分组/使用汇总分配面板。
+- Phase 4（进行中）：多芯片——CH32V203C8T6 已接入并通过编译验证；CH32H417QEU6（QFN128 双核 V3F+V5F）已接入，代码生成产出 Cargo workspace（ch32-hal-template h417-dual：`cargo xtask build` 逐核构建）并**端到端编译通过**；CH582M 数据录入完成（48 脚 QFN48、28 条 remap、5 档 480MHz VCO÷div 预设、14 路 ADC、20 条中断；halBackend=ch58x-hal，代码生成守卫阻止导出）；待办：ch58x 后端、V103/X035/V307、多封装、EasyEDA 同步、一键烧录。
+
+## 7. 测试与门禁现状（2026-11-15）
+
+- 单元测试：**380 个用例全绿**（clock 61 / conflicts 75 / packageSvg 58 / deviceData / peripherals 34 / allocation 12 / groups 18 / usage 12 / clockTree 17 / codegen 18 快照 / H417 双核）。
+- 类型检查 vue-tsc、ESLint、vite build 全绿。
+- validate:device：V003（20 脚）、V203（48 脚）、CH582M（48 脚）、H417（128 脚）全部 0 错误 0 警告。
+- verify:build：V003（nightly rv32ec）阻塞 ✓ / embassy ✓；V203（stable rv32imac）阻塞 ✓ / embassy ✓；H417 双核 workspace `cargo xtask build` ✓；vendor HAL path 依赖模式验证通过。CH582M 按设计被 halBackend 守卫拦截（ch58x-hal 后端未实现）。
+- 集成期修复的真实 bug：EXTI Pull 变体名（UP→Up）、ADC 双实例共享通道引脚重复移动（改为单归属）、packageSvg 旋转双重平移、ADC 占用判定过严、matchPreset 缺省 pllSource。
+## 8. 生成工程结构（对照 CubeMX1 / CubeMX2）
+
+```
+<projectName>/
+├── Cargo.toml / rust-toolchain.toml / .cargo/config.toml / build.rs / rust-analyzer 目标 json
+├── cube.json            # 配置快照，可导入本工具继续编辑（= CubeMX1 的 .ioc）
+├── README.md / .gitignore
+├── src/
+│   ├── main.rs          # 用户代码区：生成器永不覆盖；用户可新增任意 Rust 模块（无位置限制）
+│   └── generated/       # 每次导出整体重写：mod/clock/pins/exti/usart/spi/i2c/adc
+└── vendor/ch32-hal/     # 完整 HAL 源码（path 依赖，可跳转阅读；可关开关退回 git 锁 rev）
+```
+
+对照结论：
+- **配置存储**：cube.json ↔ CubeMX1 `.ioc`（导入/导出往返，见 src/lib/projectFile.ts）；
+- **生成区隔离**：`src/generated/**` ↔ CubeMX2 `generated/`（用户代码零侵入）；
+- **用户代码**：`main.rs` 永不覆盖 + Rust 模块任意位置 ↔ CubeMX2 的"无代码位置限制"；
+- **厂商库**：`vendor/ch32-hal/` ↔ CubeMX1 `Drivers/` / CubeMX2 `stm32c5xx_drivers/`；
+- **构建系统**：Cargo + rust-toolchain + .cargo ↔ CMake + Presets（各自生态等价）；
+- 不采用 CubeMX1 的 `USER CODE BEGIN/END` 注释块（Rust 无预处理器，物理隔离更可靠）。
+
+## 9. 交付形态与桌面化路线（用户明确目标：完整桌面软件）
+
+- 当前形态：本地 Web 应用（Vite dev / 静态构建），浏览器内完成全部配置与代码生成；导出走 ZIP 或 File System Access API 直写目录。
+- **目标形态：Tauri 桌面应用**（按提示词 §2.4：需要桌面形态时用 Tauri 包一层，前端代码不变，不上 Electron；Theia 方案已否决）。
+- 桌面化后需要替换的能力（前端接口保持不变，只换实现层）：
+  1. 目录导出：`showDirectoryPicker` → Tauri 文件系统插件（原生目录写入，支持已存在工程的就地更新）。
+  2. 大文件/多工程：可在本地缓存工程列表（替代 localStorage）。
+  3. 可选：拉起 `cargo build` / `wlink` 烧录（本地进程能力）。
+  4. 可选：图表导出 PNG/SVG、应用内更新。
+- 打包命令（待 Phase 4 实施）：`npm run tauri build`，产物 Windows/macOS/Linux 安装包；构建配置与前端资源路径沿用 Vite 输出。
+- 当前优先级：先完成功能与 UI 验收（本轮），桌面壳放到功能冻结之后。

@@ -1,0 +1,410 @@
+{
+  "chip": "CH32H417QEU6",
+  "requests": [
+    {
+      "request": "TIM1_CH1",
+      "channel": 1
+    },
+    {
+      "request": "TIM1_CH2",
+      "channel": 2
+    },
+    {
+      "request": "TIM1_CH3",
+      "channel": 3
+    },
+    {
+      "request": "TIM1_CH4",
+      "channel": 4
+    },
+    {
+      "request": "TIM1_UP",
+      "channel": 5
+    },
+    {
+      "request": "TIM1_COM",
+      "channel": 6
+    },
+    {
+      "request": "TIM1_TRIG",
+      "channel": 7
+    },
+    {
+      "request": "TIM2_CH1",
+      "channel": 8
+    },
+    {
+      "request": "TIM2_CH2",
+      "channel": 9
+    },
+    {
+      "request": "TIM2_CH3",
+      "channel": 10
+    },
+    {
+      "request": "TIM2_CH4",
+      "channel": 11
+    },
+    {
+      "request": "TIM2_UP",
+      "channel": 12
+    },
+    {
+      "request": "TIM2_TRIG",
+      "channel": 13
+    },
+    {
+      "request": "TIM3_CH1",
+      "channel": 14
+    },
+    {
+      "request": "TIM3_CH2",
+      "channel": 15
+    },
+    {
+      "request": "TIM3_CH3",
+      "channel": 16
+    },
+    {
+      "request": "TIM3_CH4",
+      "channel": 17
+    },
+    {
+      "request": "TIM3_UP",
+      "channel": 18
+    },
+    {
+      "request": "TIM3_TRIG",
+      "channel": 19
+    },
+    {
+      "request": "TIM4_CH1",
+      "channel": 20
+    },
+    {
+      "request": "TIM4_CH2",
+      "channel": 21
+    },
+    {
+      "request": "TIM4_CH3",
+      "channel": 22
+    },
+    {
+      "request": "TIM4_CH4",
+      "channel": 23
+    },
+    {
+      "request": "TIM4_UP",
+      "channel": 24
+    },
+    {
+      "request": "TIM4_TRIG",
+      "channel": 25
+    },
+    {
+      "request": "TIM5_CH1",
+      "channel": 26
+    },
+    {
+      "request": "TIM5_CH2",
+      "channel": 27
+    },
+    {
+      "request": "TIM5_CH3",
+      "channel": 28
+    },
+    {
+      "request": "TIM5_CH4",
+      "channel": 29
+    },
+    {
+      "request": "TIM5_UP",
+      "channel": 30
+    },
+    {
+      "request": "TIM5_TRIG",
+      "channel": 31
+    },
+    {
+      "request": "TIM8_CH1",
+      "channel": 32
+    },
+    {
+      "request": "TIM8_CH2",
+      "channel": 33
+    },
+    {
+      "request": "TIM8_CH3",
+      "channel": 34
+    },
+    {
+      "request": "TIM8_CH4",
+      "channel": 35
+    },
+    {
+      "request": "TIM8_UP",
+      "channel": 36
+    },
+    {
+      "request": "TIM8_COM",
+      "channel": 37
+    },
+    {
+      "request": "TIM8_TRIG",
+      "channel": 38
+    },
+    {
+      "request": "TIM9_CH1",
+      "channel": 39
+    },
+    {
+      "request": "TIM9_CH2",
+      "channel": 40
+    },
+    {
+      "request": "TIM9_CH3",
+      "channel": 41
+    },
+    {
+      "request": "TIM9_CH4",
+      "channel": 42
+    },
+    {
+      "request": "TIM9_UP",
+      "channel": 43
+    },
+    {
+      "request": "TIM9_TRIG",
+      "channel": 44
+    },
+    {
+      "request": "TIM10_CH1",
+      "channel": 45
+    },
+    {
+      "request": "TIM10_CH2",
+      "channel": 46
+    },
+    {
+      "request": "TIM10_CH3",
+      "channel": 47
+    },
+    {
+      "request": "TIM10_CH4",
+      "channel": 48
+    },
+    {
+      "request": "TIM10_UP",
+      "channel": 49
+    },
+    {
+      "request": "TIM10_TRIG",
+      "channel": 50
+    },
+    {
+      "request": "TIM11_CH1",
+      "channel": 51
+    },
+    {
+      "request": "TIM11_CH2",
+      "channel": 52
+    },
+    {
+      "request": "TIM11_CH3",
+      "channel": 53
+    },
+    {
+      "request": "TIM11_CH4",
+      "channel": 54
+    },
+    {
+      "request": "TIM11_UP",
+      "channel": 55
+    },
+    {
+      "request": "TIM11_TRIG",
+      "channel": 56
+    },
+    {
+      "request": "TIM12_CH1",
+      "channel": 57
+    },
+    {
+      "request": "TIM12_CH2",
+      "channel": 58
+    },
+    {
+      "request": "TIM12_CH3",
+      "channel": 59
+    },
+    {
+      "request": "TIM12_CH4",
+      "channel": 60
+    },
+    {
+      "request": "TIM12_UP",
+      "channel": 61
+    },
+    {
+      "request": "TIM12_TRIG",
+      "channel": 62
+    },
+    {
+      "request": "SPI1_TX",
+      "channel": 63
+    },
+    {
+      "request": "SPI1_RX",
+      "channel": 64
+    },
+    {
+      "request": "SPI2_TX",
+      "channel": 65
+    },
+    {
+      "request": "SPI2_RX",
+      "channel": 66
+    },
+    {
+      "request": "SPI3_TX",
+      "channel": 67
+    },
+    {
+      "request": "SPI3_RX",
+      "channel": 68
+    },
+    {
+      "request": "SPI4_TX",
+      "channel": 69
+    },
+    {
+      "request": "SPI4_RX",
+      "channel": 70
+    },
+    {
+      "request": "I2C1_TX",
+      "channel": 73
+    },
+    {
+      "request": "I2C1_RX",
+      "channel": 74
+    },
+    {
+      "request": "I2C2_TX",
+      "channel": 75
+    },
+    {
+      "request": "I2C2_RX",
+      "channel": 76
+    },
+    {
+      "request": "I2C3_TX",
+      "channel": 77
+    },
+    {
+      "request": "I2C3_RX",
+      "channel": 78
+    },
+    {
+      "request": "I2C4_TX",
+      "channel": 79
+    },
+    {
+      "request": "I2C4_RX",
+      "channel": 80
+    },
+    {
+      "request": "USART1_TX",
+      "channel": 85
+    },
+    {
+      "request": "USART1_RX",
+      "channel": 86
+    },
+    {
+      "request": "USART2_TX",
+      "channel": 87
+    },
+    {
+      "request": "USART2_RX",
+      "channel": 88
+    },
+    {
+      "request": "USART3_TX",
+      "channel": 89
+    },
+    {
+      "request": "USART3_RX",
+      "channel": 90
+    },
+    {
+      "request": "USART4_TX",
+      "channel": 91
+    },
+    {
+      "request": "USART4_RX",
+      "channel": 92
+    },
+    {
+      "request": "USART5_TX",
+      "channel": 93
+    },
+    {
+      "request": "USART5_RX",
+      "channel": 94
+    },
+    {
+      "request": "USART6_TX",
+      "channel": 95
+    },
+    {
+      "request": "USART6_RX",
+      "channel": 96
+    },
+    {
+      "request": "USART7_TX",
+      "channel": 97
+    },
+    {
+      "request": "USART7_RX",
+      "channel": 98
+    },
+    {
+      "request": "USART8_TX",
+      "channel": 99
+    },
+    {
+      "request": "USART8_RX",
+      "channel": 100
+    },
+    {
+      "request": "DAC_CH1",
+      "channel": 103
+    },
+    {
+      "request": "DAC_CH2",
+      "channel": 104
+    },
+    {
+      "request": "SDIO",
+      "channel": 111
+    },
+    {
+      "request": "ADC1",
+      "channel": 120
+    },
+    {
+      "request": "ADC2",
+      "channel": 121
+    },
+    {
+      "request": "TIM6_UP",
+      "channel": 122
+    },
+    {
+      "request": "TIM7_UP",
+      "channel": 123
+    }
+  ],
+  "notes": "由 import-ch32data.mjs 从 ch32-data 的 DMA/DMAMUX YAML 生成；channel 字段是 DMAMUX 请求号（不是固定 DMA 通道），H4 有 16 个 DMA 通道，任一通道可经 DMAMUX 路由到这些请求。当前代码生成的 embassy/DMA 路径按固定通道建模，故此类芯片标记 unsupportedFeatures=[embassy]；阻塞模式不使用本表。"
+}

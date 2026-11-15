@@ -1,0 +1,27 @@
+[package]
+name = "ch32-rs-cubemx"
+version = "0.1.0"
+description = "ch32-rs-CubeMX — CH32 RISC-V 纯本地图形化配置器"
+authors = ["ch32-rs-CubeMX contributors"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "ch32_rs_cubemx_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+base64 = "0.22"
+serde = { version = "1", features = ["derive"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

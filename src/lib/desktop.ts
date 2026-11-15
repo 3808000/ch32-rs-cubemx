@@ -1,0 +1,63 @@
+// 桌面端（Tauri）桥接：WebKitGTK 不支持 File System Access API，也不处理浏览器下载，
+// 因此桌面版通过原生保存对话框 + Rust 命令写文件；浏览器模式继续走 Blob/目录选择。
+
+export interface NativeFileEntry {
+  path: string
+  data: string | Uint8Array
+}
+
+/** 是否运行在 Tauri 桌面壳中（v2 注入 __TAURI_INTERNALS__）。 */
+export function isDesktopApp(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+/** 文本按 UTF-8 编码后转 base64（Rust 端统一 base64 解码写盘）。 */
+export function encodeTextBase64(text: string): string {
+  return bytesToBase64(new TextEncoder().encode(text))
+}
+
+function encodeEntry(data: string | Uint8Array): string {
+  return typeof data === 'string' ? encodeTextBase64(data) : bytesToBase64(data)
+}
+
+async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+  const { invoke: call } = await import('@tauri-apps/api/core')
+  return call<T>(cmd, args)
+}
+
+/** 原生“另存为”对话框；返回是否已写入。取消返回 false。 */
+export async function saveFileNative(
+  defaultName: string,
+  data: string | Uint8Array,
+  filters?: { name: string; extensions: string[] }[],
+): Promise<boolean> {
+  const { save } = await import('@tauri-apps/plugin-dialog')
+  const path = await save({ defaultPath: defaultName, filters })
+  if (!path) return false
+  await invoke('write_file', { path, contents: encodeEntry(data) })
+  return true
+}
+
+/** 原生目录选择；取消返回 null。 */
+export async function pickFolderNative(title = '选择导出目录'): Promise<string | null> {
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const dir = await open({ directory: true, multiple: false, title })
+  return typeof dir === 'string' ? dir : null
+}
+
+/** 把整份工程写入目录（相对路径逐级创建）；返回写入文件数。 */
+export async function writeFolderNative(root: string, files: NativeFileEntry[]): Promise<number> {
+  return invoke<number>('write_files', {
+    root,
+    files: files.map((f) => ({ path: f.path, contents: encodeEntry(f.data) })),
+  })
+}

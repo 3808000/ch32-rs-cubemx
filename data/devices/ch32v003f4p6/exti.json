@@ -1,0 +1,24 @@
+{
+  "chip": "CH32V003F4P6",
+  "entries": [
+    { "pin": "PC0", "channel": 0, "irq": "EXTI7_0" },
+    { "pin": "PD0", "channel": 0, "irq": "EXTI7_0" },
+    { "pin": "PA1", "channel": 1, "irq": "EXTI7_0" },
+    { "pin": "PC1", "channel": 1, "irq": "EXTI7_0" },
+    { "pin": "PD1", "channel": 1, "irq": "EXTI7_0" },
+    { "pin": "PA2", "channel": 2, "irq": "EXTI7_0" },
+    { "pin": "PC2", "channel": 2, "irq": "EXTI7_0" },
+    { "pin": "PD2", "channel": 2, "irq": "EXTI7_0" },
+    { "pin": "PC3", "channel": 3, "irq": "EXTI7_0" },
+    { "pin": "PD3", "channel": 3, "irq": "EXTI7_0" },
+    { "pin": "PC4", "channel": 4, "irq": "EXTI7_0" },
+    { "pin": "PD4", "channel": 4, "irq": "EXTI7_0" },
+    { "pin": "PC5", "channel": 5, "irq": "EXTI7_0" },
+    { "pin": "PD5", "channel": 5, "irq": "EXTI7_0" },
+    { "pin": "PC6", "channel": 6, "irq": "EXTI7_0" },
+    { "pin": "PD6", "channel": 6, "irq": "EXTI7_0" },
+    { "pin": "PC7", "channel": 7, "irq": "EXTI7_0" },
+    { "pin": "PD7", "channel": 7, "irq": "EXTI7_0" }
+  ],
+  "notes": "V003 仅 EXTI0..7 共 8 条线，单一中断向量 EXTI7_0；通道号=端口内引脚号"
+}

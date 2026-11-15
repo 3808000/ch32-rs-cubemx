@@ -1,0 +1,5 @@
+{
+  "chip": "CH582M",
+  "requests": [],
+  "notes": "CH58x 不采用 STM32 式「外设 DMA 请求→DMA 通道」集中映射模型：UART0-3/SPI0/ADC/TMR 等外设各自内置 DMA 缓冲（如 R16_SPI0_DMA_BEG/END/NOW 寄存器，数据手册 §13），BLE LLE 控制器另有 2 组×2 通道 DMA（数据手册 §19.3）；ch58x-hal（commit 611954e）src/dma.rs 仅定义 NoDma 占位类型、未提供任何 DMA 请求 API。故无法构造合法的 request→channel 表，requests 留空（待 ch58x-hal 将来支持 DMA 后补充）。"
+}

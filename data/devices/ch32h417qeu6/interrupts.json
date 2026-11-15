@@ -1,0 +1,473 @@
+{
+  "chip": "CH32H417QEU6",
+  "irqs": [
+    {
+      "name": "IPC_CH0",
+      "number": 16
+    },
+    {
+      "name": "IPC_CH1",
+      "number": 17
+    },
+    {
+      "name": "IPC_CH2",
+      "number": 18
+    },
+    {
+      "name": "IPC_CH3",
+      "number": 19
+    },
+    {
+      "name": "HSEM",
+      "number": 28
+    },
+    {
+      "name": "WWDG",
+      "number": 32
+    },
+    {
+      "name": "EXTI15_8",
+      "number": 33
+    },
+    {
+      "name": "FLASH",
+      "number": 34
+    },
+    {
+      "name": "RCC",
+      "number": 35
+    },
+    {
+      "name": "EXTI7_0",
+      "number": 36
+    },
+    {
+      "name": "SPI1",
+      "number": 37
+    },
+    {
+      "name": "DMA1_CH2",
+      "number": 38
+    },
+    {
+      "name": "DMA1_CH3",
+      "number": 39
+    },
+    {
+      "name": "DMA1_CH4",
+      "number": 40
+    },
+    {
+      "name": "DMA1_CH5",
+      "number": 41
+    },
+    {
+      "name": "DMA1_CH6",
+      "number": 42
+    },
+    {
+      "name": "DMA1_CH7",
+      "number": 43
+    },
+    {
+      "name": "DMA1_CH8",
+      "number": 44
+    },
+    {
+      "name": "USART2",
+      "number": 45
+    },
+    {
+      "name": "I2C1_EV",
+      "number": 46
+    },
+    {
+      "name": "I2C1_ER",
+      "number": 47
+    },
+    {
+      "name": "USART1",
+      "number": 48
+    },
+    {
+      "name": "SPI2",
+      "number": 49
+    },
+    {
+      "name": "SPI3",
+      "number": 50
+    },
+    {
+      "name": "SPI4",
+      "number": 51
+    },
+    {
+      "name": "I2C2_EV",
+      "number": 52
+    },
+    {
+      "name": "I2C2_ER",
+      "number": 53
+    },
+    {
+      "name": "USBPD",
+      "number": 54
+    },
+    {
+      "name": "USBPDWakeUP",
+      "number": 55
+    },
+    {
+      "name": "USBHS",
+      "number": 56
+    },
+    {
+      "name": "DMA1_CH1",
+      "number": 57
+    },
+    {
+      "name": "CAN1_SCE",
+      "number": 58
+    },
+    {
+      "name": "CAN1_TX",
+      "number": 59
+    },
+    {
+      "name": "CAN1_RX0",
+      "number": 60
+    },
+    {
+      "name": "CAN1_RX1",
+      "number": 61
+    },
+    {
+      "name": "USBSS",
+      "number": 62
+    },
+    {
+      "name": "USBSS_LINK",
+      "number": 63
+    },
+    {
+      "name": "USBHSWakeUP",
+      "number": 64
+    },
+    {
+      "name": "USBSSWakeUP",
+      "number": 65
+    },
+    {
+      "name": "RTCAlarm",
+      "number": 66
+    },
+    {
+      "name": "USBFS",
+      "number": 67
+    },
+    {
+      "name": "USBFSWakeUP",
+      "number": 68
+    },
+    {
+      "name": "ADC1_2",
+      "number": 69
+    },
+    {
+      "name": "TIM1_BRK",
+      "number": 70
+    },
+    {
+      "name": "TIM1_UP",
+      "number": 71
+    },
+    {
+      "name": "TIM1_TRG_COM",
+      "number": 72
+    },
+    {
+      "name": "TIM1_CC",
+      "number": 73
+    },
+    {
+      "name": "TIM2",
+      "number": 74
+    },
+    {
+      "name": "TIM3",
+      "number": 75
+    },
+    {
+      "name": "TIM4",
+      "number": 76
+    },
+    {
+      "name": "TIM5",
+      "number": 77
+    },
+    {
+      "name": "I2C3_EV",
+      "number": 78
+    },
+    {
+      "name": "I2C3_ER",
+      "number": 79
+    },
+    {
+      "name": "I2C4_EV",
+      "number": 80
+    },
+    {
+      "name": "I2C4_ER",
+      "number": 81
+    },
+    {
+      "name": "QSPI1",
+      "number": 82
+    },
+    {
+      "name": "SERDES",
+      "number": 83
+    },
+    {
+      "name": "USART3",
+      "number": 84
+    },
+    {
+      "name": "USART4",
+      "number": 85
+    },
+    {
+      "name": "TIM8_BRK",
+      "number": 86
+    },
+    {
+      "name": "TIM8_UP",
+      "number": 87
+    },
+    {
+      "name": "TIM8_TRG_COM",
+      "number": 88
+    },
+    {
+      "name": "TIM8_CC",
+      "number": 89
+    },
+    {
+      "name": "TIM9",
+      "number": 90
+    },
+    {
+      "name": "TIM10",
+      "number": 91
+    },
+    {
+      "name": "TIM11",
+      "number": 92
+    },
+    {
+      "name": "TIM12",
+      "number": 93
+    },
+    {
+      "name": "FMC",
+      "number": 94
+    },
+    {
+      "name": "SDMMC",
+      "number": 95
+    },
+    {
+      "name": "LPTIM1",
+      "number": 96
+    },
+    {
+      "name": "LPTIM2",
+      "number": 97
+    },
+    {
+      "name": "USART5",
+      "number": 98
+    },
+    {
+      "name": "USART6",
+      "number": 99
+    },
+    {
+      "name": "TIM6",
+      "number": 100
+    },
+    {
+      "name": "TIM7",
+      "number": 101
+    },
+    {
+      "name": "DMA2_CH1",
+      "number": 102
+    },
+    {
+      "name": "DMA2_CH2",
+      "number": 103
+    },
+    {
+      "name": "DMA2_CH3",
+      "number": 104
+    },
+    {
+      "name": "DMA2_CH4",
+      "number": 105
+    },
+    {
+      "name": "DMA2_CH5",
+      "number": 106
+    },
+    {
+      "name": "DMA2_CH6",
+      "number": 107
+    },
+    {
+      "name": "DMA2_CH7",
+      "number": 108
+    },
+    {
+      "name": "DMA2_CH8",
+      "number": 109
+    },
+    {
+      "name": "ETH",
+      "number": 110
+    },
+    {
+      "name": "ETH_WKUP",
+      "number": 111
+    },
+    {
+      "name": "CAN2_SCE",
+      "number": 112
+    },
+    {
+      "name": "CAN2_TX",
+      "number": 113
+    },
+    {
+      "name": "CAN2_RX0",
+      "number": 114
+    },
+    {
+      "name": "CAN2_RX1",
+      "number": 115
+    },
+    {
+      "name": "USART7",
+      "number": 116
+    },
+    {
+      "name": "USART8",
+      "number": 117
+    },
+    {
+      "name": "I3C_EV",
+      "number": 118
+    },
+    {
+      "name": "I3C_ER",
+      "number": 119
+    },
+    {
+      "name": "DVP",
+      "number": 120
+    },
+    {
+      "name": "ECDC",
+      "number": 121
+    },
+    {
+      "name": "PIOC",
+      "number": 122
+    },
+    {
+      "name": "SAI",
+      "number": 123
+    },
+    {
+      "name": "LTDC",
+      "number": 124
+    },
+    {
+      "name": "GPHA",
+      "number": 125
+    },
+    {
+      "name": "DFSDM0",
+      "number": 127
+    },
+    {
+      "name": "DFSDM1",
+      "number": 128
+    },
+    {
+      "name": "SWPMI",
+      "number": 131
+    },
+    {
+      "name": "QSPI2",
+      "number": 134
+    },
+    {
+      "name": "SWPMIWakeUP",
+      "number": 135
+    },
+    {
+      "name": "CAN3_SCE",
+      "number": 136
+    },
+    {
+      "name": "CAN3_TX",
+      "number": 137
+    },
+    {
+      "name": "CAN3_RX0",
+      "number": 138
+    },
+    {
+      "name": "CAN3_RX1",
+      "number": 139
+    },
+    {
+      "name": "LPTIM2WakeUP",
+      "number": 140
+    },
+    {
+      "name": "LPTIM1WakeUP",
+      "number": 141
+    },
+    {
+      "name": "I3CWakeUP",
+      "number": 142
+    },
+    {
+      "name": "RTC",
+      "number": 143
+    },
+    {
+      "name": "HSADC",
+      "number": 144
+    },
+    {
+      "name": "UHSIF",
+      "number": 145
+    },
+    {
+      "name": "RNG",
+      "number": 146
+    },
+    {
+      "name": "SDIO",
+      "number": 147
+    },
+    {
+      "name": "USARTWakeUP",
+      "number": 148
+    }
+  ]
+}

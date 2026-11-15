@@ -1,0 +1,56 @@
+{
+  "chip": "CH32V203C8T6",
+  "sysclkMaxMhz": 144,
+  "sources": [
+    { "id": "HSI", "label": "内部 HSI", "freqMhz": 8 },
+    { "id": "HSE", "label": "外部晶振", "hxtal": { "min": 3, "max": 25, "default": 8 } },
+    { "id": "PLL", "label": "PLL", "pll": true }
+  ],
+  "pll": {
+    "outMaxMhz": 144,
+    "sourceOptions": ["HSI", "HSE"],
+    "params": [
+      { "key": "mul", "label": "倍频", "kind": "select", "options": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18], "default": 6 }
+    ]
+  },
+  "ahb": { "options": [1, 2, 4, 8, 16, 64, 128, 256, 512], "maxMhz": 144, "default": 1 },
+  "apb1": { "options": [1, 2, 4, 8, 16], "maxMhz": 144, "default": 1 },
+  "apb2": { "options": [1, 2, 4, 8, 16], "maxMhz": 144, "default": 1 },
+  "adc": {
+    "options": [
+      { "id": "APB2_DIV2", "label": "PCLK2/2", "source": "APB2", "div": 2 },
+      { "id": "APB2_DIV4", "label": "PCLK2/4", "source": "APB2", "div": 4 },
+      { "id": "APB2_DIV6", "label": "PCLK2/6", "source": "APB2", "div": 6 },
+      { "id": "APB2_DIV8", "label": "PCLK2/8", "source": "APB2", "div": 8 }
+    ],
+    "default": "APB2_DIV2",
+    "maxMhz": 14
+  },
+  "timerClock": "apb_x2",
+  "presets": [
+    {
+      "id": "144MHZ_HSI",
+      "label": "144MHz (HSI 8MHz×18)",
+      "match": { "source": "PLL", "pllSource": "HSI", "mul": 18, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "144MHZ_HSE",
+      "label": "144MHz (HSE 8MHz×18)",
+      "match": { "source": "PLL", "pllSource": "HSE", "hxtalMhz": 8, "mul": 18, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "96MHZ_HSI",
+      "label": "96MHz (HSI 8MHz×12, APB1/APB2÷4)",
+      "match": { "source": "PLL", "pllSource": "HSI", "mul": 12, "ahb": 1, "apb1": 4, "apb2": 4 }
+    }
+  ],
+  "codegen": {
+    "presetConstMap": {
+      "144MHZ_HSI": "hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI",
+      "144MHZ_HSE": "hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSE",
+      "96MHZ_HSI": "hal::rcc::Config::SYSCLK_FREQ_96MHZ_HSI"
+    },
+    "fallback": "explicit"
+  },
+  "notes": "依据 ch32-hal src/rcc/v3.rs（V203 走 v3，HSI_FREQUENCY=8MHz；预设常量 SYSCLK_FREQ_96/144MHZ_HSE/HSI 均硬编码 HSE=8MHz、PLL prediv=DIV1；96MHZ_HSI 的 APB1/APB2 为 DIV4）。⚠ HAL 的 SYSCLK_FREQ_96MHZ_HSE 常量按其字段（HSE 8MHz × MUL6）实际输出 48MHz 而非 96MHz，与命名矛盾（ch32-hal 上游 bug：8MHz 需 ×12 才得 96MHz），故不收录该预设，待上游修复后再补 96MHZ_HSE（hxtal 8 × mul 12）。PLL 倍频档位 2..16/18（metapac rcc_v3 PllMul，无 ×17）；PLL 输入预分频（HSI/2、HSE/2，v3.rs PllPreDiv）未建模——当前 pll 参数模型仅支持乘法，且上述 HAL 预设全部 prediv=DIV1，故固定为 1（待补：prediv 选择）；AHB 档位无 ÷32（metapac Hpre 与 WCH 标准库 ch32v20x_rcc.h 一致：0xC0=÷64，HAL v3.rs 的 Div 实现在 ≥÷64 时有偏差，以 metapac/标准库为准）；APB1/APB2 上限 144MHz（CH32V203DS0 电气特性表：FHCLK/FPCLK1/FPCLK2 max 144MHz，不同于 STM32F1 的 36M）；ADC 时钟 = PCLK2/(2/4/6/8)（rcc_v3 Adcpre），fADC max 14MHz（DS 表 fADC）；timerClock=apb_x2（v3.rs calc_pclk 经 apb_timer_clk ×2）"
+}

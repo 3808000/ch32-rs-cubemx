@@ -1,0 +1,51 @@
+{
+  "chip": "CH32V003F4P6",
+  "sysclkMaxMhz": 48,
+  "sources": [
+    { "id": "HSI", "label": "内部 HSI", "freqMhz": 24 },
+    { "id": "HSE", "label": "外部晶振", "hxtal": { "min": 4, "max": 32, "default": 24 } },
+    { "id": "PLL", "label": "PLL", "pll": true }
+  ],
+  "pll": {
+    "outMaxMhz": 48,
+    "sourceOptions": ["HSI", "HSE"],
+    "params": [
+      { "key": "mul", "label": "倍频", "kind": "select", "options": [2], "default": 2, "fixed": true }
+    ]
+  },
+  "ahb": { "options": [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64, 128, 256], "maxMhz": 48, "default": 1 },
+  "apb1": { "options": [1], "maxMhz": 48, "default": 1 },
+  "apb2": { "options": [1, 2, 4, 8, 16], "maxMhz": 48, "default": 1 },
+  "adc": {
+    "options": [{ "id": "APB2", "label": "APB2", "source": "APB2", "div": 1 }],
+    "default": "APB2",
+    "maxMhz": 14
+  },
+  "timerClock": "sysclk",
+  "presets": [
+    {
+      "id": "48MHZ_HSI",
+      "label": "48MHz (HSI×2)",
+      "match": { "source": "PLL", "pllSource": "HSI", "mul": 2, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "48MHZ_HSE",
+      "label": "48MHz (HSE 24MHz×2)",
+      "match": { "source": "PLL", "pllSource": "HSE", "hxtalMhz": 24, "mul": 2, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "24MHZ_HSE",
+      "label": "24MHz (HSE 直连)",
+      "match": { "source": "HSE", "hxtalMhz": 24, "ahb": 1, "apb1": 1, "apb2": 1 }
+    }
+  ],
+  "codegen": {
+    "presetConstMap": {
+      "48MHZ_HSI": "hal::rcc::Config::SYSCLK_FREQ_48MHZ_HSI",
+      "48MHZ_HSE": "hal::rcc::Config::SYSCLK_FREQ_48MHZ_HSE",
+      "24MHZ_HSE": "hal::rcc::Config::SYSCLK_FREQ_24MHZ_HSE"
+    },
+    "fallback": "explicit"
+  },
+  "notes": "V003 PLL 固定 ×2（HAL v003.rs）；无 APB1 分频（pclk1=hclk）；HSI=24MHz；预设 48MHZ_HSE/24MHZ_HSE 硬编码 HSE=24MHz，仅当 hxtalMhz=24 时匹配"
+}

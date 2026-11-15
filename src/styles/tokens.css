@@ -1,0 +1,141 @@
+/* ch32-rs-CubeMX 设计令牌 —— 取自 STM32CubeMX2 1.1.1 实机 computed style（见提示词 §8.2） */
+:root {
+  /* 背景与描边 */
+  --mx-bg: #f2f5fa;
+  --mx-surface: #ffffff;
+  --mx-border: #e4e9f2;
+
+  /* 标题栏 / 图标栏 */
+  --mx-titlebar-bg: #03234b;
+  --mx-titlebar-fg: #dfe5f2;
+  --mx-iconrail-bg: #173564;
+
+  /* 强调色 */
+  --mx-accent: #2a62b7;
+  --mx-accent-soft: #eef5fb;
+  --mx-highlight: #ffd100;
+
+  /* 文本 */
+  --mx-text: #1a1a1a;
+  --mx-text-secondary: #616161;
+  --mx-text-muted: #8a8f98;
+
+  /* 语义色 */
+  --mx-success: #1d8136;
+  --mx-warning: #b26a00;
+  --mx-error: #c00000;
+
+  /* 引脚状态配色（§8.4） */
+  --mx-pin-unassigned-bg: #ffffff;
+  --mx-pin-unassigned-border: #d0d5dd;
+  --mx-pin-unassigned-fg: #616161;
+  --mx-pin-gpio-bg: #bfea9a;
+  --mx-pin-gpio-fg: #1d5b2a;
+  --mx-pin-af-bg: #ddebfa;
+  --mx-pin-af-fg: #2a62b7;
+  --mx-pin-special-bg: #edeff3;
+  --mx-pin-special-fg: #616161;
+  --mx-pin-power-bg: #f7f8fa;
+  --mx-pin-power-fg: #8a8f98;
+  --mx-pin-conflict-bg: #fde7e7;
+  --mx-pin-conflict-fg: #c00000;
+
+  /* 字体 */
+  --mx-font: system-ui, Ubuntu, 'Droid Sans', sans-serif;
+  --mx-font-mono: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+  --mx-fz-body: 13px;
+  --mx-fz-label: 12px;
+  --mx-fz-card-title: 15px;
+  --mx-fz-page-title: 16px;
+
+  /* 圆角 / 阴影 */
+  --mx-radius-card: 8px;
+  --mx-radius-button: 8px;
+  --mx-radius-tab: 8px;
+  --mx-radius-popover: 12px;
+  --mx-shadow-card: 0 1px 3px rgba(16, 24, 40, 0.1);
+  --mx-shadow-popover: 0 8px 24px rgba(16, 24, 40, 0.14);
+
+  /* 布局尺寸 */
+  --mx-titlebar-h: 48px;
+  --mx-tabstrip-h: 40px;
+  --mx-iconrail-w: 56px;
+  --mx-statusbar-h: 24px;
+  --mx-list-panel-w: 320px;
+  --mx-detail-panel-w: 360px;
+  --mx-code-preview-w: 480px;
+
+  /* Element Plus 主题对齐 */
+  --el-color-primary: #2a62b7;
+  --el-color-success: #1d8136;
+  --el-color-warning: #b26a00;
+  --el-color-danger: #c00000;
+  --el-border-radius-base: 8px;
+  --el-font-size-base: 13px;
+
+  /* 动效（对照 STM32CubeMX2 实机录屏，见 docs/ANIMATION.md） */
+  --mx-dur-tilt: 220ms; /* 封装图 45° 倾斜 */
+  --mx-dur-zoom: 160ms; /* 按钮缩放（滚轮即时） */
+  --mx-dur-view: 140ms; /* 视图切换淡入 */
+  --mx-dur-node: 200ms; /* 时钟节点颜色过渡 */
+  --mx-dur-pulse: 240ms; /* 预设应用高亮脉冲 */
+  --mx-ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* 减少动态偏好：所有过渡/动画时长归零（仍保留最终状态） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--mx-font);
+  font-size: var(--mx-fz-body);
+  color: var(--mx-text);
+  background: var(--mx-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 通用卡片 */
+.mx-card {
+  background: var(--mx-surface);
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-card);
+  box-shadow: var(--mx-shadow-card);
+}
+
+/* 滚动条统一 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #c9d2e0;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #aab6c8;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

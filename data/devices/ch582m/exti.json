@@ -1,0 +1,5 @@
+{
+  "chip": "CH582M",
+  "entries": [],
+  "notes": "CH582 的 GPIO 中断不是 STM32 式 EXTI「通道号=端口内引脚号」模型：每个 GPIO 引脚独立使能中断（GPIO_IE_x），可编程电平/边沿触发（ch58x-hal gpio.rs InterruptTrigger: LowLevel/HighLevel/RaisingEdge/FallingEdge），中断按端口汇聚为 GPIOA(IRQ 17)、GPIOB(IRQ 18) 两个向量（ch58x-hal interrupt.rs 的 GPIOA/GPIOB 中断处理与 InputFuture 唤醒模型），因此无法构造 pin→exti 通道映射，entries 依校验器对空表的放行规则留空。GPIO 中断能力详见 peripherals 面板外的 gpio 数据（未建模）。"
+}

@@ -1,0 +1,284 @@
+# ch32-hal API 核对笔记
+
+> 本文档记录**已逐行核对源码**的 ch32-hal API 签名与事实。写任何生成器前必读。
+> 所有签名均对照本机克隆 `reference/ch32-hal`，锁定 commit 见下。
+> 最后更新：2026-11-15。
+
+## 0. 锁定的真相源版本
+
+| 仓库 | commit rev | 用途 |
+|---|---|---|
+| `ch32-rs/ch32-hal` | `a0863ebcc1082f64e508b73d3b944f119b0db77b` | 生成目标 HAL |
+| `ch32-rs/ch32-metapac` | `c4dc52639ec248be4c889ee5f3b9f9387f03ec30` | HAL 内部依赖（寄存器/元数据） |
+| `ch32-rs/ch32-data` | （sparse clone，HEAD） | 芯片/中断/DMA/引脚信号数据 |
+| `ch32-rs/ch32-hal-template` | （HEAD） | 工程骨架唯一真相源 |
+
+生成器 `Cargo.toml` 必须 `git` 依赖并锁 `rev = a0863ebcc1082f64e508b73d3b944f119b0db77b`。
+
+## 1. Cargo feature 名（关键纠正）
+
+**提示词 §2.2 说 feature 名是"小写芯片家族名"——这是错的。** 实测 `ch32-hal/Cargo.toml`
+的 chip-selection features 是**完整小写芯片型号**，不是家族名：
+
+- CH32V003F4P6 → feature `ch32v003f4p6`（不是 `ch32v003`）
+- CH32V203C8T6 → feature `ch32v203c8t6`
+- CH32V103C8T6 → feature `ch32v103c8t6`
+
+每个 feature 展开为 `ch32-metapac/<chip>` + `qingke-rt/<core>` + `qingke/<core>`。
+`build.rs` 依据选中的 feature 推导 `chip_family` cfg（`ch32v0`/`ch32v1`/`ch32v2`/`ch32v3`/`ch32x0`…）。
+
+其它相关 feature：
+- `rt`（入口/中断，`= dep:qingke-rt + rt-wfi`）
+- `exti`（内置 EXTI 驱动与中断处理）
+- `embassy`（异步）
+- `memory-x`（`= ch32-metapac/memory-x`，自动提供 memory.x）
+- `time-driver-tim2` 等（embassy 时基）
+- 默认 `default = ["embassy", "rt", "exti"]`
+
+> **决策**：非 embassy 工程用 `default-features = false, features = ["<chip>", "rt", "exti", "memory-x"]`，
+> 与模板一致。`memory-x` 让 metapac 自动渲染 memory.x，**生成器不必手写 memory.x**（见 §8）。
+
+## 2. 入口与初始化（`src/lib.rs`）
+
+```rust
+pub struct Config {
+    pub rcc: rcc::Config,
+    pub dma_interrupt_priority: interrupt::Priority,
+    #[cfg(afio)] pub release_swd_pins: bool,   // 默认 false
+}
+pub fn init(config: Config) -> Peripherals;   // 只能调用一次
+```
+
+入口形态（`examples/ch32v003/src/bin/blinky.rs` 实测）：
+
+```rust
+#![no_std]
+#![no_main]
+use hal::gpio::{Level, Output};
+use {ch32_hal as hal, panic_halt as _};
+
+#[qingke_rt::entry]
+fn main() -> ! {
+    hal::debug::SDIPrint::enable();
+    let mut config = hal::Config::default();
+    config.rcc = hal::rcc::Config::SYSCLK_FREQ_48MHZ_HSE;
+    let p = hal::init(config);
+    let mut led = Output::new(p.PD6, Level::Low, Default::default());
+    loop { led.toggle(); }
+}
+```
+
+`Peripherals` 字段即引脚/外设单例：`p.PD6`、`p.USART1`、`p.ADC1`、`p.EXTI1` 等。
+`hal::debug::SDIPrint::enable()` 开启单线调试打印；`hal::println!` 输出。
+
+## 3. GPIO（`src/gpio.rs`）
+
+```rust
+pub enum Speed { Medium = 0b01 /*10MHz*/, Low = 0b10 /*2MHz*/, High = 0b11 /*50MHz, default*/ }
+pub enum Pull { None, Up, Down }
+pub enum Level { Low, High }
+
+Output::new(pin: Peri<'d, impl Pin>, initial_output: Level, speed: Speed) -> Output<'d>
+OutputOpenDrain::new(pin, initial_output: Level, speed: Speed) -> OutputOpenDrain<'d>
+Input::new(pin: Peri<'d, impl Pin>, pull: Pull) -> Input<'d>
+Flex::new(pin: Peri<'d, impl Pin>) -> Flex<'d>
+```
+
+- `Output`/`OutputOpenDrain` 方法：`set_high/set_low/set_level/toggle/is_set_high/...`
+- `Input` 方法：`is_high/is_low/get_level`
+- **Speed 只有三档**：`Low/Medium/High`。提示词配置模型里的 `VERY_HIGH` 在 V003 无对应，
+  数据层 `speed` 选项只给 `LOW/MEDIUM/HIGH`，映射到 `Speed::Low/Medium/High`。
+- `Default::default()` 作 speed 即 `Speed::High`。
+
+## 4. EXTI（`src/exti.rs`）
+
+```rust
+ExtiInput::new<T: GpioPin>(pin: Peri<'d, T>, ch: Peri<'d, T::ExtiChannel>, pull: Pull) -> ExtiInput<'d>
+```
+
+- **边沿不在构造函数**。边沿通过异步等待方法在运行时设置：
+  `wait_for_high / wait_for_low / wait_for_rising_edge / wait_for_falling_edge / wait_for_any_edge`（均 `async`）。
+- 这些是 `async fn`，**只在 embassy 上下文可 `.await`**。非 embassy 工程生成 `ExtiInput::new`
+  后，边沿信息以注释记录（`// 边沿: RISING`），不生成无法编译的 `.await`。
+- V003（`gpio_v0`）只有 **8 条 EXTI 线（EXTI0..EXTI7）**，单一中断向量 `EXTI7_0`。
+  `impl_exti!` 只定义 EXTI0..7；EXTI8..15 在 `ch32v0/ch32m0` 被 cfg 掉。
+- 通道外设名 `p.EXTI0`..`p.EXTI7`，`T::ExtiChannel` 由引脚类型关联。
+- 需要 `exti` feature（默认开启）。
+
+## 5. RCC / 时钟（`src/rcc/mod.rs` + `src/rcc/v003.rs`）
+
+```rust
+pub struct Config {
+    pub hse: Option<Hse>,        // Hse { freq: Hertz, mode: HseMode }
+    pub sys: Sysclk,             // = pac::rcc::vals::Sw
+    pub pll_src: PllSource,      // = pac::rcc::vals::Pllsrc
+    pub ahb_pre: AHBPrescaler,   // = pac::rcc::vals::Hpre
+    pub apb2_pre: APBPrescaler,  // = pac::rcc::vals::Ppre
+}
+pub enum HseMode { Oscillator, Bypass }
+```
+
+V003 预设常量（`v003.rs` 实测）：
+
+| 常量 | sys | pll_src | hse | 实际 SYSCLK |
+|---|---|---|---|---|
+| `SYSCLK_FREQ_48MHZ_HSI` | PLL | HSI | None | 24×2 = 48MHz |
+| `SYSCLK_FREQ_48MHZ_HSE` | PLL | HSE | 24MHz | 24×2 = 48MHz |
+| `SYSCLK_FREQ_24MHZ_HSE` | HSE | HSE | 24MHz | 24MHz |
+
+**关键事实（纠正提示词示例）**：
+- V003 **PLL 倍频固定 ×2**（`v003.rs` 注释 "MUL2 is the only option, always *2"）。
+  提示词 clock.json 示例里的 `mul options [2..16]` 对 V003 不成立。数据层 PLL 只给 `mul=2`。
+- V003 **HSI = 24MHz**（`HSI_FREQUENCY = Hertz(24_000_000)`），不是 8MHz。
+- V003 **没有独立 APB1 分频**：`Config` 只有 `apb2_pre`；`pclk1 = hclk`。
+  数据层 `apb1` 固定 `options=[1]`。
+- `Sysclk` 枚举变体：`HSI / HSE / PLL`；`Pllsrc`：`HSI / HSE`。
+- `Hpre`（AHB）：`DIV1..DIV8, DIV16, DIV32, DIV64, DIV128, DIV256`（还有 DIV2_ALT 等别名）。
+- `Ppre`（APB2）：`DIV1, DIV2, DIV4, DIV8, DIV16`。
+- `Default for Config`：`sys=HSI, pll_src=HSI, ahb_pre=DIV3, apb2_pre=DIV1`（即默认 8MHz HCLK）。
+- `Clocks` 暴露 `sysclk/hclk/pclk1/pclk2/pclk1_tim/pclk2_tim`。
+
+> **生成策略**：命中预设 → 直接 `config.rcc = hal::rcc::Config::SYSCLK_FREQ_48MHZ_HSE;`。
+> 否则显式构造 `hal::rcc::Config { hse, sys, pll_src, ahb_pre, apb2_pre }`，枚举用
+> `hal::pac::rcc::vals::{Sw, Pllsrc, Hpre, Ppre}` 路径。预设匹配要求 HSE 频率=24MHz（见上表）。
+
+## 6. USART（`src/usart/mod.rs`）
+
+```rust
+// 阻塞（同步）全双工：注意参数顺序是 rx 在前、tx 在后
+Uart::new_blocking::<const REMAP: u8>(
+    peri: Peri<'d, T>,
+    rx: Peri<'d, impl RxPin<T, REMAP>>,
+    tx: Peri<'d, impl TxPin<T, REMAP>>,
+    config: Config,
+) -> Result<Uart<'d, T, Blocking>, ConfigError>
+
+// 异步全双工（embassy）：需要中断绑定 + TX/RX DMA
+Uart::new::<const REMAP: u8>(peri, rx, tx, _irq, tx_dma, rx_dma, config) -> Result<...>
+```
+
+```rust
+#[non_exhaustive]
+pub struct Config {
+    pub baudrate: u32,
+    pub data_bits: DataBits,   // DataBits8 / DataBits9
+    pub stop_bits: StopBits,   // STOP1 / STOP0P5 / STOP2 / STOP1P5
+    pub parity: Parity,        // ParityNone / ParityEven / ParityOdd
+    pub detect_previous_overrun: bool,
+}
+// Default = 115200 8N1
+```
+
+- **REMAP 是 const 泛型**，引脚 trait `TxPin<T, REMAP>`/`RxPin<T, REMAP>` 绑定 remap 值。
+- 枚举变体名实测：`DataBits::DataBits8`、`StopBits::STOP1`（**不是 STOP_1**）、`Parity::ParityNone`。
+  提示词 peripherals.json 示例的 `STOP_1` 写法错误，数据层用 `STOP1/STOP2`。
+- `Config` 是 `#[non_exhaustive]`，**不能跨 crate 用结构体字面量**，必须 `Config::default()` 后逐字段赋值。
+- 返回 `Result`，生成代码用 `.unwrap()`（或 `expect`）。
+
+## 7. SPI / I2C / ADC
+
+### SPI（`src/spi.rs`）
+```rust
+Spi::new_blocking::<const REMAP: u8>(peri, sck, mosi, miso, config: Config) -> Spi<'d, T, Blocking>
+// 另有 new_blocking_rxonly / new_blocking_txonly / new_blocking_txonly_nosck
+#[non_exhaustive]
+pub struct Config { pub mode: Mode, pub bit_order: BitOrder, pub frequency: Hertz }
+// Default: MODE_0, MsbFirst, 1MHz
+```
+`Mode` 用常量 `MODE_0..MODE_3`；`BitOrder::{MsbFirst, LsbFirst}`；`frequency: Hertz::hz(n)`。
+
+### I2C（`src/i2c.rs`）
+```rust
+I2c::new_blocking::<const REMAP: u8>(peri, scl, sda, freq: Hertz, config: Config) -> I2c<'d, T, Blocking, Master>
+#[non_exhaustive]
+pub struct Config { #[cfg(embassy)] pub timeout: Duration, pub duty: Duty }
+// Default: Duty2_1
+```
+`Duty::{Duty2_1, Duty16_9}`；`freq` 直接传 `Hertz::hz(100_000)` 等。
+
+### ADC（`src/adc.rs`）
+```rust
+Adc::new(adc: Peri<'d, T>, config: Config) -> Adc<'d, T>
+// V003 (adc_v003) 走无 PGA 分支：
+adc.configure_channel(&mut impl AdcChannel<T>, rank: u8, sample_time: SampleTime)
+let val: u16 = adc.convert(&mut impl AdcChannel<T>, sample_time: SampleTime)
+pub struct Config { pub clkdiv: u8, pub channel_count: u8 }  // Default clkdiv=0b11, count=1
+```
+- **ADC 通道是引脚 trait 实现**：`adc.convert(&mut p.PA1, SampleTime::CYCLES73)`，不是整数索引。
+- `SampleTime` 变体（`adc_v003.rs` 实测）：`CYCLES3/9/15/30/43/57/73/241`。
+  提示词示例 `CYCLES_7_5` 错误，数据层用真实变体名。
+- V003 ADC 是 **10 位**（`ADC_MAX = 1023`）。
+
+## 8. 工程骨架（`ch32-hal-template`，唯一真相源）
+
+模板文件（非 embassy、rv32ec 目标）：
+- `Cargo.toml`：edition 2024；`[[bin]] harness=false`；依赖 `ch32-hal`(git, default-features=false,
+  features=[chip, rt, memory-x])、`qingke-rt="0.8.4"`、`qingke={version="0.8.4", features=["unsafe-trust-wch-atomics"]}`、
+  `embedded-hal="1.0.0"`、`panic-halt="1.0.0"`；`[profile.release]` lto=fat/opt-level=s/codegen-units=1。
+- `rust-toolchain.toml`：rv32ec/emc → `channel="nightly"` + `components=["rust-src"]`；
+  其它 target → stable + `targets=[target]`。
+- `.cargo/config.toml`：rv32ec → `target="riscv32ec-unknown-none-elf.json"` +
+  `[unstable] build-std=["core"], json-target-spec=true`；runner=`wlink -v flash --enable-sdi-print --watch-serial`。
+- `build.rs`：`println!("cargo:rustc-link-arg-bins=-Tlink.x");`（非 H4 仅此一行）。
+- `riscv32ec-unknown-none-elf.json`：tier-3 自定义 target（abi=ilp32e, features=+e,+c,+forced-atomics,+xwchc,
+  linker=rust-lld, panic-strategy=abort）。
+- **memory.x 由 `memory-x` feature 自动提供**（metapac 渲染），模板本身不含通用 memory.x。
+  生成器启用 `memory-x` feature 即可，无需手写 memory.x（与提示词 §6.1 略有出入，以模板为准）。
+
+## 9. V003 引脚信号 / remap / ADC / EXTI / DMA（ch32-data 实测）
+
+> 提示词 §2.3 说"ch32-data 不含引脚↔复用表"——**部分过时**。`data/family/CH32V003.yaml`
+> 的每个外设带 `pins: [{pin, signal, remap}]`，是 remap 的权威来源。封装物理引脚编号仍需数据手册。
+
+**ADC1 通道**（`ADC1` pins，signal=INn）：
+PA2=IN0, PA1=IN1, PC4=IN2, PD2=IN3, PD3=IN4, PD5=IN5, PD6=IN6, PD4=IN7。
+（提示词示例 PD4=ADC_IN4 错误，实际 PD4=IN7。）
+
+**USART1 remap**（TX/RX）：
+- remap0: TX=PD5, RX=PD6
+- remap1: TX=PD0, RX=PD1
+- remap2: TX=PD6, RX=PD5
+- remap3: TX=PC0, RX=PC1
+
+**I2C1 remap**（SCL/SDA）：
+- remap0: SCL=PC2, SDA=PC1
+- remap1: SCL=PD1, SDA=PD0
+- remap2(=1X): SCL=PC5, SDA=PC6
+
+**SPI1 remap**（NSS/SCK/MISO/MOSI）：
+- remap0: NSS=PC1, SCK=PC5, MISO=PC7, MOSI=PC6
+- remap1: NSS=PC0, SCK=PC5, MISO=PC7, MOSI=PC6
+
+**EXTI**：V003 仅 EXTI0..7，IRQ 统一 `EXTI7_0`（interrupt number 20）。
+
+**DMA1 通道**（`data/dma/CH32V003.yaml`）：
+ADC1=1, SPI1_RX=2, SPI1_TX=3, USART1_TX=4, USART1_RX=5, I2C1_TX=6, I2C1_RX=7,
+TIM2_CH3=1, TIM2_UP=2, TIM2_CH1=5, TIM2_CH2=7, TIM2_CH4=7 等。
+
+**特殊引脚**：PD7=NRST（默认 NRST，选项字节 RST_MODE 控制，作 GPIO 需解锁）；
+PA1/PA2=OSC_IN/OSC_OUT（HSE 晶振）；PD1=SWDIO（调试）。
+
+## 10. 与提示词的差异汇总（以源码为准）
+
+| 提示词说法 | 实测纠正 |
+|---|---|
+| feature 名=家族名 `ch32v003` | 完整型号 `ch32v003f4p6` |
+| PLL mul 可选 2..16 | V003 固定 ×2 |
+| HSI 8MHz | V003 HSI 24MHz |
+| 有 APB1 分频 | V003 无 APB1 分频，pclk1=hclk |
+| StopBits `STOP_1` | `STOP1` |
+| SampleTime `CYCLES_7_5` | `CYCLES3/9/.../241` |
+| PD4=ADC_IN4 | PD4=ADC_IN7 |
+| ch32-data 无引脚表 | family YAML 有 pins/remap |
+| 需手写 memory.x | `memory-x` feature 自动提供 |
+| Speed 有 VERY_HIGH | V003 仅 Low/Medium/High |
+## 11. V203 / V3 家族补充核对（2026-11-15 录入时发现）
+
+- **V203 target/feature**：`riscv32imac-unknown-none-elf`（stable，无需 nightly）；HAL feature `ch32v203c8t6`；HAL 走 `rcc/v3.rs`。
+- **V203 时钟**：HSI=8MHz；PLL 输入有 prediv（HSI/2、HSE/2，`PllPreDiv`），全部官方预设 prediv=DIV1；AHB 支持 ÷2..÷16、÷64..÷512（**无 ÷32**）；APB1/APB2 上限 144MHz；ADC≤14MHz；timerClock=apb_x2（APB 分频>1 时 ×2）。
+- **HAL 上游 bug（已规避）**：`rcc/v3.rs` 的 `SYSCLK_FREQ_96MHZ_HSE` 常量是 HSE 8MHz × MUL6 → 实际 48MHz，不是 96MHz。V203 的 clock.json 未收录该预设（notes 注明），生成器不会产出一致性错误的代码。上游修复后补录。
+- **HAL v3.rs AHB 分频实现偏差**：其 `Div` 对 raw≥12（÷64 起）少除一级，与 metapac/WCH 标准库矛盾；clock.json 采信 metapac/标准库（无 ÷32、有 ÷512）。
+- **双 ADC 实例共享通道引脚**：V203 的 ADC1/ADC2 通道同名（ADC_IN0 = PA0）。Rust 单例语义下同一 Peri 只能被一个 Adc 结构持有，`derivePeripheralUsage` 按实例顺序单归属（先到先得）。如需双 ADC 同步采样同一引脚，需改为共享引脚 + `&mut` 借用模型（后续扩展）。
+- **EXTI**：非 ch32v0 家族 16 线，IRQ 分组 `EXTI0..4 / EXTI9_5 / EXTI15_10`。
+- **专用引脚建模**：V203 的 NRST/BOOT0 是专用脚（非 GPIO 复用），chip.json 按 `type: POWER` 建模（不可配置）；V003 的 NRST 是 PD7 复用，语义不同。
+- **ADC 异步**：`Adc` 只有阻塞 `convert`（无异步版本）。

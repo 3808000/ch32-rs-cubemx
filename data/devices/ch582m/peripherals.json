@@ -1,0 +1,110 @@
+{
+  "chip": "CH582M",
+  "usart": [
+    {
+      "id": "UART0",
+      "remaps": [
+        { "remap": 0, "tx": "PB7", "rx": "PB4" },
+        { "remap": 1, "tx": "PA14", "rx": "PA15" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 300, "max": 6000000 },
+        "dataBits": { "kind": "select", "label": "字长", "options": ["DataBits5", "DataBits6", "DataBits7", "DataBits8"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd", "ParityMark", "ParitySpace"], "default": "ParityNone" }
+      }
+    },
+    {
+      "id": "UART1",
+      "remaps": [
+        { "remap": 0, "tx": "PA9", "rx": "PA8" },
+        { "remap": 1, "tx": "PB13", "rx": "PB12" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 300, "max": 6000000 },
+        "dataBits": { "kind": "select", "label": "字长", "options": ["DataBits5", "DataBits6", "DataBits7", "DataBits8"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd", "ParityMark", "ParitySpace"], "default": "ParityNone" }
+      }
+    },
+    {
+      "id": "UART2",
+      "remaps": [
+        { "remap": 0, "tx": "PA7", "rx": "PA6" },
+        { "remap": 1, "tx": "PB23", "rx": "PB22" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 300, "max": 6000000 },
+        "dataBits": { "kind": "select", "label": "字长", "options": ["DataBits5", "DataBits6", "DataBits7", "DataBits8"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd", "ParityMark", "ParitySpace"], "default": "ParityNone" }
+      }
+    },
+    {
+      "id": "UART3",
+      "remaps": [
+        { "remap": 0, "tx": "PA5", "rx": "PA4" },
+        { "remap": 1, "tx": "PB21", "rx": "PB20" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 300, "max": 6000000 },
+        "dataBits": { "kind": "select", "label": "字长", "options": ["DataBits5", "DataBits6", "DataBits7", "DataBits8"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd", "ParityMark", "ParitySpace"], "default": "ParityNone" }
+      }
+    }
+  ],
+  "spi": [
+    {
+      "id": "SPI0",
+      "remaps": [
+        { "remap": 0, "sck": "PA13", "mosi": "PA14", "miso": "PA15", "nss": "PA12" },
+        { "remap": 1, "sck": "PB13", "mosi": "PB14", "miso": "PB15", "nss": "PB12" }
+      ],
+      "params": {
+        "clockPolarity": { "kind": "select", "label": "时钟极性", "options": ["IdleLow", "IdleHigh"], "default": "IdleLow" },
+        "bitOrder": { "kind": "select", "label": "位序", "options": ["MsbFirst", "LsbFirst"], "default": "MsbFirst" },
+        "frequency": { "kind": "number", "label": "频率 (Hz)", "default": 1000000, "max": 40000000 }
+      }
+    }
+  ],
+  "i2c": [
+    {
+      "id": "I2C",
+      "remaps": [
+        { "remap": 0, "scl": "PB13", "sda": "PB12" },
+        { "remap": 1, "scl": "PB21", "sda": "PB20" }
+      ],
+      "params": {
+        "frequency": { "kind": "number", "label": "速率 (Hz)", "default": 100000, "min": 10000, "max": 400000 },
+        "duty": { "kind": "select", "label": "占空比", "options": ["Duty2_1", "Duty16_9"], "default": "Duty2_1" }
+      }
+    }
+  ],
+  "adc": [
+    {
+      "id": "ADC",
+      "channels": [
+        { "channel": "ADC_IN0", "pin": "PA4" },
+        { "channel": "ADC_IN1", "pin": "PA5" },
+        { "channel": "ADC_IN2", "pin": "PA12" },
+        { "channel": "ADC_IN3", "pin": "PA13" },
+        { "channel": "ADC_IN4", "pin": "PA14" },
+        { "channel": "ADC_IN5", "pin": "PA15" },
+        { "channel": "ADC_IN6", "pin": "PA3" },
+        { "channel": "ADC_IN7", "pin": "PA2" },
+        { "channel": "ADC_IN8", "pin": "PA1" },
+        { "channel": "ADC_IN9", "pin": "PA0" },
+        { "channel": "ADC_IN10", "pin": "PA6" },
+        { "channel": "ADC_IN11", "pin": "PA7" },
+        { "channel": "ADC_IN12", "pin": "PA8" },
+        { "channel": "ADC_IN13", "pin": "PA9" }
+      ],
+      "params": {
+        "samplingClock": { "kind": "select", "label": "采样时钟", "options": ["_3_2MHz", "_5_33MHz", "_4MHz", "_8MHz"], "default": "_3_2MHz" },
+        "pgaGain": { "kind": "select", "label": "PGA 增益", "options": ["GAIN1_4", "GAIN1_2", "GAIN1", "GAIN2"], "default": "GAIN1_2" }
+      }
+    }
+  ],
+  "notes": "实例名与 remap 全部来自 ch58x-hal（commit 611954e）各驱动 pin_trait_impl/impl_pin（UART0-3、SPI0、I2C、ADC），与数据手册引脚复用一致（PB12/PB13 同时承载 SPI0 remap1 与 I2C remap0，PB20/PB21 同时承载 UART3 remap1 与 I2C remap1，属 CH582 真实复用）。参数名逐字对应 ch58x-hal Config 字段/枚举变体：uart.rs Config{baudrate, data_bits: DataBits(DataBits5-8), stop_bits: StopBits(STOP1/STOP2), parity: Parity(ParityNone/Even/Odd/Mark/Space)}（默认 115200/8/STOP1/None，上限 6Mbps 来自数据手册 §9，min=300 为 UI 保护值、手册未规定下限）；spi.rs Config{clock_polarity: Polarity(IdleLow/IdleHigh), bit_order: BitOrder(MsbFirst/LsbFirst), frequency}（SCK 上限=系统主频一半，数据手册 §1）；i2c.rs Config{frequency(默认 100k), duty: Duty(Duty2_1/Duty16_9)，100k/400k 两速度模式为数据手册 §16 口径}；adc.rs Config{clk: SamplingClock(_3_2MHz/_8MHz/_5_33MHz/_4MHz，Config::default 取 _3_2MHz), pga_gain: Gain(GAIN1_4/GAIN1_2/GAIN1/GAIN2)}。ADC 通道号取自 impl_adc_pin!（PA4=ch0…PA9=ch13），与数据手册 AIN0-AIN13 一致；内部通道 Temperature/Vbat（AdcPin for Temperature/Vbat）与 bool 型 Config 字段（diff_en/buf_en、I2C sda_pullup/scl_pullup）未建模。"
+}

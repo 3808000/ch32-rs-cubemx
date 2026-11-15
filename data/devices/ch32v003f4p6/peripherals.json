@@ -1,0 +1,72 @@
+{
+  "chip": "CH32V003F4P6",
+  "usart": [
+    {
+      "id": "USART1",
+      "remaps": [
+        { "remap": 0, "tx": "PD5", "rx": "PD6", "ck": "PD4", "cts": "PD3", "rts": "PC2" },
+        { "remap": 1, "tx": "PD0", "rx": "PD1", "ck": "PD7", "cts": "PC3", "rts": "PC2" },
+        { "remap": 2, "tx": "PD6", "rx": "PD5", "ck": "PD7", "cts": "PC6", "rts": "PC7" },
+        { "remap": 3, "tx": "PC0", "rx": "PC1", "ck": "PC5", "cts": "PC6", "rts": "PC7" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 4000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" }
+      }
+    }
+  ],
+  "spi": [
+    {
+      "id": "SPI1",
+      "remaps": [
+        { "remap": 0, "sck": "PC5", "mosi": "PC6", "miso": "PC7", "nss": "PC1" },
+        { "remap": 1, "sck": "PC5", "mosi": "PC6", "miso": "PC7", "nss": "PC0" }
+      ],
+      "params": {
+        "mode": { "kind": "select", "label": "模式", "options": ["MODE_0", "MODE_1", "MODE_2", "MODE_3"], "default": "MODE_0" },
+        "bitOrder": { "kind": "select", "label": "位序", "options": ["MsbFirst", "LsbFirst"], "default": "MsbFirst" },
+        "frequency": { "kind": "number", "label": "频率 (Hz)", "default": 1000000, "min": 1000, "max": 24000000 }
+      }
+    }
+  ],
+  "i2c": [
+    {
+      "id": "I2C1",
+      "remaps": [
+        { "remap": 0, "scl": "PC2", "sda": "PC1" },
+        { "remap": 1, "scl": "PD1", "sda": "PD0" },
+        { "remap": 2, "scl": "PC5", "sda": "PC6" }
+      ],
+      "params": {
+        "speed": { "kind": "number", "label": "速率 (Hz)", "default": 100000, "min": 10000, "max": 400000 },
+        "duty": { "kind": "select", "label": "占空比", "options": ["Duty2_1", "Duty16_9"], "default": "Duty2_1" }
+      }
+    }
+  ],
+  "adc": [
+    {
+      "id": "ADC1",
+      "channels": [
+        { "channel": "ADC_IN0", "pin": "PA2" },
+        { "channel": "ADC_IN1", "pin": "PA1" },
+        { "channel": "ADC_IN2", "pin": "PC4" },
+        { "channel": "ADC_IN3", "pin": "PD2" },
+        { "channel": "ADC_IN4", "pin": "PD3" },
+        { "channel": "ADC_IN5", "pin": "PD5" },
+        { "channel": "ADC_IN6", "pin": "PD6" },
+        { "channel": "ADC_IN7", "pin": "PD4" }
+      ],
+      "params": {
+        "sampleTime": {
+          "kind": "select",
+          "label": "采样时间",
+          "options": ["CYCLES3", "CYCLES9", "CYCLES15", "CYCLES30", "CYCLES43", "CYCLES57", "CYCLES73", "CYCLES241"],
+          "default": "CYCLES73"
+        }
+      }
+    }
+  ],
+  "notes": "remap 与 ch32-data data/family/CH32V003.yaml 一致；参数名逐字对应 ch32-hal 枚举变体（StopBits::STOP1、SampleTime::CYCLES73 等）"
+}
