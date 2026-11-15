@@ -85,14 +85,15 @@
 - **构建系统**：Cargo + rust-toolchain + .cargo ↔ CMake + Presets（各自生态等价）；
 - 不采用 CubeMX1 的 `USER CODE BEGIN/END` 注释块（Rust 无预处理器，物理隔离更可靠）。
 
-## 9. 交付形态与桌面化路线（用户明确目标：完整桌面软件）
+## 9. 交付形态与桌面化路线（已完成 v0.01）
 
-- 当前形态：本地 Web 应用（Vite dev / 静态构建），浏览器内完成全部配置与代码生成；导出走 ZIP 或 File System Access API 直写目录。
-- **目标形态：Tauri 桌面应用**（按提示词 §2.4：需要桌面形态时用 Tauri 包一层，前端代码不变，不上 Electron；Theia 方案已否决）。
-- 桌面化后需要替换的能力（前端接口保持不变，只换实现层）：
-  1. 目录导出：`showDirectoryPicker` → Tauri 文件系统插件（原生目录写入，支持已存在工程的就地更新）。
-  2. 大文件/多工程：可在本地缓存工程列表（替代 localStorage）。
-  3. 可选：拉起 `cargo build` / `wlink` 烧录（本地进程能力）。
-  4. 可选：图表导出 PNG/SVG、应用内更新。
-- 打包命令（待 Phase 4 实施）：`npm run tauri build`，产物 Windows/macOS/Linux 安装包；构建配置与前端资源路径沿用 Vite 输出。
-- 当前优先级：先完成功能与 UI 验收（本轮），桌面壳放到功能冻结之后。
+- **已交付形态**：Tauri 2 桌面应用（`src-tauri/`）+ 浏览器模式共用同一份 `dist/`，前端代码未改。
+- 桌面端已替换的能力（接口保持前端调用方式，按运行环境自动分流）：
+  1. 目录导出：`showDirectoryPicker`（浏览器）→ 原生目录对话框 + `write_files` Rust 命令（桌面）。
+  2. ZIP / cube.json：浏览器 `<a download>` → 原生“另存为”对话框 + `write_file`（桌面，WebKitGTK 不处理浏览器下载）。
+  3. 构建产物：`npm run desktop:build`，Linux 便携包见 GitHub Releases `v0.01`。
+- 仍待接入（不阻塞 v0.01）：
+  1. 本地工程列表缓存（替代 localStorage）。
+  2. 拉起 `cargo build` / `wlink` 烧录（本地进程能力）。
+  3. 图表导出 PNG/SVG、应用内更新。
+  4. Windows / macOS 产物（需对应平台构建）。
