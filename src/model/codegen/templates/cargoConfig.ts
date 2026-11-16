@@ -10,6 +10,12 @@ target = "<%- target %>"
 [target."<%- target %>"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 <% if (jsonTarget) { -%>
 [unstable]
 build-std = ["core"]

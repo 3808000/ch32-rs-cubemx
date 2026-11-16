@@ -9,6 +9,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -47,17 +53,72 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# GitDep 项目!
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+当前未配置 GPIO/外设引脚。
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+当前未启用 USART/SPI/I2C/ADC 实例。
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`caf4305b80bf0dae375ce9266a80cf3d2155d052b17f292a93b79b5f94732f1a\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -79,6 +140,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -223,6 +295,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -261,17 +339,72 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+当前未配置 GPIO/外设引脚。
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+当前未启用 USART/SPI/I2C/ADC 实例。
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`c76db561c7b97992f6c84c2340a63e8d8efa947c0e581e30ea1dfc77bed317ff\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -294,6 +427,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -473,6 +617,26 @@ overflow-checks = false
 由 ch32-rs-CubeMX 生成：芯片 CH32H417QEU6（QFN128），QingKe V3F 控制核 + V5F 计算核。
 工程是 Cargo workspace，V3F 启动核与 V5F 计算核各一个 crate，另有 \`xtask\` 负责双核构建/烧录/合并。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 34 | PA0 | ANALOG / ADC_IN0 | — | — |
+| 47 | PB2 | OUTPUT（PUSH_PULL, HIGH, 初始 LOW） | LED_RUN | — |
+| 88 | PA9 | AF / USART1_TX | — | 7 |
+| 89 | PA10 | AF / USART1_RX | — | 7 |
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`cc657c62598ea0f9625a62dded45053ab21904961012694a3ec7bdcb95111c45\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：workspace 清单 + 共享 ch32-hal 依赖
@@ -546,7 +710,29 @@ cargo xtask merge          # 输出 out/firmware.bin / out/firmware.hex
 
 ## 时钟
 
-当前配置：SYSCLK 400MHz，HCLK 100MHz，PCLK1 100MHz，PCLK2 100MHz。
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 400 MHz |
+| HCLK | 100 MHz |
+| PCLK1 | 100 MHz |
+| PCLK2 | 100 MHz |
+| ADC | 50 MHz |
+
+## 外设实例
+
+| 实例 | 信号 | 引脚 | remap | 关键参数 |
+|---|---|---|---|---|
+| USART1 | TX / RX | PA9 / PA10 | 7 | baudrate=115200, detectPreviousOverrun=false, parity=ParityNone, stopBits=STOP1, wordLength=DataBits8 |
+| ADC1 | ADC_IN0 | PA0 | — | sampleTime=S71_5 |
+
+## Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 960K |
+| SRAM | 896K |
+
+> 容量来自芯片数据（\`chip.json\`）；双核按核划分的实际占用以各自构建产物为准。
 
 时钟代码生成走 HAL 配方（\`hal::rcc::Config::with_*\`）：H4 的 Config 不是可逐字段拼装的平铺结构，
 数据层标记 \`fallback: preset_only\`，无匹配预设时导出会被阻止。
@@ -1433,6 +1619,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -1471,17 +1663,75 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 11 | PD3 | INPUT（上/下拉 UP, EXTI RISING） | — | — |
+| 20 | PC1 | INPUT（上/下拉 DOWN, EXTI FALLING） | BTN | — |
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+当前未启用 USART/SPI/I2C/ADC 实例。
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`50d0bdbb95b7fe2a84a09066d42123547ca1c2e237b6b666a381cc357042758f\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -1505,6 +1755,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -1702,6 +1963,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -1740,17 +2007,76 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# Gpio Demo
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 3 | PD6 | OUTPUT（PUSH_PULL, MEDIUM, 初始 LOW） | LED_RUN | — |
+| 17 | PC4 | INPUT（上/下拉 UP） | KEY0 | — |
+| 18 | PC3 | OUTPUT（OPEN_DRAIN, VERY_HIGH, 初始 HIGH） | BUS_EN | — |
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+当前未启用 USART/SPI/I2C/ADC 实例。
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`cb41179836adc7a695f153508ba055e1930eba9de1dca3b1656108badf92309e\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -1773,6 +2099,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -1969,6 +2306,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -2007,17 +2350,72 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+当前未配置 GPIO/外设引脚。
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+当前未启用 USART/SPI/I2C/ADC 实例。
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`c76db561c7b97992f6c84c2340a63e8d8efa947c0e581e30ea1dfc77bed317ff\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -2040,6 +2438,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -2190,6 +2599,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -2228,17 +2643,77 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 5 | PA1 | ANALOG / ADC_IN1 | — | — |
+| 6 | PA2 | ANALOG / ADC_IN0 | — | — |
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+| 实例 | 信号 | 引脚 | remap | 关键参数 |
+|---|---|---|---|---|
+| ADC1 | ADC_IN1 / ADC_IN0 | PA1 / PA2 | — | sampleTime=CYCLES73 |
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`099a3e42d9f6318fb831106be3c5a4c3b7a3cd8e8e74efdbdead63dba7107066\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -2262,6 +2737,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -2454,6 +2940,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -2492,17 +2984,77 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 19 | PC2 | AF / I2C1_SCL | — | 0 |
+| 20 | PC1 | AF / I2C1_SDA | — | 0 |
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+| 实例 | 信号 | 引脚 | remap | 关键参数 |
+|---|---|---|---|---|
+| I2C1 | SCL / SDA | PC2 / PC1 | 0 | duty=Duty2_1, speed=100000 |
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`1e3f19cb0600795efd92eec4e133e5505ec10b11c1c56374dabf06aeaf6c5463\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -2526,6 +3078,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -2709,6 +3272,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -2747,17 +3316,78 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 14 | PC7 | AF / SPI1_MISO | — | 0 |
+| 15 | PC6 | AF / SPI1_MOSI | — | 0 |
+| 16 | PC5 | AF / SPI1_SCK | — | 0 |
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+| 实例 | 信号 | 引脚 | remap | 关键参数 |
+|---|---|---|---|---|
+| SPI1 | SCK / MOSI / MISO | PC5 / PC6 / PC7 | 0 | bitOrder=MsbFirst, frequency=1000000, mode=MODE_0 |
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`257487ca8bd055eb75401acdba0d936abf784a453a136ec54e0ce311b5bdf603\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -2781,6 +3411,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -2973,6 +3614,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -3011,17 +3658,77 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 2 | PD5 | AF / USART1_TX | — | 0 |
+| 3 | PD6 | AF / USART1_RX | — | 0 |
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+| 实例 | 信号 | 引脚 | remap | 关键参数 |
+|---|---|---|---|---|
+| USART1 | TX / RX | PD5 / PD6 | 0 | baudrate=115200, detectPreviousOverrun=false, parity=ParityNone, stopBits=STOP1, wordLength=DataBits8 |
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`b49a8c87603390057ba9760145b7ef775bed852443ff20c7c1f22ec469ab0c18\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -3045,6 +3752,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -3238,6 +3956,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -3278,17 +4002,80 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 2 | PD5 | AF / USART1_TX | — | 0 |
+| 3 | PD6 | AF / USART1_RX | — | 0 |
+| 19 | PC2 | AF / I2C1_SCL | — | 0 |
+| 20 | PC1 | AF / I2C1_SDA | — | 0 |
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 24 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+| 实例 | 信号 | 引脚 | remap | 关键参数 |
+|---|---|---|---|---|
+| USART1 | TX / RX | PD5 / PD6 | 0 | baudrate=115200, detectPreviousOverrun=false, parity=ParityNone, stopBits=STOP1, wordLength=DataBits8 |
+| I2C1 | SCL / SDA | PC2 / PC1 | 0 | duty=Duty2_1, speed=100000 |
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`29e095568e4d7806fff5f6f3f3a16241f8409ded4fb7c2fa195ec0456c28d2d9\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -3313,6 +4100,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -3556,6 +4354,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -3594,17 +4398,72 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+当前未配置 GPIO/外设引脚。
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 48 MHz |
+| HCLK | 48 MHz |
+| PCLK1 | 48 MHz |
+| PCLK2 | 48 MHz |
+| ADC | 48 MHz |
+
+### 外设实例
+
+当前未启用 USART/SPI/I2C/ADC 实例。
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`19df62e88a63e41cdd0fbee2ea737e710883f32168510d3cb0f83cd7bf81bc5c\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -3627,6 +4486,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 
@@ -3784,6 +4654,12 @@ target = "riscv32ec-unknown-none-elf.json"
 [target."riscv32ec-unknown-none-elf"]
 runner = "wlink -v flash --enable-sdi-print --watch-serial"
 
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
 [unstable]
 build-std = ["core"]
 json-target-spec = true
@@ -3822,17 +4698,72 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V003F4P6（TSSOP20，target \`riscv32ec-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
 
+## 工程报告
+
+### 引脚占用
+
+当前未配置 GPIO/外设引脚。
+
+### 时钟
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 48 MHz |
+| HCLK | 24 MHz |
+| PCLK1 | 24 MHz |
+| PCLK2 | 24 MHz |
+| ADC | 24 MHz |
+
+### 外设实例
+
+当前未启用 USART/SPI/I2C/ADC 实例。
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 16K |
+| SRAM | 2K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`5fdfc297899b1471596b85f60fd6ceadcbf44fb1c36d9d182db55fc04b5e12ef\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
 ## 文件清单
 
 - \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
 - \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
-- \`.cargo/config.toml\`：构建目标与 wlink runner
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
 - \`build.rs\`：注入 -Tlink.x 链接参数
 - \`.gitignore\`：Git 忽略规则（构建产物 target/）
 - \`riscv32ec-unknown-none-elf.json\`：tier-3 自定义 target 描述
@@ -3855,6 +4786,17 @@ cargo build --release
 
 目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
 
 ## 烧录与串口
 

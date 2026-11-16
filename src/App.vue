@@ -15,6 +15,7 @@ import { useProjectStore } from '@/controllers/project'
 import { HAL_REV } from '@/model/codegen/halRev'
 import { parseProjectFile, readFileAsText, downloadProjectFile } from '@/services/projectFile'
 import { touchRecent, getRecent } from '@/services/recentProjects'
+import { startAutosave } from '@/services/projectStorage'
 
 const store = useProjectStore()
 const showNotifications = ref(false)
@@ -73,6 +74,12 @@ async function onDrop(e: DragEvent) {
 
 onMounted(() => {
   store.restore()
+  // 应用级自动保存（M4.1）：dirty 变化 2s 防抖写 localStorage；服务层幂等，HomeView 重复挂载无副作用。
+  startAutosave(
+    () => store.config,
+    () => store.dirty,
+    { onSaved: (at) => { store.dirty = false; store.lastSavedAt = at } },
+  )
 })
 
 function onMenu(key: string) {

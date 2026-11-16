@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// 代码生成导出对话框（视图层）：子项选择 + 触发导出。
-// 生成/打包/落盘编排全部在 services/projectExport.ts；本组件只管理选项与提示。
-import { computed, reactive, ref } from 'vue'
+// 代码生成导出对话框（视图层）：子项选择 + 触发导出 + 结果报告。
+// 生成/打包/落盘编排全部在 services/projectExport.ts；本组件只管理选项、提示与报告数据组装。
+import { computed, reactive, ref, watch } from 'vue'
 import { Download, FolderOpened } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { downloadProjectFile } from '@/services/projectFile'
@@ -15,14 +15,17 @@ import {
   supportsFolderExport,
   type ConflictResolutions,
   type FolderExportInspection,
+  type FolderExportResult,
   type FolderExportTarget,
   type PreparedExport,
+  type ZipExportResult,
 } from '@/services/projectExport'
 import { DEFAULT_SELECTION, type CodegenSelection } from '@/model/types'
 import { preflight, type PreflightReport } from '@/model/preflight'
 import ExportPlanPreview from '@/components/codegen/ExportPlanPreview.vue'
 import ConflictRules from '@/components/codegen/ConflictRules.vue'
 import CheckDialog from '@/components/codegen/CheckDialog.vue'
+import GenerationReport, { type GenerationReportData, type GenerationReportFile } from '@/components/codegen/GenerationReport.vue'
 
 const store = useProjectStore()
 const visible = defineModel<boolean>({ default: false })
@@ -32,6 +35,12 @@ const includeMain = ref(true)
 const projectName = ref(store.projectName)
 const generating = ref(false)
 const writingFolder = ref(false)
+
+// 导出成功后的结果页（M4.2）：报告替代成功 toast，关闭对话框时清空。
+const report = ref<GenerationReportData | null>(null)
+watch(visible, (open) => {
+  if (!open) report.value = null
+})
 
 // 目录导出两段式：inspect 预览 → （有冲突/删除时）用户决议 → 确认写入。
 interface PendingFolder {
@@ -105,6 +114,66 @@ async function exportConfigOnly() {
   }
 }
 
+/** 导出前检查中用户已确认的警告（报告页展示；无警告为空数组）。 */
+function confirmedWarnings(): string[] {
+  return checkReport.value.warnings.map((w) => w.message)
+}
+
+/** ZIP 导出报告：归档内全部文件按 create 展示；manifest 一并打包。 */
+function buildZipReport(
+  prepared: PreparedExport,
+  result: ZipExportResult,
+  elapsedMs: number,
+): GenerationReportData {
+  const files: GenerationReportFile[] = [
+    ...prepared.files.map((f) => ({ path: f.path, action: 'create' as const })),
+    ...prepared.vendorEntries.map((v) => ({ path: v.path, action: 'create' as const })),
+  ]
+  return {
+    mode: 'zip',
+    projectName: store.config.projectName,
+    target: `${store.config.projectName}.zip`,
+    elapsedMs,
+    written: result.written,
+    deleted: 0,
+    skipped: 0,
+    backedUp: 0,
+    manifestWritten: result.manifestWritten,
+    files,
+    summary: { create: files.length, update: 0, unchanged: 0, delete: 0, conflict: 0 },
+    warnings: confirmedWarnings(),
+    notes: selection.vendorHal ? ['ZIP 内含 vendor/ch32-hal 完整 HAL 源码。'] : [],
+  }
+}
+
+/** 目录导出报告：逐文件动作来自 inspect plan，计数来自实际写入结果。 */
+function buildFolderReport(
+  result: FolderExportResult,
+  inspection: FolderExportInspection,
+  elapsedMs: number,
+): GenerationReportData {
+  const notes: string[] = []
+  if (!result.readable) {
+    notes.push('目标目录不可读：已按全量写入处理，未检测冲突，也未保留已有文件。')
+  }
+  return {
+    mode: 'folder',
+    projectName: store.config.projectName,
+    target: result.root,
+    targetPath: result.root,
+    elapsedMs,
+    written: result.written,
+    deleted: result.deleted,
+    skipped: result.skipped,
+    backedUp: result.backedUp,
+    manifestWritten: result.manifestWritten,
+    files: inspection.plan.map((e) => ({ path: e.path, action: e.action })),
+    summary: result.summary,
+    warnings: confirmedWarnings(),
+    notes,
+  }
+}
+
 /** 生成并导出 ZIP（manifest 一并打包）；先经过 preflight 门禁。 */
 async function doExportZip() {
   if (generating.value || writingFolder.value) return
@@ -115,14 +184,15 @@ async function doExportZip() {
 async function runExportZip() {
   if (generating.value || writingFolder.value) return
   generating.value = true
+  const startedAt = Date.now()
   try {
     store.setProjectName(projectName.value || 'ch32-project')
     const prepared = await prepareExport(store.config, store.deviceData, { ...selection }, includeMain.value)
     const result = await exportAsZip(prepared, store.config.projectName)
     if (result === null) return // 用户在保存对话框中取消
     store.setExportSnapshot(prepared.snapshot)
-    store.notify(`已导出 ${result.written} 个文件${selection.vendorHal ? '（含完整 HAL 源码）' : ''}（${store.config.projectName}.zip）`, 'info')
-    visible.value = false
+    // 成功不关闭对话框：切到结果页，由用户点「完成」关闭（M4.2）
+    report.value = buildZipReport(prepared, result, Date.now() - startedAt)
   } catch (e) {
     if (e instanceof ExportBlockedError) {
       store.notify(`导出被阻止：${e.message}`, 'error')
@@ -134,12 +204,13 @@ async function runExportZip() {
   }
 }
 
-/** 实际写盘并收尾（预览确认后 / 无冲突时直接调用）。 */
+/** 实际写盘并收尾（预览确认后 / 无冲突时直接调用）；成功后展示结果报告。 */
 async function writeFolder(
   target: FolderExportTarget,
   prepared: PreparedExport,
   inspection: FolderExportInspection,
   userResolutions?: ConflictResolutions,
+  startedAt = Date.now(),
 ) {
   const result = await target.write(prepared, {
     plan: inspection.plan,
@@ -149,16 +220,9 @@ async function writeFolder(
     resolutions: userResolutions,
   })
   store.setExportSnapshot(prepared.snapshot)
-  const parts = [
-    `写入 ${result.written}`,
-    result.deleted > 0 ? `删除 ${result.deleted}` : '',
-    result.skipped > 0 ? `保留 ${result.skipped}` : '',
-    result.backedUp > 0 ? `备份 ${result.backedUp}` : '',
-  ].filter(Boolean)
-  store.notify(`已导出到 ${result.root}（${parts.join('，')}）`, 'info')
+  report.value = buildFolderReport(result, inspection, Date.now() - startedAt)
   pendingFolder.value = null
   resolutions.value = {}
-  visible.value = false
 }
 
 /** 生成并写入目录：先经过 preflight 门禁，再选目录（用户手势内）→ inspect 预览。 */
@@ -174,6 +238,7 @@ async function runExportFolder() {
   try {
     const target = await pickExportFolder()
     if (!target) return // 用户取消
+    const startedAt = Date.now()
     const prepared = await prepareExport(store.config, store.deviceData, { ...selection }, includeMain.value)
     const inspection = await target.inspect(prepared)
     const needsReview = inspection.summary.conflict > 0 || inspection.summary.delete > 0
@@ -183,7 +248,7 @@ async function runExportFolder() {
       resolutions.value = {}
       return
     }
-    await writeFolder(target, prepared, inspection)
+    await writeFolder(target, prepared, inspection, undefined, startedAt)
   } catch (e) {
     if (e instanceof ExportBlockedError) {
       store.notify(`导出被阻止：${e.message}`, 'error')
@@ -201,8 +266,9 @@ async function confirmFolderWrite() {
   const pending = pendingFolder.value
   if (!pending || writingFolder.value) return
   writingFolder.value = true
+  const startedAt = Date.now()
   try {
-    await writeFolder(pending.target, pending.prepared, pending.inspection, resolutions.value)
+    await writeFolder(pending.target, pending.prepared, pending.inspection, resolutions.value, startedAt)
   } catch (e) {
     store.notify(`写入目录失败：${e instanceof Error ? e.message : String(e)}`, 'error')
   } finally {
@@ -215,13 +281,28 @@ function cancelFolderPreview() {
   pendingFolder.value = null
   resolutions.value = {}
 }
+
+/** 结果页「完成」：关闭对话框并清空报告。 */
+function finishReport() {
+  report.value = null
+  visible.value = false
+}
 </script>
 
 
 <template>
-  <el-dialog v-model="visible" title="生成 Rust 工程" width="640px">
+  <el-dialog
+    v-model="visible"
+    :title="report ? '生成结果' : '生成 Rust 工程'"
+    :width="report ? '760px' : '640px'"
+  >
+    <!-- 导出结果报告（M4.2）：ZIP 与目录导出成功后显示 -->
+    <template v-if="report">
+      <GenerationReport :report="report" />
+    </template>
+
     <!-- 选项页 -->
-    <template v-if="!pendingFolder">
+    <template v-else-if="!pendingFolder">
       <el-alert v-if="errorCount > 0" type="error" :closable="false" class="export-alert"
         :title="`生成前检查发现 ${errorCount} 个错误，导出将被阻止。点击导出可查看报告并定位。`" />
       <el-alert v-else-if="warningCount > 0" type="warning" :closable="false" class="export-alert"
@@ -235,6 +316,19 @@ function cancelFolderPreview() {
           <span class="sel-label">{{ it.label }}</span>
           <span class="sel-desc">{{ it.desc }}</span>
         </el-checkbox>
+      </div>
+      <div class="form-row gen-options">
+        <label>构建档位</label>
+        <el-select v-model="selection.profile" size="small" style="width: 170px">
+          <el-option label="体积优先 (release-size)" value="release-size" />
+          <el-option label="速度优先 (release-speed)" value="release-speed" />
+          <el-option label="可调试 (release-debug)" value="release-debug" />
+        </el-select>
+        <label>IDE 配置</label>
+        <el-select v-model="selection.ideConfig" size="small" style="width: 130px">
+          <el-option label="不生成" value="none" />
+          <el-option label="VS Code" value="vscode" />
+        </el-select>
       </div>
       <el-checkbox v-model="includeMain" class="main-check">
         包含 src/main.rs 骨架（双核为各核 src/main.rs；已有自己的 main.rs 时取消勾选，生成器永不覆盖用户文件）
@@ -254,7 +348,10 @@ function cancelFolderPreview() {
     </template>
 
     <template #footer>
-      <div v-if="!pendingFolder" class="dialog-footer">
+      <div v-if="report" class="dialog-footer">
+        <el-button type="primary" @click="finishReport">完成</el-button>
+      </div>
+      <div v-else-if="!pendingFolder" class="dialog-footer">
         <el-button plain @click="exportConfigOnly">仅导出配置 (cube.json)</el-button>
         <el-button @click="visible = false">取消</el-button>
         <el-button plain :icon="Download" :loading="generating" :disabled="writingFolder" @click="doExportZip">

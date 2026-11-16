@@ -1,7 +1,37 @@
-// 单核工程 README.md（文件清单/构建/烧录/用户区约定）
+// 单核工程 README.md（工程报告/文件清单/构建/烧录/用户区约定）
 export const README_TPL = `# <%- projectName %>
 
 由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 <%- chip %>（<%- chipPackage %>，target \`<%- target %>\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`<%- halRev %>\`）。
+
+## 工程报告
+
+### 引脚占用
+
+<%- pinTable %>
+
+### 时钟
+
+<%- clockTable %>
+
+### 外设实例
+
+<%- peripheralTable %>
+<% if (interruptTable) { -%>
+
+### 中断
+
+<%- interruptTable %>
+<% } -%>
+
+### Flash / RAM 预算
+
+<%- budgetTable %>
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+<%- metadataTable %>
 
 ## 文件清单
 
@@ -27,6 +57,12 @@ cargo build --release
 rv32ec 是 tier-3 目标：首次构建会经 \`rust-toolchain.toml\` 自动安装 nightly 并用 build-std 编译 core。
 <% } -%>
 
+### 构建档位
+
+<%- toolchainTable %>
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`<%- profile %>\`。
+
 ## 烧录与串口
 
 \`\`\`bash
@@ -38,6 +74,14 @@ wlink -v flash --enable-sdi-print --watch-serial target/<%- target %>/release/<%
 \`\`\`
 
 \`--enable-sdi-print\` 开启单线调试打印；代码里调用 \`hal::debug::SDIPrint::enable()\` 后即可用 \`hal::println!\` 输出，串口输出由 \`--watch-serial\` 转发。
+<% if (ideConfig) { -%>
+
+## VSCode 配置
+
+已生成 \`.vscode/settings.json\`（rust-analyzer target / check.allTargets）与 \`.vscode/tasks.json\`（构建 / 烧录任务）。
+
+<%- debugNote %>
+<% } -%>
 <% if (embassy) { -%>
 
 ## 异步运行时

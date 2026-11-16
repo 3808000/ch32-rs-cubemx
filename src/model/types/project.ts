@@ -70,4 +70,6 @@ export interface ProjectConfig {
   interrupts?: InterruptConfig[]
   /** DMA 通道分配（M3）。可选，向后兼容。 */
   dma?: DmaConfig[]
+  /** 生成该配置的工具信息（M4.6 迁移基础设施）。可选，向后兼容。 */
+  generator?: { name: string; version: string }
 }

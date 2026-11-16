@@ -3,6 +3,22 @@ export const DUAL_README_TPL = `# <%- projectName %>（<%- chip %> 双核工程�
 
 由 ch32-rs-CubeMX 生成：芯片 <%- chip %>（<%- chipPackage %>），QingKe <%- coreSummary %>。
 工程是 Cargo workspace，V3F 启动核与 V5F 计算核各一个 crate，另有 \`xtask\` 负责双核构建/烧录/合并。
+<% if (locals.pinTable || locals.metadataTable) { -%>
+
+## 工程报告
+<% } -%>
+<% if (locals.pinTable) { -%>
+
+### 引脚占用
+
+<%- locals.pinTable %>
+<% } -%>
+<% if (locals.metadataTable) { -%>
+
+### 生成信息
+
+<%- locals.metadataTable %>
+<% } -%>
 
 ## 文件清单
 
@@ -56,16 +72,52 @@ cargo xtask merge          # 输出 out/firmware.bin / out/firmware.hex
 
 ## 时钟
 
+<% if (locals.clockTable) { -%>
+<%- locals.clockTable %>
+<% } else { -%>
 <%- clockSummary %>
+<% } -%>
+<% if (locals.peripheralTable) { -%>
+
+## 外设实例
+
+<%- locals.peripheralTable %>
+<% } -%>
+<% if (locals.interruptTable) { -%>
+
+## 中断
+
+<%- locals.interruptTable %>
+<% } -%>
+<% if (locals.budgetTable) { -%>
+
+## Flash / RAM 预算
+
+<%- locals.budgetTable %>
+
+> 容量来自芯片数据（\`chip.json\`）；双核按核划分的实际占用以各自构建产物为准。
+<% } -%>
 
 时钟代码生成走 HAL 配方（\`hal::rcc::Config::with_*\`）：H4 的 Config 不是可逐字段拼装的平铺结构，
 数据层标记 \`fallback: preset_only\`，无匹配预设时导出会被阻止。
+<% if (locals.toolchainTable) { -%>
+
+## 构建档位
+
+<%- locals.toolchainTable %>
+<% } -%>
 
 ## 配置回读与用户代码
 
 - 工程根 \`cube.json\` 是本工程的配置快照（等价于 STM32CubeMX 的 \`.ioc\`），可拖回 ch32-rs-CubeMX 继续编辑；
 - \`<核>/src/generated/**\` 是生成区：每次重新导出整体重写，请勿写业务代码；
 - \`<核>/src/main.rs\` 是用户区：**永不覆盖**，可自由修改；需要新外设时回到工具重新导出。
+<% if (locals.debugNote) { -%>
+
+## 调试配置
+
+<%- locals.debugNote %>
+<% } -%>
 <% if (vendorHal) { -%>
 
 ## vendor/ch32-hal

@@ -1,13 +1,22 @@
 // codegen 快照测试：每个生成文件 toMatchSnapshot()。
 // 覆盖：空配置 / GPIO 输出输入 / EXTI / USART remap0 / SPI / I2C / ADC /
 //       embassy / 时钟预设命中 / 显式兜底 / vendorHal 开关 / 错误阻止 / halBackend 守卫。
-import { describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { CodegenResult, DeviceData, PinAssignment, PinMode, ProjectConfig } from '@/model/types'
 import { getDeviceData } from '@/model/device'
 import { generateProject } from '@/model/codegen'
 import { GENERATED_END_MARKER, GENERATED_START_MARKER } from '@/services/tomlMerge'
 
 const HAL_REV = 'a0863ebcc1082f64e508b73d3b944f119b0db77b'
+
+// README 生成信息包含真实生成时间：快照测试固定系统时间，避免每次运行都变化。
+const FIXED_NOW = new Date('2026-01-01T00:00:00.000Z')
+beforeAll(() => {
+  vi.useFakeTimers({ now: FIXED_NOW, toFake: ['Date'] })
+})
+afterAll(() => {
+  vi.useRealTimers()
+})
 
 function baseConfig(over: Partial<ProjectConfig> = {}): ProjectConfig {
   return {

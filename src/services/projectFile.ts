@@ -16,6 +16,55 @@ import { isDesktopApp, saveFileNative } from '@/services/desktop'
 
 export type ProjectFileParseResult = { config: ProjectConfig } | { error: string }
 
+/** 当前 cube.json 版本。M4.6 先建迁移通路，暂不升版。 */
+export const CONFIG_VERSION = 1
+
+/** 单级迁移：version n → n+1，返回新的原始对象（不修改入参）。 */
+export type ConfigMigration = (raw: Record<string, unknown>) => Record<string, unknown>
+
+/**
+ * 迁移链表：键为源版本号。当前只有 version 1，暂无迁移项。
+ * 将来升到 version 2 时：增加 MIGRATIONS[1]，并把 CONFIG_VERSION 改为 2。
+ */
+export const MIGRATIONS: Record<number, ConfigMigration> = {}
+
+export type MigrateResult = { raw: Record<string, unknown> } | { error: string }
+
+/**
+ * 逐级迁移原始 cube.json 对象（未做字段补全）。
+ * - version ≤ targetVersion：按 MIGRATIONS 链逐级升级；
+ * - version > targetVersion：明确拒绝（调用方保留原文件，不覆盖）；
+ * - 缺 version / 非正整数 / 迁移链缺失：返回中文错误。
+ */
+export function migrateConfig(
+  raw: Record<string, unknown>,
+  migrations: Record<number, ConfigMigration> = MIGRATIONS,
+  targetVersion: number = CONFIG_VERSION,
+): MigrateResult {
+  const version = raw.version
+  if (version === undefined) {
+    return { error: '工程配置缺少 version 字段（应为 1）' }
+  }
+  if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+    return { error: `不支持的工程配置版本：${String(version)}（version 必须为正整数）` }
+  }
+  if (version > targetVersion) {
+    return {
+      error: `不支持的工程配置版本：${version}（当前工具支持到 version ${targetVersion}，原文件未修改）`,
+    }
+  }
+
+  let current: Record<string, unknown> = { ...raw }
+  for (let v = version; v < targetVersion; v++) {
+    const migrate = migrations[v]
+    if (typeof migrate !== 'function') {
+      return { error: `工程配置迁移链缺失：version ${v} → ${v + 1}` }
+    }
+    current = { ...migrate(current), version: v + 1 }
+  }
+  return { raw: current }
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -28,26 +77,23 @@ function asString(value: unknown, fallback = ''): string {
  * 解析 cube.json 文本。
  * 兼容旧工程：仅校验 version 与 chip，其余字段缺失时按 store.loadConfig 的默认策略补全。
  * 未知芯片返回包含芯片名的中文错误，避免用户拿到难以定位的异常。
+ * M4.6：先走迁移链；未知字段通过 `{...raw, ...known}` 保留，保证向后兼容。
  */
 export function parseProjectFile(text: string): ProjectFileParseResult {
-  let raw: unknown
+  let parsed: unknown
   try {
-    raw = JSON.parse(text)
+    parsed = JSON.parse(text)
   } catch {
     return { error: '无法解析工程配置：文件不是合法的 JSON' }
   }
-  if (!isRecord(raw)) {
+  if (!isRecord(parsed)) {
     return { error: '无法解析工程配置：顶层应为 JSON 对象' }
   }
 
-  if (raw.version !== 1) {
-    return {
-      error:
-        raw.version === undefined
-          ? '工程配置缺少 version 字段（应为 1）'
-          : `不支持的工程配置版本：${String(raw.version)}（仅支持 version 1）`,
-    }
-  }
+  // 版本守卫 + 逐级迁移（> 当前版本明确拒绝；原文件由调用方保留，不覆盖）
+  const migrated = migrateConfig(parsed)
+  if ('error' in migrated) return { error: migrated.error }
+  const raw = migrated.raw
 
   const chip = asString(raw.chip).trim()
   if (!chip) return { error: '工程配置缺少芯片型号（chip）' }
@@ -86,8 +132,10 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
     }
   }
 
-  const config: ProjectConfig = {
-    version: 1,
+  // 已知字段覆盖规范化结果；未知字段（未来版本新增）原样保留。
+  const config = {
+    ...raw,
+    version: 1 as const,
     chip,
     projectName: asString(raw.projectName).trim() || 'ch32-project',
     pins,
@@ -107,12 +155,26 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
     unlockedPins: (Array.isArray(raw.unlockedPins) ? raw.unlockedPins : []).filter(
       (p): p is string => typeof p === 'string',
     ),
-  }
+  } as unknown as ProjectConfig
+
+  // 中断：仅接受合法项；非数组（含历史坏值）时删除，避免从 raw 展开时泄漏。
   if (Array.isArray(raw.interrupts)) config.interrupts = interrupts
+  else delete config.interrupts
+
+  // 生成器信息：仅在 name/version 都为非空字符串时保留（M4.6）。
+  const generatorRaw = isRecord(raw.generator) ? raw.generator : undefined
+  const generatorName = asString(generatorRaw?.name).trim()
+  const generatorVersion = asString(generatorRaw?.version).trim()
+  if (generatorName && generatorVersion) {
+    config.generator = { name: generatorName, version: generatorVersion }
+  } else {
+    delete config.generator
+  }
+
   return { config }
 }
 
-/** 配置 → 格式化 JSON（2 空格缩进，与导出的 cube.json 一致）。 */
+/** 配置 → 格式化 JSON（2 空格缩进，与导出的 cube.json 一致；包含 generator 等全部字段）。 */
 export function serializeProjectFile(config: ProjectConfig): string {
   return JSON.stringify(config, null, 2)
 }

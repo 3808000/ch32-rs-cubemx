@@ -41,5 +41,22 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
 # <<< ch32-cubemx generated <<<
 `

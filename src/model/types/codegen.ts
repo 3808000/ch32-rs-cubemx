@@ -3,6 +3,12 @@ import type { Conflict } from './conflict'
 
 // ---------- 代码生成 ----------
 
+/** 构建档位选择：对应 Cargo.toml 中生成的 release-size/release-speed/release-debug profile。 */
+export type BuildProfile = 'release-size' | 'release-speed' | 'release-debug'
+
+/** IDE 工作区配置产物：none=不生成；vscode=生成 .vscode/settings.json + tasks.json。 */
+export type IdeConfigKind = 'none' | 'vscode'
+
 export interface CodegenSelection {
   projectSkeleton: boolean
   clock: boolean
@@ -15,6 +21,10 @@ export interface CodegenSelection {
   readme: boolean
   /** 内嵌完整 ch32-hal 源码到 vendor/ch32-hal（path 依赖，便于查阅代码） */
   vendorHal: boolean
+  /** IDE 配置产物（M4.5）。可选，缺省 none（不改变既有生成结果）。 */
+  ideConfig?: IdeConfigKind
+  /** 默认构建档位（M4.4），仅用于 IDE 任务的默认项；缺省 release-size。 */
+  profile?: BuildProfile
 }
 
 export const DEFAULT_SELECTION: CodegenSelection = {
@@ -28,6 +38,8 @@ export const DEFAULT_SELECTION: CodegenSelection = {
   adc: true,
   readme: true,
   vendorHal: true,
+  ideConfig: 'none',
+  profile: 'release-size',
 }
 
 /** 文件组（对齐 CubeMX2 fileGroup）：决定再生成时的覆盖/保护策略。

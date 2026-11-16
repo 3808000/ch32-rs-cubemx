@@ -1,6 +1,5 @@
 // 双核 workspace（H417）：Cargo workspace + 每核一个 crate + xtask（构建/烧录/合并）。
 import type { CodegenResult, CodegenSelection, Conflict, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
-import { computeClock, mergeClockConfig } from '@/model/clock'
 import type { PeripheralUsage } from '@/model/peripherals'
 import { HAL_GIT, HAL_REV } from './halRev'
 import { render } from './render'
@@ -9,6 +8,8 @@ import { withFileGroups } from './fileGroup'
 import { renderClock } from './clock'
 import { renderCoreGenerated } from './core'
 import { renderCubeFile } from './cubefile'
+import { renderDualReadme } from './readme'
+import { renderIdeConfigFiles } from './ideConfig'
 import * as T from './templates'
 
 /** 双核 target → 自定义 target json 模板。未知 target 直接报错，不猜。 */
@@ -189,30 +190,11 @@ export function generateDualCoreProject(
   // ---------- cube.json（工程根，配置回读） ----------
   files.push(renderCubeFile(config))
 
-  // ---------- README ----------
-  if (sel.readme) {
-    const cfg = mergeClockConfig(data.clock, config.clock)
-    const f = computeClock(data.clock, cfg)
-    files.push({
-      path: 'README.md',
-      content: render(T.DUAL_README_TPL, {
-        projectName: config.projectName,
-        chip: data.chip.chip,
-        chipPackage: data.chip.package,
-        coreSummary: cores.map((c) => c.label).join(' + '),
-        cores: cores.map((c) => ({
-          id: c.id,
-          label: c.label,
-          halFeature: c.halFeature,
-          target: c.target,
-          mainCore: c === mainCore,
-        })),
-        clockSummary: `当前配置：SYSCLK ${f.sysclkMhz}MHz，HCLK ${f.hclkMhz}MHz，PCLK1 ${f.pclk1Mhz}MHz，PCLK2 ${f.pclk2Mhz}MHz。`,
-        vendorHal: sel.vendorHal,
-        files: files.map((x) => ({ path: x.path, desc: dualFileDesc(x.path) })),
-      }),
-    })
-  }
+  // ---------- IDE 配置（可选 vscode） ----------
+  files.push(...renderIdeConfigFiles(config, data, sel))
+
+  // ---------- README（含工程报告，与单核同源） ----------
+  if (sel.readme) files.push(renderDualReadme(config, data, sel, files, dualFileDesc))
 
   return { files: withFileGroups(files), errors: [] }
 }

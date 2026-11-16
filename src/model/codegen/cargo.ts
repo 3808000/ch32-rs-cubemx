@@ -1,6 +1,7 @@
 // 单核工程骨架：Cargo.toml / rust-toolchain.toml / .cargo/config.toml / build.rs / .gitignore。
 import type { CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
 import { HAL_GIT, HAL_REV } from './halRev'
+import { renderIdeConfigFiles } from './ideConfig'
 import { render } from './render'
 import { sanitizePackageName } from './util'
 import * as T from './templates'
@@ -15,7 +16,12 @@ export function renderSkeletonFiles(
   sel: CodegenSelection,
   embassy: boolean,
 ): GeneratedFile[] {
-  if (!sel.projectSkeleton) return []
+  const files: GeneratedFile[] = []
+  if (!sel.projectSkeleton) {
+    // 骨架未勾选时仍可单独生成 IDE 配置（.vscode 与骨架解耦）
+    files.push(...renderIdeConfigFiles(config, data, sel))
+    return files
+  }
   const packageName = sanitizePackageName(config.projectName)
   const nightly = data.chip.nightly
   const jsonTarget = nightly && data.chip.target === 'riscv32ec-unknown-none-elf'
@@ -23,7 +29,6 @@ export function renderSkeletonFiles(
   if (embassy) feats.push('embassy', 'time-driver-tim2')
   feats.push('rt', 'exti', 'memory-x')
 
-  const files: GeneratedFile[] = []
   files.push({
     path: 'Cargo.toml',
     content: render(T.CARGO_TOML_TPL, {
@@ -50,5 +55,6 @@ export function renderSkeletonFiles(
   files.push({ path: 'build.rs', content: render(T.BUILD_RS_TPL, {}) })
   files.push({ path: '.gitignore', content: T.GITIGNORE_TPL })
   if (jsonTarget) files.push({ path: 'riscv32ec-unknown-none-elf.json', content: T.TARGET_RISCV32EC_TPL })
+  files.push(...renderIdeConfigFiles(config, data, sel))
   return files
 }
