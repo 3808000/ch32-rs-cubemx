@@ -1,9 +1,11 @@
 // 工程配置模型：引脚分配、分组、时钟引用与外设开关（ProjectConfig）。
 import type { ClockConfig } from './clock'
+import type { ConflictResolution, FileGroup } from './codegen'
 
 // ---------- 配置模型（ProjectConfig） ----------
 
-export type PinMode = 'INPUT' | 'OUTPUT' | 'AF' | 'ANALOG'
+/** RESERVED = 用户标记保留（M4.7/M8）：不做电气配置、生成器跳过、外设占用报冲突。 */
+export type PinMode = 'INPUT' | 'OUTPUT' | 'AF' | 'ANALOG' | 'RESERVED'
 export type OutputType = 'PUSH_PULL' | 'OPEN_DRAIN'
 export type SpeedGrade = 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH'
 export type Level = 'HIGH' | 'LOW'
@@ -72,4 +74,16 @@ export interface ProjectConfig {
   dma?: DmaConfig[]
   /** 生成该配置的工具信息（M4.6 迁移基础设施）。可选，向后兼容。 */
   generator?: { name: string; version: string }
+  /** 类别级冲突策略（M8，对齐 CubeMX2 Automatic Conflict Handling Rules）。可选，缺省=safe 安全网。 */
+  conflictPolicy?: ConflictPolicy
+}
+
+/** 冲突策略模式：safe=M1 安全网默认；update=Update files on change（冲突默认覆盖）；custom=逐组自定义。 */
+export type ConflictPolicyMode = 'safe' | 'update' | 'custom'
+
+/** 类别级冲突决议默认值（仅影响 conflict 条目的默认 resolution；user_code 永不写盘不受影响）。 */
+export interface ConflictPolicy {
+  mode: ConflictPolicyMode
+  /** mode=custom 时逐组覆盖；缺省组回退 safe 默认。 */
+  groups?: Partial<Record<FileGroup, ConflictResolution>>
 }

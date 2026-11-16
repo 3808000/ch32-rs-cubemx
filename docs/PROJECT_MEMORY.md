@@ -68,7 +68,8 @@
 
 ## 7. 测试与门禁现状（2026-11-16 工程化重构后）
 
-- 单元测试：**823 个用例全绿**（40 文件；M6 新增：htmlReport 19 / historyStack 23 / useHistory 15 / moveSignal 20 / packageSvg +10 / clockInlineEdit 26 / panelResize 16 / chipPicker 17 / codegen 接线 +3；M7 新增 generationGate 8）。
+- 单元测试：**882 个用例全绿**（42 文件；M7 新增 generationGate 8；M8 新增 conflictPolicy 25 / exportPlan +4 / reservedPin 13 / signalsSelector 17）。
+- M8（v0.09）：主题对齐 MX2（白左栏/藏青标签底板/白 raised 选中签，变量化+对比度采样）；类别级冲突策略（safe/update/custom 三档 + 逐组下拉，resolveGroupDefaults + inspect/write groupDefaults 管线，逐文件决议优先，user_code 硬保护，随 cube.json 保存）；M4.7 SignalsSelector（搜索/分组/多 remap 档/当前徽标）+ PinMode RESERVED 全链路（reserved 态/生成跳过/RESERVED_PIN_IN_USE）。
 - M7（v0.08）：生成决议入页（对齐 CubeMX2 实机取证）——CodegenDialog/CheckDialog 删除，useGenerationFlow composable + PreflightPanel 页内检查 + Project settings 唯一决议中心（选项/门禁/预览决议/结果报告全页内），Pinout 导出按钮跳转 settings。
 - M6（v0.07）：Runtime 一等公民（blocking/embassy 选择器，rtic 禁激活待核实）/ HTML 单文件报告（report.html，generated 组）/ 全局 Undo-Redo（Ctrl+Z/Y，快照栈合并窗口）/ 封装拖拽移动信号+90°+Bottom 镜像（文字可读性矩阵验证）/ 时钟节点 foreignObject 内联编辑 / 面板宽度持久化+拖拽调宽 / Home 芯片搜索对比表。板卡功能按用户决定取消（版权风险）。
 - 类型检查 vue-tsc、ESLint（含分层边界规则）、vite build 全绿。

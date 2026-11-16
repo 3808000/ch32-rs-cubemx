@@ -1,14 +1,18 @@
 <script setup lang="ts">
-// 引脚配置面板（右侧 Detail view）：模式/参数/信号/remap/标签/EXTI。
-import { computed } from 'vue'
+// 引脚配置面板（右侧 Detail view）：模式/参数/信号/remap/标签/EXTI + 信号选择器 / Reserved 切换。
+import { computed, ref } from 'vue'
 import { Delete, Unlock } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { remapsOfPin, remapValuesFor } from '@/model/device'
 import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import type { PinMode } from '@/model/types'
+import SignalsSelector from '@/components/pinout/SignalsSelector.vue'
 
 const store = useProjectStore()
 const { requestOverwrite } = usePinOverwrite(store)
+
+/** 信号选择器（搜索 + 分组 + Reserved）开关。 */
+const selectorOpen = ref(false)
 
 const pin = computed(() => {
   if (!store.selectedPin) return null
@@ -31,6 +35,9 @@ const isLocked = computed(() => {
   const p = pin.value
   return p?.special && p.special !== 'osc' && !store.unlocked.includes(p.name)
 })
+
+const isIo = computed(() => pin.value?.type === 'IO')
+const isReserved = computed(() => assignment.value?.mode === 'RESERVED')
 
 const modeOptions: { value: PinMode; label: string }[] = [
   { value: 'INPUT', label: 'GPIO 输入' },
@@ -92,6 +99,17 @@ function clearPin() {
   if (!store.selectedPin) return
   const p = store.selectedPin
   requestOverwrite(p, () => store.clearPin(p), '清除配置')
+}
+
+/** 标记 / 解除用户保留（RESERVED）：不做电气配置、生成器跳过。 */
+function toggleReserved() {
+  if (!store.selectedPin || !isIo.value) return
+  const p = store.selectedPin
+  if (isReserved.value) {
+    requestOverwrite(p, () => store.clearPin(p), '解除保留')
+  } else {
+    requestOverwrite(p, () => store.setPinAssignment(p, 'RESERVED'), '标记 Reserved')
+  }
 }
 
 function unlock() {
@@ -208,8 +226,14 @@ const speedOptions = [
           <el-input :model-value="assignment.label ?? ''" size="small" placeholder="如 LED_RUN" @change="(v: string) => store.setPinLabel(pin!.name, v)" />
         </div>
 
-        <div v-if="assignment" class="form-actions">
-          <el-button size="small" type="danger" plain :icon="Delete" @click="clearPin">清除配置</el-button>
+        <div class="form-actions">
+          <el-button size="small" type="primary" plain :disabled="!isIo" @click="selectorOpen = true">
+            Assign signal…
+          </el-button>
+          <el-button size="small" plain :type="isReserved ? 'warning' : 'default'" :disabled="!isIo" @click="toggleReserved">
+            {{ isReserved ? '解除保留' : '标记 Reserved' }}
+          </el-button>
+          <el-button v-if="assignment" size="small" type="danger" plain :icon="Delete" @click="clearPin">清除配置</el-button>
         </div>
       </div>
 
@@ -230,6 +254,15 @@ const speedOptions = [
       <p>点击封装图上的引脚开始配置</p>
       <p class="muted">支持 GPIO 输入/输出、复用功能、模拟通道与 EXTI</p>
     </div>
+
+    <!-- 信号选择器（搜索 + 分组 + Reserved）：dialog teleport 到 body -->
+    <SignalsSelector
+      v-if="selectorOpen && pin"
+      :pin="pin!"
+      :assignment="assignment"
+      :data="store.deviceData"
+      @close="selectorOpen = false"
+    />
   </div>
 </template>
 

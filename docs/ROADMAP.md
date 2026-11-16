@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-16）：M1–M7 七个里程碑核心项全部完成并推送。** 测试 380→823，19 个子智能体分域并行 + 主控基座/接线/集成。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-16）：M1–M8 八个里程碑核心项全部完成并推送。** 测试 380→882，19+3 个子智能体分域并行 + 主控基座/接线/集成（M8 期间子代理配额中断一次，换 API 后续作；模型层 RESERVED 链路由主控接管完成）。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -143,6 +143,24 @@
 | 7.2 | 检查面板页内化 | 新 `components/codegen/PreflightPanel.vue`；删 `CheckDialog.vue` | 浏览器：警告列表+定位链接页内可见 |
 | 7.3 | Project settings 决议中心 | `views/ProjectSettingsView.vue` 重写 Generation 段 + 预览/结果段 | 浏览器：选项/门禁/ZIP 结果全页内 |
 | 7.4 | 入口收敛 | `views/PinoutView.vue` 导出按钮跳转；删 `CodegenDialog.vue` | 浏览器：Pinout→settings 无弹窗 |
+
+---
+
+## M8（v0.09）主题对齐 + 冲突策略类别化 + 多信号模型 ✅ 已完成（2026-11-16）
+
+> **落地状态**：3 项全部完成并推送。882 测试全绿（823→882：conflictPolicy 25 / exportPlan +4 / reservedPin 13 / signalsSelector 17）、verify:build 3/3、validate 0 错、浏览器逐项验收通过（主题取色对照实机 / 策略三档+custom 逐组+持久化入 cube.json / 选择器搜索+多 remap 档+分配+Reserved 标记与解除全链路）。子代理 T/U/V 分域（配额中断换 API 续作）；类型契约、controllers 策略状态、RESERVED 模型层（pinFilter/derive/reservedRules）由主控完成。
+> **接受的设计差异（记录）**：左栏 active 保留品牌黄块（MX2 实机为蓝块、黄用于生成动作）；左栏宽 56px（MX2 约 61px）；标签起始贴左栏（MX2 留白约 300px）；选中签文字取实机采样蓝 #2a62b7。
+
+> 来源：用户指示（左栏白/标签底板蓝/选中签白，对照实机截图）+ M7 遗留 fidelity 项 + M4.7 暂缓项。
+> 作战：主控预置类型契约（PinMode+'RESERVED'、ConflictPolicy、RESERVED_PIN_IN_USE）+ 3 子代理分域（T 主题 / U 冲突策略 / V 多信号）。
+
+| # | 任务 | 改动落点 | 验收 | 并行域 |
+|---|---|---|---|---|
+| 8.1 | **主题对齐 MX2**：左图标栏白底灰图标黄 active；标签底板深藏青、未选中浅字、选中白 raised；变量化 | `styles/tokens.css`、`IconRail.vue`、`TabStrip.vue` | 浏览器截图与 /tmp/mx2-*.png 逐项对照 | T |
+| 8.2 | **类别级冲突策略**：Advanced「Automatic Conflict Handling Rules」master 三档（safe/update-on-change/custom）+ custom 逐组下拉；resolveGroupDefaults 纯函数；inspect/write 传 groupDefaults；逐文件决议优先；入 cube.json | `controllers/project.ts`、`services/{projectFile,exportPlan,projectExport}.ts`、`useGenerationFlow.ts`、`ProjectSettingsView.vue` | 单测 ≥18；缺省行为逐字节等价 | U |
+| 8.3 | **M4.7 信号选择器 + Reserved**：SignalsSelector（搜索/分组 GPIO/AF 按外设/Analog/Reserved、当前徽标、多 remap 档）；PinMode RESERVED 全链路（状态 reserved/生成跳过/RESERVED_PIN_IN_USE 冲突）；右键与详情面板入口 | 新 `pinout/SignalsSelector.vue`、`PinContextMenu.vue`、`PinConfigPanel.vue`、`pinFilter.ts`、`codegen/derive.ts`、`conflicts/rules/` | 单测 ≥22；生成物不含 reserved 引脚 | V |
+
+**M8 验收门禁**：823+ 测试全绿（新增 ≥40）；verify:build 三芯片；浏览器主题对照 + 策略下拉 + 选择器全流程；推送。
 
 ---
 

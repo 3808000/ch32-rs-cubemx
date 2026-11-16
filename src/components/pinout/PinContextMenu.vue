@@ -1,5 +1,6 @@
 <script setup lang="ts">
-// 引脚右键菜单（M2.7）：分组信号清单 + Assign / Configure / Edit label / Reset Pin State。
+// 引脚右键菜单（M2.7 / M4.7）：分组信号清单 + 信号选择器（搜索/分组）+ Reserved 切换 +
+// Assign / Configure / Edit label / Reset Pin State。
 // 动作复用 PinConfigPanel 的覆盖确认（usePinOverwrite）与 store；Exclude pin 为 M3 占位。
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessageBox } from 'element-plus'
@@ -8,6 +9,7 @@ import { peripheralOfSignal, remapValuesFor, remapsOfPin } from '@/model/device'
 import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import { pinStateColors, pinStateLabel, type PinStateId } from '@/model/pins/pinFilter'
 import type { ChipPin, PinAssignment } from '@/model/types'
+import SignalsSelector from './SignalsSelector.vue'
 
 const props = defineProps<{
   x: number
@@ -26,6 +28,8 @@ const emit = defineEmits<{
 const store = useProjectStore()
 const { requestOverwrite } = usePinOverwrite(store)
 const root = ref<HTMLElement | null>(null)
+/** 信号选择器打开时隐藏菜单本体（dialog 本身 teleport 到 body）。 */
+const selectorOpen = ref(false)
 
 const stateColor = computed(() => pinStateColors(props.state, props.assignment?.mode))
 const stateText = computed(() => pinStateLabel(props.state))
@@ -81,6 +85,31 @@ function openDetail() {
   emit('close')
 }
 
+/** 打开信号选择器（搜索 + 分组 + Reserved）；关闭后整张菜单一并收起。 */
+function openSelector() {
+  selectorOpen.value = true
+}
+
+function closeSelector() {
+  selectorOpen.value = false
+  emit('close')
+}
+
+/** 标记 / 解除用户保留（RESERVED）：走覆盖确认，不改变其余菜单动作。 */
+async function toggleReserved() {
+  const isReserved = props.assignment?.mode === 'RESERVED'
+  const ok = await requestOverwrite(
+    props.pin.name,
+    () =>
+      isReserved
+        ? store.clearPin(props.pin.name)
+        : store.setPinAssignment(props.pin.name, 'RESERVED'),
+    isReserved ? '解除保留' : '标记 Reserved',
+  )
+  if (!ok) return
+  emit('close')
+}
+
 function configurePeripheral() {
   if (!peripheralId.value) return
   store.openPeripheral(peripheralId.value)
@@ -112,9 +141,13 @@ async function resetPin() {
 }
 
 function onDocumentMouseDown(e: MouseEvent) {
+  // 选择器打开时点击发生在 dialog（teleport 到 body）内，不据此关闭菜单
+  if (selectorOpen.value) return
   if (root.value && !root.value.contains(e.target as Node)) emit('close')
 }
 function onDocumentKey(e: KeyboardEvent) {
+  // Esc 交给 dialog 处理（关闭 dialog 后再由 closeSelector 收起菜单）
+  if (selectorOpen.value) return
   if (e.key === 'Escape') emit('close')
 }
 onMounted(() => {
@@ -129,6 +162,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div
+    v-show="!selectorOpen"
     ref="root"
     class="pin-menu"
     :style="{ left: `${x}px`, top: `${y}px` }"
@@ -187,6 +221,12 @@ onBeforeUnmount(() => {
     <div class="menu-sep"></div>
 
     <button type="button" class="menu-item" role="menuitem" :disabled="!isIo" @click="openDetail">Assign signal…</button>
+    <button type="button" class="menu-item" role="menuitem" :disabled="!isIo" @click="openSelector">
+      信号列表（搜索/分组）…
+    </button>
+    <button type="button" class="menu-item" role="menuitem" :disabled="!isIo" @click="toggleReserved">
+      {{ assignment?.mode === 'RESERVED' ? '解除保留' : '标记 Reserved' }}
+    </button>
     <button v-if="peripheralId" type="button" class="menu-item" role="menuitem" @click="configurePeripheral">
       Configure {{ peripheralId }}
     </button>
@@ -196,6 +236,15 @@ onBeforeUnmount(() => {
       Exclude pin <span class="m3">M3</span>
     </button>
   </div>
+
+  <!-- 信号选择器：dialog teleport 到 body，首屏即挂载在菜单上下文里 -->
+  <SignalsSelector
+    v-if="selectorOpen"
+    :pin="pin"
+    :assignment="assignment"
+    :data="store.deviceData"
+    @close="closeSelector"
+  />
 </template>
 
 <style scoped>

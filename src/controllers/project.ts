@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 import type {
   ClockConfig,
   Conflict,
+  ConflictPolicy,
   DmaConfig,
   InterruptConfig,
   PeripheralState,
@@ -30,6 +31,7 @@ interface ProjectState {
   peripherals: Record<string, PeripheralState>
   interrupts: InterruptConfig[] // M3 NVIC/PFIC
   dma: DmaConfig[] // M3 DMA 通道分配
+  conflictPolicy: ConflictPolicy // M8 类别级冲突策略（缺省 safe 安全网）
   features: { embassy: boolean; debugPrint: boolean }
   halRev: string
   selectedPin: string | null
@@ -54,6 +56,7 @@ export const useProjectStore = defineStore('project', {
     peripherals: {},
     interrupts: [],
     dma: [],
+    conflictPolicy: { mode: 'safe' },
     features: { embassy: false, debugPrint: true },
     halRev: HAL_REV,
     selectedPin: null,
@@ -83,6 +86,8 @@ export const useProjectStore = defineStore('project', {
         peripherals: this.peripherals,
         interrupts: this.interrupts,
         dma: this.dma,
+        // safe 为缺省语义：不写入 cube.json，保持旧工程产物逐字节不变
+        ...(this.conflictPolicy.mode !== 'safe' ? { conflictPolicy: this.conflictPolicy } : {}),
         features: this.features,
         hal: { rev: this.halRev },
         unlockedPins: [...this.unlocked],
@@ -245,6 +250,12 @@ export const useProjectStore = defineStore('project', {
       this.markDirty()
     },
 
+    /** 类别级冲突策略（M8，对齐 CubeMX2 Automatic Conflict Handling Rules）。 */
+    setConflictPolicy(policy: ConflictPolicy) {
+      this.conflictPolicy = policy
+      this.markDirty()
+    },
+
     setFeatures(f: Partial<{ embassy: boolean; debugPrint: boolean }>) {
       this.features = { ...this.features, ...f }
       this.markDirty()
@@ -291,6 +302,7 @@ export const useProjectStore = defineStore('project', {
       this.peripherals = cfg.peripherals ?? {}
       this.interrupts = Array.isArray(cfg.interrupts) ? cfg.interrupts : []
       this.dma = Array.isArray(cfg.dma) ? cfg.dma : []
+      this.conflictPolicy = cfg.conflictPolicy ?? { mode: 'safe' }
       this.features = { embassy: false, debugPrint: true, ...(cfg.features ?? {}) }
       this.halRev = cfg.hal?.rev ?? HAL_REV
       // 旧工程缺 unlockedPins 时置空；运行时数据可能被手改，过滤掉非字符串
@@ -311,6 +323,7 @@ export const useProjectStore = defineStore('project', {
       this.peripherals = {}
       this.interrupts = []
       this.dma = []
+      this.conflictPolicy = { mode: 'safe' }
       this.clock = null
       this.unlocked = []
       this.selectedPin = null

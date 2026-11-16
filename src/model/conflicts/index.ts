@@ -4,6 +4,7 @@
 import type { Conflict, DeviceData, ProjectConfig } from '@/model/types'
 import type { ConflictContext, ConflictRule } from './rules/context'
 import { labelToIdent, runPinRules } from './rules/pinRules'
+import { runReservedRules } from './rules/reservedRules'
 import { runExtiRules } from './rules/extiRules'
 import { runClockRules } from './rules/clockRules'
 import { runPeripheralRules } from './rules/peripheralRules'
@@ -13,9 +14,10 @@ import { runDeviceRules } from './rules/deviceRules'
 
 export { labelToIdent }
 
-/** 规则注册表：按固定顺序执行，保证冲突输出顺序稳定（引脚 → EXTI → 时钟 → 外设 → DMA → 中断 → 芯片）。 */
+/** 规则注册表：按固定顺序执行，保证冲突输出顺序稳定（引脚 → 保留 → EXTI → 时钟 → 外设 → DMA → 中断 → 芯片）。 */
 const RULES: ConflictRule[] = [
   runPinRules,
+  runReservedRules,
   runExtiRules,
   runClockRules,
   runPeripheralRules,

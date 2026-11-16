@@ -4,9 +4,11 @@
 // Runtime（M6）选择 blocking/embassy 运行时与调试打印（rtic 待 HAL 支持，禁激活）；
 // Code Generation（M7）为唯一生成决议中心：子项/档位/IDE/导出方式/检查确认/预览决议/结果报告全在页内（对齐 CubeMX2，无二次弹窗）；
 // Generation 说明导出选项并打开 CodegenDialog（与 Pinout 共用同一生成服务）；
-// Advanced 展示 M1 再生成安全网的 fileGroup 策略与冲突决议选项。
+// Advanced 展示 M1 再生成安全网的 fileGroup 策略、M8 类别级冲突策略（Automatic Conflict Handling Rules）
+// 与冲突决议选项。
 import { computed, reactive, ref, watch } from 'vue'
 import { Expand, Fold, FolderOpened, Menu, Promotion } from '@element-plus/icons-vue'
+import type { ConflictPolicyMode, ConflictResolution, FileGroup } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
 import { HAL_GIT } from '@/model/codegen/halRev'
 import CollapsiblePanel from '@/components/common/CollapsiblePanel.vue'
@@ -114,6 +116,46 @@ const resolutionOptions: { label: string; desc: string }[] = [
   { label: '备份后覆盖', desc: '先写入 .bak，再覆盖' },
   { label: '标记区合并', desc: '仅 Cargo.toml 有效；其它文件按覆盖处理' },
 ]
+
+// ---- Advanced · 类别级冲突策略（M8，对齐 CubeMX2 Automatic Conflict Handling Rules） ----
+// master 三档：safe=安全网（conflict 默认跳过，M1 现状）；update=Update files on change
+// （conflict 默认覆盖）；custom=逐组自定义（缺省组回退 safe）。user_code 硬保护不受策略影响。
+const policyModeOptions: { value: ConflictPolicyMode; label: string }[] = [
+  { value: 'safe', label: '默认安全网（冲突跳过）' },
+  { value: 'update', label: 'Update files on change（变更时更新）' },
+  { value: 'custom', label: 'Custom…（逐组自定义）' },
+]
+
+const policyGroupRows: { group: FileGroup; options: ConflictResolution[] }[] = [
+  { group: 'generated', options: ['skip', 'overwrite', 'backup'] },
+  { group: 'project_file', options: ['skip', 'overwrite', 'backup', 'base-merge'] },
+  { group: 'pack', options: ['skip', 'overwrite', 'backup'] },
+]
+
+const policyRuleLabels: Record<ConflictResolution, string> = {
+  skip: '跳过（skip）',
+  overwrite: '覆盖（overwrite）',
+  backup: '备份后覆盖（backup）',
+  'base-merge': '标记区合并（base-merge，仅 Cargo.toml）',
+}
+
+/** 切换 master 档位；保留已选的逐组规则，切回 custom 时不丢配置。 */
+function setPolicyMode(mode: ConflictPolicyMode) {
+  store.setConflictPolicy({ ...store.conflictPolicy, mode })
+}
+
+/** custom 模式下某组的当前规则（缺省 = safe 的 skip）。 */
+function policyGroupRule(group: FileGroup): ConflictResolution {
+  return store.conflictPolicy.groups?.[group] ?? 'skip'
+}
+
+/** 设置某组规则（自动进入 custom 模式）。 */
+function setPolicyGroupRule(group: FileGroup, value: ConflictResolution) {
+  store.setConflictPolicy({
+    mode: 'custom',
+    groups: { ...store.conflictPolicy.groups, [group]: value },
+  })
+}
 
 // ---- 章节展开 / 导航 ----
 const open = reactive({ general: true, runtime: true, generation: true, preview: true, result: true, advanced: true })
@@ -394,6 +436,65 @@ function onGenerate() {
             </tbody>
           </table>
 
+          <div class="ps-sub-title">Automatic Conflict Handling Rules</div>
+          <p class="ps-note ps-policy-hint">
+            类别级默认决议（对齐 CubeMX2）：仅决定冲突（conflict）条目的默认处理方式，导出预览里的逐文件选择优先；
+            user_code 永不覆盖，不受策略影响；「标记区合并」仅对 project_file 有意义（Cargo.toml 标记区），
+            其它组选它时按覆盖处理。策略随 cube.json 保存。
+          </p>
+          <table class="ps-table ps-policy-table">
+            <thead>
+              <tr>
+                <th style="width: 130px">Category</th>
+                <th>Rule</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><code>All</code></td>
+                <td>
+                  <el-select
+                    :model-value="store.conflictPolicy.mode"
+                    size="small"
+                    style="width: 300px"
+                    @change="setPolicyMode($event as ConflictPolicyMode)"
+                  >
+                    <el-option
+                      v-for="opt in policyModeOptions"
+                      :key="opt.value"
+                      :label="opt.label"
+                      :value="opt.value"
+                    />
+                  </el-select>
+                </td>
+              </tr>
+              <template v-if="store.conflictPolicy.mode === 'custom'">
+                <tr v-for="row in policyGroupRows" :key="row.group">
+                  <td><code>{{ row.group }}</code></td>
+                  <td>
+                    <el-select
+                      :model-value="policyGroupRule(row.group)"
+                      size="small"
+                      style="width: 300px"
+                      @change="setPolicyGroupRule(row.group, $event as ConflictResolution)"
+                    >
+                      <el-option
+                        v-for="value in row.options"
+                        :key="value"
+                        :label="policyRuleLabels[value]"
+                        :value="value"
+                      />
+                    </el-select>
+                  </td>
+                </tr>
+                <tr>
+                  <td><code>user_code</code></td>
+                  <td><el-tag type="info" size="small">永不覆盖（硬保护，不受策略影响）</el-tag></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+
           <div class="ps-sub-title">冲突决议选项</div>
           <div class="ps-resolution-grid">
             <div v-for="opt in resolutionOptions" :key="opt.label" class="ps-resolution-item">
@@ -597,6 +698,16 @@ function onGenerate() {
   font-size: var(--mx-fz-label);
   color: var(--mx-text-secondary);
   line-height: 1.6;
+}
+.ps-policy-hint {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.ps-policy-table {
+  max-width: 640px;
+}
+.ps-policy-table td {
+  vertical-align: middle;
 }
 .ps-table {
   width: 100%;

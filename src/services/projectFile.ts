@@ -4,6 +4,8 @@
 // - 单独下载时使用 <projectName>.cube.json，便于与普通 JSON 区分。
 import type {
   ClockConfig,
+  ConflictResolution,
+  FileGroup,
   InterruptConfig,
   PeripheralState,
   PinAssignment,
@@ -68,6 +70,10 @@ export function migrateConfig(
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+/** 冲突策略的合法枚举（与 types 的 FileGroup / ConflictResolution 保持一致）。 */
+const FILE_GROUP_KEYS: readonly FileGroup[] = ['generated', 'project_file', 'user_code', 'pack']
+const CONFLICT_RESOLUTIONS: readonly ConflictResolution[] = ['skip', 'overwrite', 'backup', 'base-merge']
 
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
@@ -169,6 +175,30 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
     config.generator = { name: generatorName, version: generatorVersion }
   } else {
     delete config.generator
+  }
+
+  // 类别级冲突策略（M8）：宽容校验。
+  // - mode 必须是 safe/update/custom，否则视为非法 → 丢弃整个字段；
+  // - groups 仅接受已知 FileGroup key 与已知 ConflictResolution value，非法项静默过滤；
+  // - 旧工程无该字段时删除（保持 cube.json 往返不变）。
+  const policyRaw = isRecord(raw.conflictPolicy) ? raw.conflictPolicy : undefined
+  const policyMode =
+    policyRaw?.mode === 'safe' || policyRaw?.mode === 'update' || policyRaw?.mode === 'custom'
+      ? policyRaw.mode
+      : undefined
+  if (policyRaw && policyMode) {
+    const groups: Partial<Record<FileGroup, ConflictResolution>> = {}
+    if (isRecord(policyRaw.groups)) {
+      for (const [key, value] of Object.entries(policyRaw.groups)) {
+        if (!FILE_GROUP_KEYS.includes(key as FileGroup)) continue
+        if (!CONFLICT_RESOLUTIONS.includes(value as ConflictResolution)) continue
+        groups[key as FileGroup] = value as ConflictResolution
+      }
+    }
+    config.conflictPolicy =
+      Object.keys(groups).length > 0 ? { mode: policyMode, groups } : { mode: policyMode }
+  } else {
+    delete config.conflictPolicy
   }
 
   return { config }

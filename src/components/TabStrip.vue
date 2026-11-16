@@ -173,15 +173,15 @@ function closePeripheralTab() {
 </template>
 
 <style scoped>
+/* M8 对齐 MX2：标签底板深藏青（与标题栏同色系），未选中透明底浅字，选中白签 raised（上圆角下直角贴合内容区） */
 .tabstrip {
   height: var(--mx-tabstrip-h);
-  background: #e9edf5;
+  background: var(--mx-tabbar-bg);
   display: flex;
   align-items: flex-end;
   padding: 0 8px;
   gap: 2px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--mx-border);
 }
 .tab {
   display: flex;
@@ -191,29 +191,41 @@ function closePeripheralTab() {
   padding: 0 16px;
   border: none;
   background: transparent;
-  color: var(--mx-text-secondary);
+  color: var(--mx-tab-inactive-fg);
   font-size: 13px;
   cursor: pointer;
   border-radius: var(--mx-radius-tab) var(--mx-radius-tab) 0 0;
   position: relative;
   white-space: nowrap;
 }
+.tab .el-icon {
+  color: var(--mx-tab-inactive-icon);
+}
 .tab:hover {
-  background: rgba(255, 255, 255, 0.6);
+  background: var(--mx-tab-inactive-hover-bg);
+  color: var(--mx-tab-inactive-fg-hover);
+}
+.tab:hover .el-icon {
+  color: var(--mx-tab-inactive-fg-hover);
+}
+.tab:focus-visible {
+  outline: 2px solid var(--mx-highlight);
+  outline-offset: -2px;
 }
 .tab.active {
-  background: var(--mx-surface);
-  color: var(--mx-accent);
+  background: var(--mx-tab-active-bg);
+  color: var(--mx-tab-active-fg);
   font-weight: 600;
 }
-.tab.active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 2px;
-  background: var(--mx-accent);
+.tab.active .el-icon {
+  color: inherit;
+}
+.tab.active:hover {
+  background: var(--mx-tab-active-bg);
+  color: var(--mx-tab-active-fg);
+}
+.tab.active:focus-visible {
+  outline-color: var(--mx-accent);
 }
 .health-dot {
   width: 7px;
@@ -221,11 +233,21 @@ function closePeripheralTab() {
   border-radius: 50%;
   flex-shrink: 0;
 }
+/* 深藏青底：浅红/黄保证 AA 对比度 */
 .health-dot.error {
+  background: var(--mx-tab-dot-error);
+  box-shadow: 0 0 0 2px var(--mx-tab-dot-ring);
+}
+.health-dot.warning {
+  background: var(--mx-tab-dot-warning);
+  box-shadow: 0 0 0 2px var(--mx-tab-dot-ring);
+}
+/* 白签内：回落语义色 */
+.tab.active .health-dot.error {
   background: var(--mx-error);
   box-shadow: 0 0 0 2px rgba(192, 0, 0, 0.12);
 }
-.health-dot.warning {
+.tab.active .health-dot.warning {
   background: var(--mx-warning);
   box-shadow: 0 0 0 2px rgba(178, 106, 0, 0.14);
 }
@@ -233,6 +255,9 @@ function closePeripheralTab() {
   width: 7px;
   height: 7px;
   border-radius: 50%;
+  background: var(--mx-tab-dot-error);
+}
+.tab.active .dirty-dot {
   background: var(--mx-error);
 }
 .tabstrip-fill {
@@ -245,10 +270,18 @@ function closePeripheralTab() {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  color: var(--mx-text-muted);
+  color: var(--mx-tab-close-fg);
 }
 .tab-close:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--mx-tab-close-hover-bg);
   color: var(--mx-text);
+}
+/* 未选中的外设对象标签仍在深底上：关闭按钮/图标用浅色 */
+.tab:not(.active) .tab-close {
+  color: var(--mx-tab-inactive-icon);
+}
+.tab:not(.active) .tab-close:hover {
+  background: var(--mx-tab-inactive-hover-bg);
+  color: var(--mx-tab-inactive-fg-hover);
 }
 </style>

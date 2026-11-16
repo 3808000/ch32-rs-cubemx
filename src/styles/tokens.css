@@ -5,10 +5,31 @@
   --mx-surface: #ffffff;
   --mx-border: #e4e9f2;
 
-  /* 标题栏 / 图标栏 */
+  /* 标题栏 / 标签底板 / 图标栏（M8 对齐 MX2 实机：标题栏深藏青、标签底板藏青、图标栏白） */
   --mx-titlebar-bg: #03234b;
   --mx-titlebar-fg: #dfe5f2;
-  --mx-iconrail-bg: #173564;
+  --mx-tabbar-bg: #173564;
+  --mx-iconrail-bg: #ffffff;
+  --mx-iconrail-fg: #5a6472;
+  --mx-iconrail-fg-hover: #1a1a1a;
+  --mx-iconrail-hover-bg: #eef1f6;
+  --mx-iconrail-border: #cacfd8;
+  --mx-iconrail-divider: #e6e6e6;
+  --mx-iconrail-active-fg: #03234b;
+
+  /* 标签条（深底浅字 / 白签深字，MX2 同款 raised 选中） */
+  --mx-tab-inactive-fg: #dfe5f2;
+  --mx-tab-inactive-fg-hover: #ffffff;
+  --mx-tab-inactive-icon: #9aa7c0;
+  --mx-tab-inactive-hover-bg: rgba(255, 255, 255, 0.1);
+  --mx-tab-active-bg: #ffffff;
+  --mx-tab-active-fg: #2a62b7;
+  --mx-tab-close-fg: #616161;
+  --mx-tab-close-hover-bg: rgba(0, 0, 0, 0.08);
+  /* 健康徽标 / 未保存点：深底用浅色保证对比度，白签内回落语义色 */
+  --mx-tab-dot-error: #ff9d9d;
+  --mx-tab-dot-warning: #ffd100;
+  --mx-tab-dot-ring: rgba(255, 255, 255, 0.28);
 
   /* 强调色 */
   --mx-accent: #2a62b7;

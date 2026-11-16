@@ -20,6 +20,7 @@ import {
   type ZipExportResult,
 } from '@/services/projectExport'
 import { DEFAULT_SELECTION, type CodegenSelection } from '@/model/types'
+import { resolveGroupDefaults } from '@/services/exportPlan'
 import { preflight, type PreflightReport } from '@/model/preflight'
 import type { GenerationReportData, GenerationReportFile } from '@/components/codegen/GenerationReport.vue'
 
@@ -73,6 +74,8 @@ export function useGenerationFlow() {
   // 目录导出两段式：inspect 预览 →（有冲突/删除时）页内逐项决议 → 确认写入
   const pendingFolder = ref<PendingFolder | null>(null)
   const resolutions = ref<ConflictResolutions>({})
+  // M8 类别级冲突策略：工程级 conflict 默认决议（safe 时为空表，逐文件决议仍可覆盖）
+  const groupDefaults = computed(() => resolveGroupDefaults(store.config.conflictPolicy))
   const conflictEntries = computed(() =>
     (pendingFolder.value?.inspection.plan ?? []).filter((e) => e.action === 'conflict'),
   )
@@ -207,6 +210,7 @@ export function useGenerationFlow() {
       manifest: inspection.manifest,
       readable: inspection.readable,
       resolutions: userResolutions,
+      groupDefaults: groupDefaults.value,
     })
     store.setExportSnapshot(prepared.snapshot)
     report.value = buildFolderReport(result, inspection, Date.now() - startedAt)
@@ -224,7 +228,7 @@ export function useGenerationFlow() {
       folderTarget.value = target
       const startedAt = Date.now()
       const prepared = await prepareExport(store.config, store.deviceData, { ...selection }, includeMain.value)
-      const inspection = await target.inspect(prepared)
+      const inspection = await target.inspect(prepared, { groupDefaults: groupDefaults.value })
       const needsReview = inspection.summary.conflict > 0 || inspection.summary.delete > 0
       if (needsReview) {
         pendingFolder.value = { target, prepared, inspection }

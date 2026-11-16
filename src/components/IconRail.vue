@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 左侧图标栏：56px 深藏青底，当前模块黄色方块高亮，底部帮助/设置
+// 左侧图标栏：56px 白底 + 右侧浅灰分隔线（M8 对齐 MX2），深灰图标、当前模块黄色圆角方块 + 深色图标，底部帮助/设置
 import { HomeFilled, Cpu, Timer, Connection, QuestionFilled, Setting } from '@element-plus/icons-vue'
 import { useProjectStore, type ViewId } from '@/controllers/project'
 
@@ -24,6 +24,8 @@ const items: { id: ViewId; label: string; icon: unknown }[] = [
       </el-tooltip>
     </div>
     <div class="rail-bottom">
+      <!-- 组间细分隔线（MX2 白栏横线分组） -->
+      <div class="rail-divider" role="separator"></div>
       <el-tooltip content="帮助" placement="right">
         <button class="rail-btn" @click="emit('action', 'help')"><el-icon :size="18"><QuestionFilled /></el-icon></button>
       </el-tooltip>
@@ -38,6 +40,7 @@ const items: { id: ViewId; label: string; icon: unknown }[] = [
 .iconrail {
   width: var(--mx-iconrail-w);
   background: var(--mx-iconrail-bg);
+  border-right: 1px solid var(--mx-iconrail-border);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -51,13 +54,21 @@ const items: { id: ViewId; label: string; icon: unknown }[] = [
   align-items: center;
   gap: 6px;
 }
+/* 组间横线（底部帮助/设置组上方） */
+.rail-divider {
+  width: 32px;
+  height: 1px;
+  margin: 4px 0 6px;
+  background: var(--mx-iconrail-divider);
+  flex-shrink: 0;
+}
 .rail-btn {
   width: 40px;
   height: 40px;
   border: none;
   border-radius: 8px;
   background: transparent;
-  color: #aebadb;
+  color: var(--mx-iconrail-fg);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -65,11 +76,19 @@ const items: { id: ViewId; label: string; icon: unknown }[] = [
   position: relative;
 }
 .rail-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  background: var(--mx-iconrail-hover-bg);
+  color: var(--mx-iconrail-fg-hover);
+}
+.rail-btn:focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: 1px;
 }
 .rail-btn.active {
-  color: #03234b;
+  color: var(--mx-iconrail-active-fg);
+}
+.rail-btn.active:hover {
+  background: transparent;
+  color: var(--mx-iconrail-active-fg);
 }
 .rail-btn.active::before {
   content: '';

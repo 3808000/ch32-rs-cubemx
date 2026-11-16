@@ -289,6 +289,8 @@ export function extiItems(config: ProjectConfig, data: DeviceData) {
   }[] = []
   for (const a of (config.pins ?? []).filter(validPinFilter(data))) {
     if (!a.params?.exti?.enabled) continue
+    // 用户保留引脚不做任何电气配置（冲突规则已阻止导出，此处纵深防御）
+    if (a.mode === 'RESERVED') continue
     const entry = data.exti.entries.find((e) => e.pin === a.pin)
     if (!entry) continue // 缺通道已由冲突检查拦截，到不了这里
     const base = a.label ? labelToIdent(a.label) : pinIdent(a.pin)

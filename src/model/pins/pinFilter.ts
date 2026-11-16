@@ -39,12 +39,14 @@ export interface PinStateContext {
   hasWarning: boolean
 }
 
-/** 派生引脚状态（优先级：不可配置 > 排除 > 错误 > 警告 > 已配置 > 保留 > 图钉 > 未分配）。 */
+/** 派生引脚状态（优先级：不可配置 > 排除 > 错误 > 警告 > 用户保留 > 已配置 > 外设保留 > 图钉 > 未分配）。 */
 export function derivePinState(pin: ChipPin, ctx: PinStateContext): PinStateId {
   if (pin.type !== 'IO') return 'notConfigurable'
   if (ctx.excluded) return 'excluded'
   if (ctx.hasError) return 'error'
   if (ctx.hasWarning) return 'warning'
+  // 用户标记 Reserved（M4.7/M8）：与外设占用同态色，悬停/表格靠 mode 区分
+  if (ctx.assignment?.mode === 'RESERVED') return 'reserved'
   if (ctx.assignment) return 'configured'
   if (ctx.reserved) return 'reserved'
   if (ctx.pinned) return 'pinned'

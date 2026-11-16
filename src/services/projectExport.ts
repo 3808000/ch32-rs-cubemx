@@ -41,6 +41,7 @@ import {
   type DiskSnapshot,
   type ExportPlanInputEntry,
   type ExportPlanSummary,
+  type GroupDefaults,
 } from '@/services/exportPlan'
 
 /** 生成器标识：写入 manifest，便于未来做版本迁移/告警。 */
@@ -210,8 +211,10 @@ export interface FolderWriteOptions {
   manifest?: ExportManifest | null
   /** inspect() 的目录可读性 */
   readable?: boolean
-  /** 用户在冲突 UI 中的逐项选择；未列出的 conflict 保持默认 skip */
+  /** 用户在冲突 UI 中的逐项选择；未列出的 conflict 按 groupDefaults / 组默认处理 */
   resolutions?: ConflictResolutions
+  /** 类别级冲突策略默认值（M8）；逐文件 resolutions 优先，未传时与 M1 行为一致 */
+  groupDefaults?: GroupDefaults
 }
 
 /** 目录导出结果：plan 摘要 + 实际执行计数。 */
@@ -234,8 +237,11 @@ export interface FolderExportResult {
 /** 目录导出目标：先选择（用户手势内），再 inspect（预览）→ write（确认后落盘）。 */
 export interface FolderExportTarget {
   readonly root: string
-  /** 读取目录现状并构建 plan，不写盘。 */
-  inspect(prepared: PreparedExport): Promise<FolderExportInspection>
+  /** 读取目录现状并构建 plan，不写盘；groupDefaults 决定 conflict 条目的默认 resolution。 */
+  inspect(
+    prepared: PreparedExport,
+    options?: { groupDefaults?: GroupDefaults },
+  ): Promise<FolderExportInspection>
   /** 按 plan 写盘；不传 options 时自行读取目录并构建 plan。 */
   write(prepared: PreparedExport, options?: FolderWriteOptions): Promise<FolderExportResult>
 }
@@ -279,9 +285,10 @@ async function inspectPrepared(
   prepared: PreparedExport,
   disk: DiskSnapshot,
   readable: boolean,
+  groupDefaults?: GroupDefaults,
 ): Promise<FolderExportInspection> {
   const manifest = readManifestFromDisk(disk)
-  const plan = await buildExportPlan(flatten(prepared), manifest, disk)
+  const plan = await buildExportPlan(flatten(prepared), manifest, disk, groupDefaults)
   return {
     plan,
     summary: summarizeExportPlan(plan),
@@ -316,20 +323,23 @@ interface FolderPlanExecution {
 }
 
 /**
- * 按 plan 计算实际写盘操作与下一份 manifest。
+ * 按 plan 计算实际写盘操作与下一份 manifest（纯计算，不做 IO；导出以便单测策略优先级）。
  *
  * 组策略在此层生效（plan 只描述内容差异，不改变 CubeMX 式文件组保护）：
- * - generated：update/overwrite 写入；conflict 默认 skip（用户选择可覆盖）；
+ * - generated：update/overwrite 写入；conflict 默认 skip（用户选择 / M8 类别级策略可覆盖）；
  * - project_file：已存在默认不覆盖（生成一次）；Cargo.toml 走标记区合并；
  * - pack：已存在默认跳过；
- * - user_code：已存在永不覆盖。
+ * - user_code：已存在永不覆盖（硬保护，不受类别级策略影响）。
+ * M8：conflict 默认 resolution = 逐文件 resolutions > groupDefaults[group] > 组原有默认；
+ * 不传 groupDefaults 时行为与 M1 完全一致。
  */
-async function planFolderExecution(
+export async function planFolderExecution(
   prepared: PreparedExport,
   plan: ExportPlanEntry[],
   disk: DiskSnapshot,
   manifest: ExportManifest | null,
   resolutions: ConflictResolutions | undefined,
+  groupDefaults?: GroupDefaults,
 ): Promise<FolderPlanExecution> {
   const inputs = flatten(prepared)
   const inputByPath = new Map(inputs.map((e) => [normalizeRelPath(e.path), e]))
@@ -389,17 +399,27 @@ async function planFolderExecution(
     // 以下均为「磁盘已有该文件，且本次内容不同」（update / conflict）
     let mode: ConflictResolution
     if (group === 'user_code') {
-      // 用户区永不覆盖（即使 plan 判为 update/conflict）
+      // 用户区永不覆盖（即使 plan 判为 update/conflict；类别级策略不适用于硬保护）
       mode = 'skip'
+    } else if (item.action === 'conflict') {
+      // M8 类别级策略：逐文件选择 > 策略默认 > 组原有默认。
+      // 组原有默认：generated 取 plan 决议（缺省 skip）；Cargo.toml 走标记区合并；其它 skip。
+      const fallback =
+        group === 'generated'
+          ? (item.resolution ?? 'skip')
+          : group === 'project_file' && isCargoToml(path)
+            ? 'base-merge'
+            : 'skip'
+      mode = explicit ?? groupDefaults?.[group] ?? fallback
     } else if (group === 'pack') {
-      // vendor：已存在默认保留本地内容
+      // vendor：已存在默认保留本地内容（update 动作不受类别级策略影响）
       mode = explicit ?? 'skip'
     } else if (group === 'project_file') {
       // 已存在默认不覆盖；Cargo.toml 默认走标记区合并
       mode = isCargoToml(path) ? (explicit ?? 'base-merge') : (explicit ?? 'skip')
     } else {
-      // generated：update 默认可安全覆盖（manifest 证明用户没改过），conflict 默认跳过
-      mode = explicit ?? (item.action === 'conflict' ? (item.resolution ?? 'skip') : 'overwrite')
+      // generated：update 默认可安全覆盖（manifest 证明用户没改过）
+      mode = explicit ?? 'overwrite'
     }
 
     if (mode === 'skip') {
@@ -475,12 +495,12 @@ interface FolderIo {
 function createFolderTarget(root: string, io: FolderIo): FolderExportTarget {
   return {
     root,
-    inspect: async (prepared) => {
+    inspect: async (prepared, options) => {
       try {
-        return await inspectPrepared(prepared, await io.read(), true)
+        return await inspectPrepared(prepared, await io.read(), true, options?.groupDefaults)
       } catch {
         // 读不了目录：退化为全量创建，避免阻断导出
-        return await inspectPrepared(prepared, {}, false)
+        return await inspectPrepared(prepared, {}, false, options?.groupDefaults)
       }
     },
     write: async (prepared, options) => {
@@ -495,13 +515,15 @@ function createFolderTarget(root: string, io: FolderIo): FolderExportTarget {
         }
       }
       const manifest = options?.manifest !== undefined ? options.manifest : readManifestFromDisk(disk)
-      const plan = options?.plan ?? (await buildExportPlan(flatten(prepared), manifest, disk))
+      const plan =
+        options?.plan ?? (await buildExportPlan(flatten(prepared), manifest, disk, options?.groupDefaults))
       const execution = await planFolderExecution(
         prepared,
         plan,
         disk,
         manifest,
         options?.resolutions,
+        options?.groupDefaults,
       )
       await io.apply(execution)
       return {

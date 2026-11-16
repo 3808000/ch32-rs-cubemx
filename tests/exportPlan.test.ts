@@ -208,3 +208,55 @@ describe('buildExportPlan', () => {
     expect(normalizeRelPath('/Cargo.toml')).toBe('Cargo.toml')
   })
 })
+
+describe('buildExportPlan 的 groupDefaults（M8 类别级策略）', () => {
+  it('conflict 条目 resolution 取 groupDefaults[group]', async () => {
+    const plan = await buildExportPlan(
+      [entry('src/generated/pins.rs', 'generated', 'generated v2')],
+      null,
+      { 'src/generated/pins.rs': 'user edited' },
+      { generated: 'overwrite' },
+    )
+    expect(plan).toEqual([
+      { path: 'src/generated/pins.rs', group: 'generated', action: 'conflict', resolution: 'overwrite' },
+    ])
+  })
+
+  it('缺失的组回退 skip（groupDefaults 不覆盖其它组）', async () => {
+    const plan = await buildExportPlan(
+      [entry('vendor/ch32-hal/src/lib.rs', 'pack', 'hal v2')],
+      null,
+      { 'vendor/ch32-hal/src/lib.rs': 'hal v1' },
+      { generated: 'overwrite' },
+    )
+    expect(plan[0]).toEqual({
+      path: 'vendor/ch32-hal/src/lib.rs',
+      group: 'pack',
+      action: 'conflict',
+      resolution: 'skip',
+    })
+  })
+
+  it('backup / base-merge 值原样写入（策略层不做降级）', async () => {
+    const plan = await buildExportPlan(
+      [
+        entry('src/generated/pins.rs', 'generated', 'v2'),
+        entry('Cargo.toml', 'project_file', '[package]\nnew'),
+      ],
+      null,
+      { 'src/generated/pins.rs': 'user', 'Cargo.toml': '[package]\nold' },
+      { generated: 'backup', project_file: 'base-merge' },
+    )
+    expect(plan.find((e) => e.path === 'src/generated/pins.rs')?.resolution).toBe('backup')
+    expect(plan.find((e) => e.path === 'Cargo.toml')?.resolution).toBe('base-merge')
+  })
+
+  it('不传 / 空表 groupDefaults 时 conflict 仍为 skip（M1 等价）', async () => {
+    const input = [entry('src/generated/pins.rs', 'generated', 'v2')]
+    const disk = { 'src/generated/pins.rs': 'user' }
+    const legacy = await buildExportPlan(input, null, disk)
+    const explicitEmpty = await buildExportPlan(input, null, disk, {})
+    expect(legacy[0].resolution).toBe('skip')
+    expect(explicitEmpty).toEqual(legacy)
+  })
+})
