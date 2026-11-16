@@ -19,19 +19,23 @@ const chips = argOf('--chip', 'CH32V003F4P6,CH32V203C8T6').split(',')
 const embassy = process.argv.includes('--embassy')
 const halDir = process.env.CH32_HAL_DIR ?? path.resolve(root, '../reference/ch32-hal')
 
-// cargo 走 git 拉取时可能需要代理（与 git 全局配置一致）；
-// cargo 在代理环境变量缺省时会回退读取 git 的 http.proxy——本机代理可能并未运行，
-// 因此：代理活着 → 注入；代理挂了 → 显式置空禁用该回退（走直连，镜像可达）。
+// cargo 1.98 会直接读取 git 全局的 http.proxy（不走 GIT_CONFIG_GLOBAL 覆盖）；
+// 本机代理可能并未运行——代理挂了时用「临时 HOME + 空 .gitconfig + CARGO_HOME 指回原位」
+// 中和该回退，同时保留依赖缓存。
 const env = { ...process.env }
+const realHome = env.HOME ?? os.homedir()
 {
   const proxy = env.HTTPS_PROXY ?? spawnSync('git', ['config', '--global', '--get', 'http.proxy'], { encoding: 'utf8' }).stdout.trim()
   if (proxy && proxyAlive(proxy)) {
     env.HTTPS_PROXY = proxy
     env.HTTP_PROXY = proxy
-  } else {
-    // 空串覆盖 git http.proxy 回退（cargo 对空值视为无代理）
-    env.HTTPS_PROXY = ''
-    env.HTTP_PROXY = ''
+  } else if (proxy) {
+    const cleanHome = path.join(os.tmpdir(), 'ch32-cubemx-clean-home')
+    fs.mkdirSync(cleanHome, { recursive: true })
+    fs.writeFileSync(path.join(cleanHome, '.gitconfig'), '[http]\n\tproxy = ""\n')
+    env.HOME = cleanHome
+    env.CARGO_HOME = env.CARGO_HOME ?? path.join(realHome, '.cargo')
+    console.log(`[verify:build] 本机代理 ${proxy} 不可达 → 使用隔离 HOME（${cleanHome}）禁用 git 代理回退`)
   }
 }
 
