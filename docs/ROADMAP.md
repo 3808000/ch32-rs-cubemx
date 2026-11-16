@@ -59,7 +59,9 @@
 
 ---
 
-## M3（v0.04）配置完备性 —— 「配得出真实工程」
+## M3（v0.04）配置完备性 —— 「配得出真实工程」 ✅ 已完成（2026-11-16）
+
+> **落地状态**：7 项完成并推送（commits 5669584…434479b）。583 测试全绿、verify:build 3/3（含中断工程实测可编译、embassy 2/2）、validate 0 错、浏览器验收通过。子代理 G/H/I 分域并行，类型/store/System 挂载基座与 HAL API 核实由主控亲自完成。注：SPI 位宽/软件 NSS、ADC 分辨率/连续转换等 HAL 无公开 API 的参数诚实标注「待核实」未臆造；H417 双核 embassy 因 chip.json 标 unsupportedFeatures 未做端到端（非 embassy workspace 已过）。
 
 > 来源：两报告 P1 的交叉项。让 cube.json 覆盖真实工程所需的全部维度。
 
