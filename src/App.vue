@@ -10,6 +10,7 @@ import HomeView from './views/HomeView.vue'
 import PinoutView from './views/PinoutView.vue'
 import ClockView from './views/ClockView.vue'
 import PeripheralsView from './views/PeripheralsView.vue'
+import ProjectSettingsView from './views/ProjectSettingsView.vue'
 import { useProjectStore } from '@/controllers/project'
 import { HAL_REV } from '@/model/codegen/halRev'
 import { parseProjectFile, readFileAsText } from '@/services/projectFile'
@@ -107,6 +108,7 @@ function onKeydown(e: KeyboardEvent) {
         <PinoutView v-else-if="store.activeView === 'pinout'" />
         <ClockView v-else-if="store.activeView === 'clock'" />
         <PeripheralsView v-else-if="store.activeView === 'peripherals'" />
+        <ProjectSettingsView v-else-if="store.activeView === 'project-settings'" />
       </main>
     </div>
     <StatusBar @notifications="showNotifications = true" />

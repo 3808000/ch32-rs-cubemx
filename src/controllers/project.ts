@@ -16,7 +16,7 @@ import { checkConflicts } from '@/model/conflicts'
 import { HAL_REV } from '@/model/codegen/halRev'
 import { loadProject, saveProject } from '@/services/projectStorage'
 
-export type ViewId = 'home' | 'pinout' | 'clock' | 'peripherals'
+export type ViewId = 'home' | 'pinout' | 'clock' | 'peripherals' | 'project-settings'
 
 interface ProjectState {
   chip: string
@@ -31,6 +31,8 @@ interface ProjectState {
   selectedPin: string | null
   unlocked: string[] // 显式解锁的特殊引脚（NRST/SWD/OSC）
   activeView: ViewId
+  /** 当前打开的外设对象页（null = Peripherals 概览/列表）。M2 对象标签页。 */
+  activePeripheralId: string | null
   dirty: boolean
   lastSavedAt: number | null
   lastExportSnapshot: Record<string, string> | null
@@ -51,6 +53,7 @@ export const useProjectStore = defineStore('project', {
     selectedPin: null,
     unlocked: [],
     activeView: 'pinout',
+    activePeripheralId: null,
     dirty: false,
     lastSavedAt: null,
     lastExportSnapshot: null,
@@ -110,6 +113,17 @@ export const useProjectStore = defineStore('project', {
       this.activeView = view
     },
 
+    /** 打开外设对象页（M2）：切到 Peripherals 视图并聚焦该实例。 */
+    openPeripheral(id: string) {
+      this.activePeripheralId = id
+      this.activeView = 'peripherals'
+    },
+
+    /** 关闭外设对象页，回到 Peripherals 概览/列表。 */
+    closePeripheral() {
+      this.activePeripheralId = null
+    },
+
     /** 配置引脚（覆盖已有配置）。调用方负责走 usePinOverwrite 确认。 */
     setPinAssignment(pin: string, mode: PinMode, opts: { label?: string; function?: string; remap?: number; params?: PinParams } = {}) {
       const existing = this.assignments.find((a) => a.pin === pin)
@@ -157,6 +171,7 @@ export const useProjectStore = defineStore('project', {
       this.peripherals = {}
       this.unlocked = []
       this.selectedPin = null
+      this.activePeripheralId = null
       this.markDirty()
     },
 
@@ -237,6 +252,7 @@ export const useProjectStore = defineStore('project', {
         ? cfg.unlockedPins.filter((p): p is string => typeof p === 'string')
         : []
       this.selectedPin = null
+      this.activePeripheralId = null
       this.dirty = false
       this.lastSavedAt = Date.now()
     },
@@ -250,6 +266,7 @@ export const useProjectStore = defineStore('project', {
       this.clock = null
       this.unlocked = []
       this.selectedPin = null
+      this.activePeripheralId = null
       this.markDirty()
     },
 
