@@ -39,6 +39,20 @@ export interface PeripheralState {
   remap?: number
 }
 
+/** 中断配置（M3 NVIC/PFIC）。irq 名取自 data/devices/<chip>/interrupts.json；priority 0..15。 */
+export interface InterruptConfig {
+  irq: string
+  enabled: boolean
+  priority: number
+}
+
+/** DMA 通道分配（M3，embassy/H417 场景）。channel/request 合法性由 dma.json 校验。 */
+export interface DmaConfig {
+  peripheral: string
+  channel: number
+  request?: number
+}
+
 export interface ProjectConfig {
   version: 1
   chip: string // 'CH32V003F4P6'
@@ -52,4 +66,8 @@ export interface ProjectConfig {
   hal: { rev: string }
   /** 显式解锁的特殊引脚（NRST/SWD/OSC）。可选，向后兼容；导入/导出往返保留。 */
   unlockedPins?: string[]
+  /** 中断配置（M3）。可选，向后兼容。 */
+  interrupts?: InterruptConfig[]
+  /** DMA 通道分配（M3）。可选，向后兼容。 */
+  dma?: DmaConfig[]
 }

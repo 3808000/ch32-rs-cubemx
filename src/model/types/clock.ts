@@ -10,6 +10,8 @@ export interface ClockConfig {
   apb1: number
   apb2: number
   adc?: string // ADC 时钟源 id
+  /** 锁定的时钟节点 id（M3）：预设/解算跳过这些节点，UI 控件置灰。可选，向后兼容。 */
+  locked?: string[]
 }
 
 export interface ClockSource {
