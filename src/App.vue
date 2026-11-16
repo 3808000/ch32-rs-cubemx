@@ -183,9 +183,13 @@ function onKeydown(e: KeyboardEvent) {
     <!-- 快捷键 -->
     <el-dialog v-model="showShortcuts" title="快捷键" width="420px">
       <table class="shortcut-table">
-        <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>保存工程</td></tr>
-        <tr><td><kbd>?</kbd></td><td>打开/关闭快捷键面板</td></tr>
-        <tr><td><kbd>Esc</kbd></td><td>取消选中引脚</td></tr>
+        <tbody>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>保存工程</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>Tab</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd></td><td>切换下一个 / 上一个视图</td></tr>
+          <tr><td><kbd>Ctrl</kbd>+<kbd>W</kbd> 或 <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>P</kbd></td><td>关闭外设对象页</td></tr>
+          <tr><td><kbd>Esc</kbd></td><td>取消选中引脚（输入框 / 弹窗内不触发）</td></tr>
+          <tr><td><kbd>?</kbd></td><td>打开 / 关闭快捷键面板</td></tr>
+        </tbody>
       </table>
     </el-dialog>
   </div>
