@@ -3,6 +3,10 @@
   "usart": [
     {
       "id": "USART1",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity"], "pins": ["tx"], "codegen": false }
+      ],
       "remaps": [
         { "remap": 0, "tx": "PD5", "rx": "PD6", "ck": "PD4", "cts": "PD3", "rts": "PC2" },
         { "remap": 1, "tx": "PD0", "rx": "PD1", "ck": "PD7", "cts": "PC3", "rts": "PC2" },
@@ -20,6 +24,12 @@
   "spi": [
     {
       "id": "SPI1",
+      "modes": [
+        { "id": "full-duplex", "label": "Full-Duplex", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi", "miso"] },
+        { "id": "receive-only", "label": "Receive Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "miso"], "codegen": false },
+        { "id": "transmit-only", "label": "Transmit Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi"], "codegen": false },
+        { "id": "transmit-only-no-sck", "label": "Transmit Only (No SCK)", "params": ["bitOrder", "frequency"], "pins": ["mosi"], "codegen": false }
+      ],
       "remaps": [
         { "remap": 0, "sck": "PC5", "mosi": "PC6", "miso": "PC7", "nss": "PC1" },
         { "remap": 1, "sck": "PC5", "mosi": "PC6", "miso": "PC7", "nss": "PC0" }
@@ -34,6 +44,9 @@
   "i2c": [
     {
       "id": "I2C1",
+      "modes": [
+        { "id": "master", "label": "Master", "params": ["speed", "duty"], "pins": ["scl", "sda"] }
+      ],
       "remaps": [
         { "remap": 0, "scl": "PC2", "sda": "PC1" },
         { "remap": 1, "scl": "PD1", "sda": "PD0" },
@@ -68,5 +81,5 @@
       }
     }
   ],
-  "notes": "remap 与 ch32-data data/family/CH32V003.yaml 一致；参数名逐字对应 ch32-hal 枚举变体（StopBits::STOP1、SampleTime::CYCLES73 等）"
+  "notes": "remap 与 ch32-data data/family/CH32V003.yaml 一致；参数名逐字对应 ch32-hal 枚举变体（StopBits::STOP1、SampleTime::CYCLES73 等）。modes：USART 仅收录 HAL 源码已暴露的 Asynchronous / Half-duplex（Sync/IrDA/SmartCard 仅模块文档提及、无配置 API，待核实后补录）；SPI 收录 full-duplex/rxonly/txonly/txonly_nosck 构造；half-duplex 与 SPI simplex 变体标 codegen:false（生成器尚未实现）"
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Pinout 视图：页头 + 工具栏 + 分段控件 + 封装图/表格 + Detail view + Code preview
-// 工具栏与分段控件拆到 components/pinout/，本视图保留页头、工作区与数据动作。
+// 统一过滤（M2.5/M2.6）：本视图持有唯一 PinFilter 与九态派生，图形/表格/图例共同消费。
 import { computed, ref } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
@@ -12,7 +12,19 @@ import CodePreviewPanel from '@/components/CodePreviewPanel.vue'
 import CodegenDialog from '@/components/CodegenDialog.vue'
 import PinoutToolbar from '@/components/pinout/PinoutToolbar.vue'
 import PinoutViewBar from '@/components/pinout/PinoutViewBar.vue'
+import PinLegend from '@/components/pinout/PinLegend.vue'
 import { usePinOverwrite, clearUndo } from '@/model/pins/pinOverwrite'
+import { derivePeripheralUsage } from '@/model/peripherals'
+import {
+  DEFAULT_PIN_FILTER,
+  buildPinSuggestions,
+  conflictPinSets,
+  countPinStates,
+  derivePinStates,
+  pinMatchesFilter,
+  type PinFilter,
+  type PinStateId,
+} from '@/model/pins/pinFilter'
 
 const store = useProjectStore()
 const { undo } = usePinOverwrite(store)
@@ -21,20 +33,61 @@ const showExport = ref(false)
 const viewMode = ref<'graphic' | 'table'>('graphic')
 const showDetail = ref(true)
 const showCode = ref(false)
-const search = ref('')
-/** Show 下拉（保持原有占位选项） */
-const showFilter = ref('All')
-/** Type 下拉：按 pin.type 过滤封装图与表格 */
-const typeFilter = ref<'All' | 'IO' | 'POWER' | 'NC'>('All')
 
-const filterTypes = computed<string[] | undefined>(() => (typeFilter.value === 'All' ? undefined : [typeFilter.value]))
+/** 单一真相：图形、表格、Show 计数、搜索建议都从这份过滤状态派生。 */
+const filter = ref<PinFilter>({ ...DEFAULT_PIN_FILTER, states: [], types: [] })
 
-const ioCount = computed(() => store.deviceData.chip.pins.filter((p) => p.type === 'IO').length)
-const typeFilterCount = computed(() => {
-  const pins = store.deviceData.chip.pins
-  return typeFilter.value === 'All' ? pins.length : pins.filter((p) => p.type === typeFilter.value).length
+const pins = computed(() => store.deviceData.chip.pins)
+
+/** 已启用外设占用的 AF/ANALOG 引脚（reserved 状态来源）。 */
+const reservedPins = computed(() => {
+  const set = new Set<string>()
+  for (const usage of derivePeripheralUsage(store.config, store.deviceData)) {
+    if (!usage.enabled) continue
+    for (const p of usage.pins) set.add(p.pin)
+  }
+  return set
 })
-const configuredCount = computed(() => store.assignments.length)
+
+/** 冲突 → 错误/警告引脚集合（同一引脚可能同时出现，derivePinState 内 error 优先）。 */
+const conflictPins = computed(() => conflictPinSets(store.conflicts))
+
+const pinStates = computed<Record<string, PinStateId>>(() =>
+  derivePinStates(pins.value, {
+    assignments: store.assignments,
+    reservedPins: reservedPins.value,
+    errorPins: conflictPins.value.errors,
+    warningPins: conflictPins.value.warnings,
+  }),
+)
+
+const stateCounts = computed(() => countPinStates(pins.value, pinStates.value))
+
+const typeCounts = computed<Record<string, number>>(() => {
+  const out: Record<string, number> = {}
+  for (const p of pins.value) out[p.type] = (out[p.type] ?? 0) + 1
+  return out
+})
+
+const filteredPins = computed(() =>
+  pins.value.filter((p) =>
+    pinMatchesFilter(p, store.assignmentOf(p.name), pinStates.value[p.name] ?? 'unassigned', filter.value),
+  ),
+)
+
+/** 建议列表基于当前过滤结果，保证点击建议一定能定位到可见引脚。 */
+const suggestions = computed(() => buildPinSuggestions(filteredPins.value, store.assignmentOf, filter.value))
+
+function applyFilterPatch(patch: Partial<PinFilter>) {
+  filter.value = { ...filter.value, ...patch }
+}
+
+/** 建议点击 / 右键 Assign：选中引脚并打开 Detail view。 */
+function focusPin(pin: string) {
+  store.selectPin(pin)
+  showDetail.value = true
+}
+
 /** 页头文档链接：优先芯片数据里的 docUrl，缺省回退 WCH 官网首页 */
 const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.cn/')
 
@@ -59,12 +112,6 @@ function exportPins() {
   el.click()
   URL.revokeObjectURL(url)
 }
-
-const filteredAssignments = computed(() => {
-  if (!search.value) return store.assignments
-  const q = search.value.toLowerCase()
-  return store.assignments.filter((a) => a.pin.toLowerCase().includes(q) || (a.function ?? '').toLowerCase().includes(q) || (a.label ?? '').toLowerCase().includes(q))
-})
 </script>
 
 <template>
@@ -82,12 +129,14 @@ const filteredAssignments = computed(() => {
 
     <!-- 工具栏 -->
     <PinoutToolbar
-      v-model:search="search"
-      v-model:show-filter="showFilter"
-      v-model:type-filter="typeFilter"
-      :io-count="ioCount"
-      :type-filter-count="typeFilterCount"
-      :configured-count="configuredCount"
+      :filter="filter"
+      :state-counts="stateCounts"
+      :type-counts="typeCounts"
+      :visible-count="filteredPins.length"
+      :total-count="pins.length"
+      :suggestions="suggestions"
+      @update:filter="applyFilterPatch"
+      @locate="focusPin"
       @undo="undo"
       @export-pins="exportPins"
       @export-project="showExport = true"
@@ -105,19 +154,23 @@ const filteredAssignments = computed(() => {
       @toggle-detail="showDetail = !showDetail"
     />
 
+    <!-- 状态图例（可折叠持久化；图形/表格/悬停共用同一状态色） -->
+    <PinLegend :counts="stateCounts" />
+
     <!-- 工作区 -->
     <div class="work-area">
       <PackageCanvas
         v-if="viewMode === 'graphic'"
         :chip="store.deviceData.chip"
-        :assignments="filteredAssignments"
-        :conflicts="store.conflicts"
+        :assignments="store.assignments"
         :selected-pin="store.selectedPin"
-        :filter-types="filterTypes"
+        :filter="filter"
+        :pin-states="pinStates"
         @select="store.selectPin"
         @configure="store.selectPin"
+        @assign="focusPin"
       />
-      <PinTable v-else :filter-types="filterTypes" />
+      <PinTable v-else :filter="filter" :pin-states="pinStates" />
 
       <div v-if="showDetail" class="detail-col">
         <PinConfigPanel />

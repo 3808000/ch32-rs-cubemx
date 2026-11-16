@@ -2,52 +2,25 @@
 // 供 PeripheralsView / QuickMenu / 单测使用的公共常量与激活分配推导：
 // - 卡片 DOM id（QuickMenu scrollIntoView 定位用）
 // - 折叠状态注入键（Collapse all / Expand all 跨组件控制卡片分区）
-// - planActivationPins：Activate 时按 remap 档推导核心 AF 引脚
+// - planActivationPins：Activate 时按 remap 档 + mode 引脚需求推导核心 AF 引脚
 import type { InjectionKey } from 'vue'
+import type { PeripheralConfigCardApi } from '@/components/peripherals/instance'
 
 export const PERIPHERAL_COLLAPSE_KEY: InjectionKey<Record<string, boolean>> = Symbol('peripheral-collapse')
 
 export const cardDomId = (id: string): string => `peri-card-${id}`
 
-export type PeriKind = 'usart' | 'spi' | 'i2c' | 'adc'
-
-// 各类别的核心角色（remap 摘要、激活自动分配与引脚状态行均以此为基准）
-export const CORE_ROLES: Record<PeriKind, string[]> = {
-  usart: ['tx', 'rx'],
-  spi: ['sck', 'mosi', 'miso'],
-  i2c: ['scl', 'sda'],
-  adc: [],
-}
-
-export interface ActivationPin {
-  role: string
-  pin: string
-  signal: string
-}
-
-/**
- * 激活外设时按当前 remap 档推导待分配的核心 AF 引脚（ADC 不自动分配）。
- * 纯函数，便于单测；实际写入仍由调用方逐个走覆盖确认。
- */
-export function planActivationPins(kind: PeriKind, id: string, roles: Record<string, string>): ActivationPin[] {
-  if (kind === 'adc') return []
-  const out: ActivationPin[] = []
-  for (const role of CORE_ROLES[kind]) {
-    const pin = roles[role]
-    if (pin) out.push({ role, pin, signal: `${id}_${role.toUpperCase()}` })
-  }
-  return out
-}
+export type { PeripheralConfigCardApi }
+export { CORE_ROLES, planActivationPins } from '@/components/peripherals/instance'
+export type { ActivationPin, PeriKind } from '@/components/peripherals/instance'
 </script>
 
 <script setup lang="ts">
 // 外设配置卡片（§8.6）：分类小标题 + 名称 + 状态徽标 + Activate/Deactivate 链接；
-// Parameter Settings 按数据层 params spec 渲染；remap 下拉切换时重分配 AF 引脚（走覆盖确认）；
+// Parameter Settings 按数据层 params spec + 当前 mode 渲染；remap 下拉切换时重分配 AF 引脚（走覆盖确认）；
 // 引脚分配状态行缺失标黄；启用但缺引脚时显示 store.conflicts 中该外设的警告。
-// 参数表单 / remap 与引脚状态 / ADC 通道 / 仅展示表格 / 冲突列表拆分到 components/peripherals/ 子组件，
-// 本组件仅负责实例查找、启用状态、remap 切换与卡片公共骨架。
+// workspace=true 时隐藏卡片头（由 PeripheralWorkspaceView 提供页头），并通过 defineExpose 暴露激活 API。
 import { computed, inject } from 'vue'
-import type { AdcChannel, ParamSpec } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
 import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import { derivePeripheralUsage } from '@/model/peripherals'
@@ -59,71 +32,44 @@ import AdcParams from '@/components/peripherals/AdcParams.vue'
 import DisplaySignals from '@/components/peripherals/DisplaySignals.vue'
 import ConflictList from '@/components/peripherals/ConflictList.vue'
 import type { AdcChannelRow, DisplaySignalRow, PinStatusRow, RemapOption } from '@/components/peripherals/types'
+import {
+  CORE_ROLES,
+  findPeripheralInstance,
+  planActivationPins,
+  type InstanceInfo,
+} from '@/components/peripherals/instance'
+import {
+  MODE_PARAM_KEY,
+  filterParamsForMode,
+  isCodegenSupported,
+  rolesForMode,
+  selectedMode,
+} from '@/components/peripherals/modes'
 
-interface RoleMap {
-  remap: number
-  roles: Record<string, string> // role → pin
-}
-
-interface InstanceInfo {
-  id: string
-  kind: PeriKind
-  categoryLabel: string
-  remaps: RoleMap[]
-  params: Record<string, ParamSpec>
-  channels: AdcChannel[]
-}
-
-const KIND_CATEGORY_LABEL: Record<PeriKind, string> = {
-  usart: 'Connectivity',
-  spi: 'Connectivity',
-  i2c: 'Connectivity',
-  adc: 'Analog',
-}
-
-const props = defineProps<{ id: string }>()
+const props = withDefaults(defineProps<{ id: string; workspace?: boolean }>(), { workspace: false })
 
 const store = useProjectStore()
 const { requestOverwrite } = usePinOverwrite(store)
 
 // ---- 实例查找（数据驱动） ----
-const ROLE_KEYS: Record<PeriKind, string[]> = {
-  usart: ['tx', 'rx', 'cts', 'rts', 'ck'],
-  spi: ['sck', 'mosi', 'miso', 'nss'],
-  i2c: ['scl', 'sda'],
-  adc: [],
-}
-
-// 把数据层的 remap 行（接口类型，无索引签名）规整为 role → pin 映射
-function rolesOf(entry: object, keys: string[]): Record<string, string> {
-  const rec = entry as Record<string, string | undefined>
-  const out: Record<string, string> = {}
-  for (const k of keys) if (rec[k]) out[k] = rec[k]
-  return out
-}
-
-const instance = computed<InstanceInfo | null>(() => {
-  const p = store.deviceData.peripherals
-  const u = p.usart.find((i) => i.id === props.id)
-  if (u) return { id: u.id, kind: 'usart', categoryLabel: KIND_CATEGORY_LABEL.usart, remaps: u.remaps.map((r) => ({ remap: r.remap, roles: rolesOf(r, ROLE_KEYS.usart) })), params: u.params, channels: [] }
-  const s = p.spi.find((i) => i.id === props.id)
-  if (s) return { id: s.id, kind: 'spi', categoryLabel: KIND_CATEGORY_LABEL.spi, remaps: s.remaps.map((r) => ({ remap: r.remap, roles: rolesOf(r, ROLE_KEYS.spi) })), params: s.params, channels: [] }
-  const i2 = p.i2c.find((i) => i.id === props.id)
-  if (i2) return { id: i2.id, kind: 'i2c', categoryLabel: KIND_CATEGORY_LABEL.i2c, remaps: i2.remaps.map((r) => ({ remap: r.remap, roles: rolesOf(r, ROLE_KEYS.i2c) })), params: i2.params, channels: [] }
-  const a = p.adc.find((i) => i.id === props.id)
-  if (a) return { id: a.id, kind: 'adc', categoryLabel: KIND_CATEGORY_LABEL.adc, remaps: [], params: a.params, channels: a.channels }
-  return null
-})
+const instance = computed<InstanceInfo | null>(() =>
+  findPeripheralInstance(store.deviceData.peripherals, props.id),
+)
 
 // ---- 使用推导 ----
 const usage = computed(() => derivePeripheralUsage(store.config, store.deviceData).find((u) => u.id === props.id))
+
+// ---- 当前 mode 与参数集 ----
+const mode = computed(() => selectedMode(instance.value?.modes ?? [], usage.value?.params))
+const modeRoleKeys = computed(() => rolesForMode(mode.value, instance.value ? CORE_ROLES[instance.value.kind] : []))
+const codegenBlocked = computed(() => !!mode.value && !isCodegenSupported(mode.value))
 
 // ---- remap 选项（摘要形如 `remap 0: TX=PD5 RX=PD6`） ----
 const remapOptions = computed<RemapOption[]>(() => {
   const inst = instance.value
   if (!inst || inst.kind === 'adc') return []
   return inst.remaps.map((r) => {
-    const core = CORE_ROLES[inst.kind]
+    const core = modeRoleKeys.value
     const summary = core.filter((role) => r.roles[role]).map((role) => `${role.toUpperCase()}=${r.roles[role]}`).join(' ')
     const extra = Object.keys(r.roles).length > core.length ? ' …' : ''
     return { value: r.remap, label: `remap ${r.remap}: ${summary}${extra}` }
@@ -138,7 +84,7 @@ const pinStatus = computed<PinStatusRow[]>(() => {
   if (inst.kind === 'adc') {
     return u.pins.map((p) => ({ label: p.role, pin: p.pin, ok: true }))
   }
-  const core = CORE_ROLES[inst.kind]
+  const core = modeRoleKeys.value
   const assigned = new Map(u.pins.map((p) => [p.role, p.pin]))
   const rows: PinStatusRow[] = core.map((role) => ({ label: role.toUpperCase(), pin: assigned.get(role) ?? null, ok: assigned.has(role) }))
   for (const p of u.pins) {
@@ -174,8 +120,10 @@ const displaySignals = computed<DisplaySignalRow[]>(() => {
   return [...map.entries()].map(([signal, list]) => ({ signal, list }))
 })
 
-// ---- 参数表 ----
-const paramEntries = computed(() => Object.entries(instance.value?.params ?? {}))
+// ---- 参数表（按当前 mode 过滤） ----
+const paramEntries = computed(() =>
+  filterParamsForMode(Object.entries(instance.value?.params ?? {}), mode.value),
+)
 
 // ---- 折叠状态（受 PeripheralsView 的 Collapse all / Expand all 控制） ----
 const collapseStates = inject(PERIPHERAL_COLLAPSE_KEY, null)
@@ -193,44 +141,82 @@ const pinsOpen = computed({
 })
 
 // ---- 动作 ----
-/** 激活：按当前 remap 档自动分配核心 AF 引脚（对齐 MX2）；取消某引脚覆盖只跳过该引脚。 */
-async function setActive(active: boolean) {
+/**
+ * 激活：按当前 remap 档 + mode 的核心角色自动分配 AF 引脚（对齐 MX2）；
+ * 取消某引脚覆盖只跳过该引脚；旧 mode/旧 remap 遗留、本次不再需要的引脚会被释放。
+ */
+async function activate(modeId?: string): Promise<void> {
+  const inst = instance.value
   const u = usage.value
-  if (!u) return
-  if (active) {
-    const inst = instance.value
-    if (!inst) return
-    // ADC 无可自动分配的核心 AF 角色：保持仅启用
-    if (inst.kind === 'adc' || inst.remaps.length === 0) {
-      store.setPeripheralEnabled(props.id, true)
-      return
-    }
-    // 当前推导 remap 档优先；数据缺档时回退实例第一档
-    const target = inst.remaps.find((r) => r.remap === u.remap) ?? inst.remaps[0]
-    const targets = planActivationPins(inst.kind, inst.id, target.roles)
-    const unassigned: string[] = []
-    for (const t of targets) {
-      const ok = await requestOverwrite(
-        t.pin,
-        () => store.setPinAssignment(t.pin, 'AF', { function: t.signal, remap: target.remap }),
-        `启用 ${inst.id} 并分配 ${t.signal}（remap ${target.remap}）`,
-      )
-      // 用户取消仅跳过当前引脚，不回滚其它已分配引脚
-      if (!ok) unassigned.push(t.pin)
-    }
-    // 保持启用并锁定 remap 档；未分配引脚交由冲突面板给出缺失警告
-    store.setPeripheral(inst.id, { enabled: true, params: { ...u.params }, remap: target.remap })
-    if (unassigned.length) {
-      store.notify(`${inst.id} 已启用，但 ${unassigned.join('、')} 的覆盖被取消，对应引脚未分配`, 'warning')
-    }
+  if (!inst || !u) return
+  const nextMode = modeId ? (inst.modes.find((m) => m.id === modeId) ?? mode.value) : mode.value
+  if (nextMode && !isCodegenSupported(nextMode)) {
+    store.notify(`${inst.id} 的 ${nextMode.label} mode 已由 HAL 支持，但代码生成尚未实现，暂不能激活`, 'warning')
     return
   }
-  const pins = u.pins
-  store.setPeripheralEnabled(props.id, false)
-  // 停用时清除该外设占用的引脚（覆盖已有配置需确认）
-  for (const p of pins) {
-    await requestOverwrite(p.pin, () => store.clearPin(p.pin), '停用外设')
+  const params = { ...u.params }
+  if (nextMode) params[MODE_PARAM_KEY] = nextMode.id
+
+  // ADC 无可自动分配的核心 AF 角色：保持仅启用
+  if (inst.kind === 'adc' || inst.remaps.length === 0) {
+    store.setPeripheral(inst.id, { enabled: true, params })
+    return
   }
+
+  // 当前推导 remap 档优先；数据缺档时回退实例第一档
+  const target = inst.remaps.find((r) => r.remap === u.remap) ?? inst.remaps[0]
+  const roleKeys = rolesForMode(nextMode, CORE_ROLES[inst.kind])
+  const targets = planActivationPins(inst.kind, inst.id, target.roles, roleKeys)
+  const targetPins = new Set(targets.map((t) => t.pin))
+  // 只清理「本 mode 会管理」的核心角色遗留引脚；CTS/RTS/CK/NSS 等可选引脚不在此列
+  const managedRoles = new Set([...CORE_ROLES[inst.kind], ...roleKeys])
+  const unassigned: string[] = []
+  for (const t of targets) {
+    const ok = await requestOverwrite(
+      t.pin,
+      () => store.setPinAssignment(t.pin, 'AF', { function: t.signal, remap: target.remap }),
+      `启用 ${inst.id} 并分配 ${t.signal}（remap ${target.remap}）`,
+    )
+    // 用户取消仅跳过当前引脚，不回滚其它已分配引脚
+    if (!ok) unassigned.push(t.pin)
+  }
+  // 释放该外设遗留但当前 mode/remap 不再使用的核心引脚（例如切换 mode 后残留的 RX）
+  for (const p of u.pins) {
+    if (targetPins.has(p.pin) || !managedRoles.has(p.role)) continue
+    await requestOverwrite(p.pin, () => store.clearPin(p.pin), `启用 ${inst.id} 时释放不再使用的引脚`)
+  }
+  store.setPeripheral(inst.id, { enabled: true, params, remap: target.remap })
+  if (unassigned.length) {
+    store.notify(`${inst.id} 已启用，但 ${unassigned.join('、')} 的覆盖被取消，对应引脚未分配`, 'warning')
+  }
+}
+
+/**
+ * 停用。releasePins=true 时释放该外设占用的引脚。
+ * confirmEachPin=false 用于工作区：调用方已弹「停用并释放引脚」确认框，避免逐引脚重复确认。
+ */
+async function deactivate(releasePins = true, confirmEachPin = true): Promise<void> {
+  const u = usage.value
+  if (!u) return
+  const pinList = [...u.pins]
+  store.setPeripheralEnabled(props.id, false)
+  if (!releasePins) return
+  for (const p of pinList) {
+    if (confirmEachPin) {
+      await requestOverwrite(p.pin, () => store.clearPin(p.pin), '停用外设并释放引脚')
+    } else {
+      store.clearPin(p.pin)
+    }
+  }
+}
+
+/** 卡片头 Activate/Deactivate 链接（workspace 模式由页头对话框调用 activate/deactivate）。 */
+async function setActive(active: boolean): Promise<void> {
+  if (active) {
+    await activate()
+    return
+  }
+  await deactivate(true)
 }
 
 function setParam(key: string, value: string | number | boolean) {
@@ -250,7 +236,7 @@ async function switchRemap(target: number) {
   if (!inst || !u) return
   const entry = inst.remaps.find((r) => r.remap === target)
   if (!entry) return
-  const core = CORE_ROLES[inst.kind]
+  const core = modeRoleKeys.value
   const targets = core.filter((role) => entry.roles[role]).map((role) => ({ role, pin: entry.roles[role] }))
   const newPinSet = new Set(targets.map((t) => t.pin))
   const oldPins = u.pins.filter((p) => core.includes(p.role) && !newPinSet.has(p.pin)).map((p) => p.pin)
@@ -269,12 +255,14 @@ async function switchRemap(target: number) {
   }
   store.setPeripheral(inst.id, { enabled: true, params: { ...u.params }, remap: target })
 }
+
+defineExpose({ activate, deactivate, setActive })
 </script>
 
 <template>
-  <Card :id="cardDomId(id)" class="peri-card">
-    <!-- 卡片头：分类小标题 + 名称 + 状态徽标 + Activate/Deactivate 链接 -->
-    <div class="pc-head">
+  <Card :id="cardDomId(id)" class="peri-card" :class="{ 'is-workspace': workspace }">
+    <!-- 卡片头：分类小标题 + 名称 + 状态徽标 + Activate/Deactivate 链接（workspace 由页头替代） -->
+    <div v-if="!workspace" class="pc-head">
       <div class="pc-title">
         <div class="pc-category">{{ instance ? instance.categoryLabel : 'Timers' }}</div>
         <div class="pc-name">{{ id }}</div>
@@ -289,9 +277,9 @@ async function switchRemap(target: number) {
     </div>
 
     <template v-if="instance && usage">
-      <!-- 未激活：蓝色信息条 + 参数置灰 -->
+      <!-- 未激活：蓝色信息条 + 参数置灰（workspace 模式由页头/模式选择面板替代） -->
       <el-alert
-        v-if="!usage.enabled"
+        v-if="!usage.enabled && !workspace"
         type="info"
         :closable="false"
         class="pc-info"
@@ -300,7 +288,14 @@ async function switchRemap(target: number) {
       />
 
       <div class="pc-body" :class="{ disabled: !usage.enabled }">
-        <!-- Parameter Settings -->
+        <!-- 当前 mode 与代码生成能力提示 -->
+        <div v-if="mode && workspace" class="pc-mode-line">
+          <span class="pc-mode-label">Mode</span>
+          <span class="pc-mode-value">{{ mode.label }}</span>
+          <el-tag v-if="codegenBlocked" size="small" type="warning">代码生成待支持</el-tag>
+        </div>
+
+        <!-- Parameter Settings（按 mode 过滤参数） -->
         <ParamSettings v-model:open="paramsOpen" :entries="paramEntries" :params="usage.params" :disabled="!usage.enabled" @change="setParam" />
 
         <!-- Remap / 引脚分配（Connectivity） -->
@@ -330,6 +325,9 @@ async function switchRemap(target: number) {
 <style scoped>
 .peri-card {
   padding: 0;
+}
+.peri-card.is-workspace {
+  box-shadow: none;
 }
 .pc-head {
   display: flex;
@@ -365,7 +363,7 @@ async function switchRemap(target: number) {
   margin: 0 16px 8px;
 }
 .pc-body {
-  padding: 0 16px 14px;
+  padding: 12px 16px 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -373,5 +371,18 @@ async function switchRemap(target: number) {
 .pc-body.disabled {
   opacity: 0.55;
   pointer-events: none;
+}
+.pc-mode-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--mx-fz-label);
+}
+.pc-mode-label {
+  color: var(--mx-text-muted);
+}
+.pc-mode-value {
+  font-weight: 600;
+  color: var(--mx-text);
 }
 </style>

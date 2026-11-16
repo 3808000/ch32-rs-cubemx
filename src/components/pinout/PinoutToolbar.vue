@@ -1,51 +1,153 @@
 <script setup lang="ts">
-// Pinout 工具栏：搜索 / Show 与 Type 过滤（含计数）/ 已配置计数，以及撤回、导出引脚、导出工程、重置操作。
+// Pinout 工具栏：统一 PinFilter（搜索类型/文本/Show 九态/Type）+ 建议列表 + 撤回/导出/重置。
+// 单一真相：本组件只发出 Partial<PinFilter> 补丁，由 PinoutView 持有并传给图形/表格。
+import { computed, ref } from 'vue'
 import { Search, Download, RefreshLeft } from '@element-plus/icons-vue'
+import {
+  PIN_SEARCH_TYPE_META,
+  PIN_STATE_META,
+  type PinFilter,
+  type PinSearchType,
+  type PinStateId,
+  type PinSuggestion,
+} from '@/model/pins/pinFilter'
 
-defineProps<{
-  ioCount: number
-  typeFilterCount: number
-  configuredCount: number
+const props = defineProps<{
+  filter: PinFilter
+  /** 全芯片实时状态计数（不随搜索变化，对齐 MX2 Show 下拉） */
+  stateCounts: Record<PinStateId, number>
+  typeCounts: Record<string, number>
+  /** 当前过滤命中的引脚数 / 全芯片引脚数 */
+  visibleCount: number
+  totalCount: number
+  suggestions: PinSuggestion[]
 }>()
 
-const search = defineModel<string>('search', { required: true })
-const showFilter = defineModel<string>('showFilter', { required: true })
-const typeFilter = defineModel<'All' | 'IO' | 'POWER' | 'NC'>('typeFilter', { required: true })
-
 const emit = defineEmits<{
+  (e: 'update:filter', patch: Partial<PinFilter>): void
+  (e: 'locate', pin: string): void
   (e: 'undo'): void
   (e: 'export-pins'): void
   (e: 'export-project'): void
   (e: 'reset'): void
 }>()
+
+function patch(next: Partial<PinFilter>) {
+  emit('update:filter', next)
+}
+
+type TypeOption = 'All' | 'IO' | 'POWER' | 'NC'
+
+const searchType = computed<PinSearchType>({
+  get: () => props.filter.searchType,
+  set: (v) => patch({ searchType: v }),
+})
+
+const searchText = computed<string>({
+  get: () => props.filter.text,
+  set: (v) => patch({ text: v }),
+})
+
+const stateValues = computed<PinStateId[]>({
+  get: () => props.filter.states,
+  set: (v) => patch({ states: v }),
+})
+
+const typeValue = computed<TypeOption>({
+  get: () => (props.filter.types.length === 1 ? (props.filter.types[0] as TypeOption) : 'All'),
+  set: (v) => patch({ types: v === 'All' ? [] : [v] }),
+})
+
+const suggestOpen = ref(false)
+
+/** 建议列表只在有搜索文本时展示；点击项定位并选中引脚。 */
+function pickSuggestion(s: PinSuggestion) {
+  emit('locate', s.pin)
+  suggestOpen.value = false
+}
+
+function onInput() {
+  // 注意：v-model 的 props 更新在父组件下一次渲染才可见，不能在此读取 searchText 判断
+  suggestOpen.value = true
+}
+
+function onBlur() {
+  suggestOpen.value = false
+}
+
+function typeCount(t: string): number {
+  return props.typeCounts[t] ?? 0
+}
 </script>
 
 <template>
   <div class="toolbar">
-    <el-input v-model="search" placeholder="搜索" :prefix-icon="Search" size="small" style="width: 180px" clearable />
+    <div class="search-wrap">
+      <el-select v-model="searchType" size="small" class="search-type" aria-label="搜索类型">
+        <el-option v-for="m in PIN_SEARCH_TYPE_META" :key="m.id" :label="m.label" :value="m.id" />
+      </el-select>
+      <el-input
+        v-model="searchText"
+        class="search-input"
+        placeholder="搜索引脚 / 信号 / 标签 / 位置"
+        :prefix-icon="Search"
+        size="small"
+        clearable
+        @focus="suggestOpen = !!searchText.trim()"
+        @input="onInput"
+        @blur="onBlur"
+        @keydown.esc="suggestOpen = false"
+      />
+      <div v-if="suggestOpen && searchText.trim()" class="suggestions" role="listbox">
+        <button
+          v-for="s in suggestions"
+          :key="s.pin"
+          type="button"
+          class="suggestion"
+          role="option"
+          @mousedown.prevent="pickSuggestion(s)"
+        >
+          <span class="sg-pos">#{{ s.number }}</span>
+          <span class="sg-pin">{{ s.pin }}</span>
+          <span v-if="s.detail" class="sg-detail">{{ s.detail }}</span>
+        </button>
+        <div v-if="suggestions.length === 0" class="sg-empty">没有匹配的引脚</div>
+      </div>
+    </div>
+
     <div class="filter-item">
       <span class="filter-label">Show</span>
-      <el-select v-model="showFilter" size="small" style="width: 80px">
-        <el-option label="All" value="All" />
-        <el-option label="IO" value="IO" />
-        <el-option label="POWER" value="POWER" />
+      <el-select
+        v-model="stateValues"
+        multiple
+        collapse-tags
+        clearable
+        size="small"
+        placeholder="All"
+        class="show-select"
+        aria-label="按引脚状态过滤"
+      >
+        <el-option
+          v-for="m in PIN_STATE_META"
+          :key="m.id"
+          :label="`${m.label} (${stateCounts[m.id] ?? 0})`"
+          :value="m.id"
+        />
       </el-select>
-      <span class="filter-count">{{ ioCount }}</span>
+      <span class="filter-count">{{ visibleCount }}/{{ totalCount }}</span>
     </div>
+
     <div class="filter-item">
       <span class="filter-label">Type</span>
-      <el-select v-model="typeFilter" size="small" style="width: 90px">
+      <el-select v-model="typeValue" size="small" style="width: 96px" aria-label="按引脚类型过滤">
         <el-option label="All" value="All" />
-        <el-option label="IO" value="IO" />
-        <el-option label="POWER" value="POWER" />
-        <el-option label="NC" value="NC" />
+        <el-option :label="`IO (${typeCount('IO')})`" value="IO" />
+        <el-option :label="`POWER (${typeCount('POWER')})`" value="POWER" />
+        <el-option :label="`NC (${typeCount('NC')})`" value="NC" />
       </el-select>
-      <span class="filter-count">{{ typeFilterCount }}</span>
+      <span class="filter-count">{{ typeValue === 'All' ? totalCount : typeCount(typeValue) }}</span>
     </div>
-    <div class="filter-item">
-      <span class="filter-label">已配置</span>
-      <span class="filter-count">{{ configuredCount }}</span>
-    </div>
+
     <div class="toolbar-fill"></div>
     <el-button size="small" @click="emit('undo')">撤回</el-button>
     <el-button size="small" @click="emit('export-pins')">Export pin…</el-button>
@@ -61,6 +163,79 @@ const emit = defineEmits<{
   gap: 12px;
   padding: 6px 20px;
 }
+.search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.search-type {
+  width: 86px;
+  flex-shrink: 0;
+}
+.search-type :deep(.el-select__wrapper) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.search-input {
+  width: 210px;
+}
+.search-input :deep(.el-input__wrapper) {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.suggestions {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 86px;
+  width: 300px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--mx-surface);
+  border: 1px solid var(--mx-border);
+  border-radius: 8px;
+  box-shadow: var(--mx-shadow-popover);
+  padding: 4px;
+  z-index: 40;
+}
+.suggestion {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--mx-text-primary);
+}
+.suggestion:hover,
+.suggestion:focus-visible {
+  background: var(--mx-accent-soft);
+  outline: none;
+}
+.sg-pos {
+  color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 28px;
+}
+.sg-pin {
+  font-weight: 600;
+}
+.sg-detail {
+  color: var(--mx-accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sg-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--mx-text-muted);
+  text-align: center;
+}
 .filter-item {
   display: flex;
   align-items: center;
@@ -70,9 +245,13 @@ const emit = defineEmits<{
   font-size: 12px;
   color: var(--mx-text-secondary);
 }
+.show-select {
+  width: 190px;
+}
 .filter-count {
   font-size: 12px;
   color: var(--mx-text-muted);
+  font-variant-numeric: tabular-nums;
 }
 .toolbar-fill {
   flex: 1;

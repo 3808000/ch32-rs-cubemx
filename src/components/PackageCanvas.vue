@@ -80,22 +80,33 @@ export function pinOuterText(pin: ChipPin, a: { label?: string; function?: strin
 // 主体轮廓/引脚胶囊/胶囊内引脚名/外置标签全部随转（每次 −45°，首次读数 315°），
 // 画布为容纳对角线的最小正方形。胶囊内显示引脚名（quad 顶/底竖排），序号只在浮卡/表格。
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import type { ChipData, Conflict, PinAssignment } from '@/model/types'
-import { computePackageGeometry, pinColors, type PinVisualState } from '@/model/package'
+import type { ChipData, PinAssignment } from '@/model/types'
+import { computePackageGeometry } from '@/model/package'
+import {
+  pinMatchesFilter,
+  pinStateColors,
+  pinStateLabel,
+  type PinFilter,
+  type PinStateId,
+} from '@/model/pins/pinFilter'
 import { RefreshRight, ZoomIn, ZoomOut, FullScreen, Pointer, Rank, Monitor } from '@element-plus/icons-vue'
+import PinContextMenu from '@/components/pinout/PinContextMenu.vue'
 
 const props = defineProps<{
   chip: ChipData
   assignments: PinAssignment[]
-  conflicts: Conflict[]
   selectedPin: string | null
-  /** 按引脚类型过滤显示（空/缺省 = 全部显示）；隐藏引脚仍保留几何占位，不改变编号布局 */
-  filterTypes?: string[]
+  /** 统一过滤条件（搜索 + Show 状态 + Type），与 PinTable 同一份数据 */
+  filter: PinFilter
+  /** 引脚名 → 九态（由 PinoutView 统一派生） */
+  pinStates: Record<string, PinStateId>
 }>()
 
 const emit = defineEmits<{
   (e: 'select', pin: string | null): void
   (e: 'configure', pin: string): void
+  /** 右键菜单 Assign / 信号分配完成后：选中引脚并打开 Detail view */
+  (e: 'assign', pin: string): void
 }>()
 
 /** 倾斜角度原始值：只累加，CSS 过渡始终按 +45° 前进；显示值取模。 */
@@ -137,12 +148,24 @@ const canvasSide = computed(() => packageCanvasSide(geo.value.width, geo.value.h
 /** 基础布局在正方形画布内的居中偏移 */
 const canvasOffset = computed(() => packageCanvasOffset(geo.value.width, geo.value.height, canvasSide.value))
 
-// 类型过滤：只影响渲染，不参与几何计算，保证隐藏引脚后编号位置不变
-const visiblePins = computed(() => {
-  const types = props.filterTypes
-  if (!types || types.length === 0) return geo.value.pins
-  return geo.value.pins.filter((pl) => types.includes(pl.pin.type))
-})
+const assignmentMap = computed(() => new Map(props.assignments.map((a) => [a.pin, a])))
+
+/** 某引脚的派生九态（PinoutView 统一计算，缺省按未分配兜底）。 */
+function stateOf(pinName: string): PinStateId {
+  return props.pinStates[pinName] ?? 'unassigned'
+}
+
+/** 状态色：图形与图例/表格/悬停共用 pinFilter 的色板；已配置再按 GPIO/AF 细分。 */
+function colorsOf(pinName: string) {
+  return pinStateColors(stateOf(pinName), assignmentMap.value.get(pinName)?.mode)
+}
+
+// 统一过滤：只影响渲染，不参与几何计算，保证隐藏引脚后编号位置不变
+const visiblePins = computed(() =>
+  geo.value.pins.filter((pl) =>
+    pinMatchesFilter(pl.pin, assignmentMap.value.get(pl.pin.name), stateOf(pl.pin.name), props.filter),
+  ),
+)
 
 // 1 号脚指示圆点：取 1 号脚胶囊中心，向芯片主体中心内缩 22px
 const pin1Marker = computed(() => {
@@ -177,25 +200,6 @@ const baseScale = computed(() => {
   return Math.min(1, availW / rotatedBBox.value.w, availH / rotatedBBox.value.h)
 })
 const effectiveScale = computed(() => baseScale.value * zoom.value)
-
-const conflictPins = computed(() => {
-  const s = new Set<string>()
-  for (const c of props.conflicts) {
-    if (c.level === 'error') for (const p of c.pins ?? []) s.add(p)
-  }
-  return s
-})
-
-const assignmentMap = computed(() => new Map(props.assignments.map((a) => [a.pin, a])))
-
-function visualState(pinName: string, type: string, special: string | null | undefined): PinVisualState {
-  if (conflictPins.value.has(pinName)) return 'conflict'
-  if (type !== 'IO') return 'power'
-  const a = assignmentMap.value.get(pinName)
-  if (a) return a.mode === 'AF' || a.mode === 'ANALOG' ? 'af' : 'gpio'
-  if (special) return 'special'
-  return 'unassigned'
-}
 
 /** 外部标签是否来自用户配置（标签/功能名 → 蓝色；默认引脚名 → 灰色） */
 function isCustomLabel(pinName: string): boolean {
@@ -276,12 +280,56 @@ function onPinHover(pinName: string, e: MouseEvent) {
   }
 }
 
+// ---- 右键菜单（M2.7） ----
+const menu = reactive<{ open: boolean; x: number; y: number; pin: ChipPin | null }>({
+  open: false,
+  x: 0,
+  y: 0,
+  pin: null,
+})
+
+function onPinContextMenu(pinName: string, e: MouseEvent) {
+  e.preventDefault()
+  e.stopPropagation()
+  if (tool.value === 'hand') return
+  const pin = props.chip.pins.find((p) => p.name === pinName)
+  if (!pin) return
+  emit('select', pinName)
+  hovered.value = null
+  const rect = container.value?.getBoundingClientRect()
+  const rawX = rect ? e.clientX - rect.left : e.clientX
+  const rawY = rect ? e.clientY - rect.top : e.clientY
+  const maxX = Math.max(6, (rect?.width ?? 800) - 240)
+  const maxY = Math.max(6, (rect?.height ?? 600) - 420)
+  menu.open = true
+  menu.pin = pin
+  menu.x = Math.max(6, Math.min(rawX, maxX))
+  menu.y = Math.max(6, Math.min(rawY, maxY))
+}
+function closeMenu() {
+  menu.open = false
+  menu.pin = null
+}
+function onMenuAssign(pinName: string) {
+  emit('select', pinName)
+  emit('assign', pinName)
+  closeMenu()
+}
+const menuAssignment = computed(() => (menu.pin ? assignmentMap.value.get(menu.pin.name) : undefined))
+const menuState = computed<PinStateId>(() => (menu.pin ? stateOf(menu.pin.name) : 'unassigned'))
+
+/** 悬停浮卡/状态点的色块样式（与图例同源）。 */
+function stateDotStyle(state: PinStateId, mode?: PinAssignment['mode']) {
+  const c = pinStateColors(state, mode)
+  return { background: c.bg, borderColor: c.border }
+}
+
 const hoveredInfo = computed(() => {
   if (!hovered.value) return null
   const pin = props.chip.pins.find((p) => p.name === hovered.value)
   if (!pin) return null
   const a = assignmentMap.value.get(pin.name)
-  return { pin, a }
+  return { pin, a, state: stateOf(pin.name) }
 })
 
 const zoomPercent = computed(() => `${Math.round(effectiveScale.value * 100)}%`)
@@ -348,15 +396,15 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
               </g>
 
               <!-- 引脚 -->
-              <g v-for="pl in visiblePins" :key="pl.pin.number" class="pin-group" @click="onPinClick(pl.pin.name, pl.pin.type)" @mouseenter="onPinHover(pl.pin.name, $event)" @mouseleave="hovered = null">
+              <g v-for="pl in visiblePins" :key="pl.pin.number" class="pin-group" @click="onPinClick(pl.pin.name, pl.pin.type)" @contextmenu="onPinContextMenu(pl.pin.name, $event)" @mouseenter="onPinHover(pl.pin.name, $event)" @mouseleave="hovered = null">
                 <rect
                   :x="pl.x"
                   :y="pl.y"
                   :width="pl.w"
                   :height="pl.h"
                   rx="6"
-                  :fill="pinColors(visualState(pl.pin.name, pl.pin.type, pl.pin.special)).bg"
-                  :stroke="selectedPin === pl.pin.name ? '#2A62B7' : pinColors(visualState(pl.pin.name, pl.pin.type, pl.pin.special)).border"
+                  :fill="colorsOf(pl.pin.name).bg"
+                  :stroke="selectedPin === pl.pin.name ? '#2A62B7' : colorsOf(pl.pin.name).border"
                   :stroke-width="selectedPin === pl.pin.name ? 2.5 : 1.2"
                   :class="{ selected: selectedPin === pl.pin.name }"
                 />
@@ -369,7 +417,7 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
                     text-anchor="middle"
                     :font-size="pinNameFontSize(pl.pin.name)"
                     font-weight="600"
-                    :fill="pinColors(visualState(pl.pin.name, pl.pin.type, pl.pin.special)).fg"
+                    :fill="colorsOf(pl.pin.name).fg"
                     class="tilt-text"
                     :style="{ transform: `rotate(${pl.side === 'top' || pl.side === 'bottom' ? flipTB : flipLR}deg)` }"
                   >
@@ -397,9 +445,16 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
       </div>
     </div>
 
+    <!-- 过滤后无引脚 -->
+    <div v-if="visiblePins.length === 0" class="canvas-empty">没有匹配当前过滤条件的引脚</div>
+
     <!-- 悬停浮卡 -->
-    <div v-if="hoveredInfo" class="hover-card" :style="{ left: hoverPos.x + 'px', top: hoverPos.y + 'px' }">
+    <div v-if="hoveredInfo && !menu.open" class="hover-card" :style="{ left: hoverPos.x + 'px', top: hoverPos.y + 'px' }">
       <div class="hover-title">{{ hoveredInfo.pin.number }} · {{ hoveredInfo.pin.name }}</div>
+      <div class="hover-row hover-state">
+        <span class="state-dot" :style="stateDotStyle(hoveredInfo.state, hoveredInfo.a?.mode)"></span>
+        状态：{{ pinStateLabel(hoveredInfo.state) }}
+      </div>
       <div class="hover-row">类型：{{ hoveredInfo.pin.type }}{{ hoveredInfo.pin.ft ? ' · 5V 容忍' : '' }}</div>
       <div v-if="hoveredInfo.pin.special" class="hover-row">特殊：{{ hoveredInfo.pin.special.toUpperCase() }}</div>
       <div v-if="hoveredInfo.a" class="hover-row">模式：{{ hoveredInfo.a.mode }}</div>
@@ -407,6 +462,19 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
       <div v-if="hoveredInfo.a?.label" class="hover-row">标签：{{ hoveredInfo.a.label }}</div>
       <div v-if="(hoveredInfo.pin.adc ?? []).length" class="hover-row">ADC：{{ hoveredInfo.pin.adc!.join(', ') }}</div>
     </div>
+
+    <!-- 右键菜单（点击空白/Esc 关闭） -->
+    <div v-if="menu.open" class="menu-backdrop" @mousedown.prevent="closeMenu" @contextmenu.prevent="closeMenu"></div>
+    <PinContextMenu
+      v-if="menu.open && menu.pin"
+      :x="menu.x"
+      :y="menu.y"
+      :pin="menu.pin"
+      :assignment="menuAssignment"
+      :state="menuState"
+      @close="closeMenu"
+      @assign="onMenuAssign"
+    />
 
     <!-- 底部浮动工具条 -->
     <div class="float-toolbar">
@@ -516,6 +584,35 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
 .hover-row {
   color: var(--mx-text-secondary);
   line-height: 1.6;
+}
+.hover-state {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.state-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid var(--mx-border);
+  flex-shrink: 0;
+}
+.canvas-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+.menu-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: transparent;
 }
 .float-toolbar {
   position: absolute;

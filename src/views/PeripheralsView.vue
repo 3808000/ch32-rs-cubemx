@@ -1,11 +1,14 @@
 <script setup lang="ts">
-// Peripherals 视图（§8.3）：页头 + 动作条（Collapse all/Expand all、Quick menu、Code preview）
-// + 左 320px 列表 + 中卡片流 + 右面板 tabs（使用汇总 / EXTI 分配 / ADC 通道 / 分组）。
-import { computed, nextTick, provide, reactive, ref } from 'vue'
-import { Document, Fold, Expand, Menu, Promotion } from '@element-plus/icons-vue'
+// Peripherals 视图（M2.2）：左侧实例列表 + 右侧工作区。
+// activePeripheralId 非空时渲染单实例 PeripheralWorkspaceView；否则渲染概览/汇总
+// （使用汇总 + EXTI/ADC/分组分配面板），保留 Quick menu / Code preview。
+import { computed, provide, reactive, ref } from 'vue'
+import { Document, Expand, Fold, Menu, Promotion } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
+import { derivePeripheralUsage } from '@/model/peripherals'
 import PeripheralList from '../components/PeripheralList.vue'
-import PeripheralConfigCard, { PERIPHERAL_COLLAPSE_KEY, cardDomId } from '../components/PeripheralConfigCard.vue'
+import PeripheralWorkspaceView from './PeripheralWorkspaceView.vue'
+import { PERIPHERAL_COLLAPSE_KEY } from '../components/PeripheralConfigCard.vue'
 import { derivePeriCategories } from '../components/PeripheralList.vue'
 import QuickMenu from '../components/QuickMenu.vue'
 import PeripheralUsagePanel from '../components/PeripheralUsagePanel.vue'
@@ -13,13 +16,14 @@ import ExtiAllocationPanel from '../components/ExtiAllocationPanel.vue'
 import AdcChannelPanel from '../components/AdcChannelPanel.vue'
 import GroupsPanel from '../components/GroupsPanel.vue'
 import CodePreviewPanel from '../components/CodePreviewPanel.vue'
+import SectionHeader from '../components/common/SectionHeader.vue'
 
 const store = useProjectStore()
 
-const selectedId = ref<string | null>(null)
 const showQuickMenu = ref(false)
 const showCode = ref(false)
-const rightTab = ref('usage')
+const rightTab = ref('exti')
+
 /** 页头文档链接：优先芯片数据里的 docUrl，缺省回退 WCH 官网首页 */
 const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.cn/')
 
@@ -30,17 +34,10 @@ provide(PERIPHERAL_COLLAPSE_KEY, openMap)
 // 全部实例 id（含 remap 推导的定时器等）
 const allIds = computed(() => derivePeriCategories(store.deviceData).flatMap((c) => c.ids))
 
-// 可配置实例（peripherals.json）
-const configurables = computed(() => {
-  const p = store.deviceData.peripherals
-  return [...p.usart, ...p.spi, ...p.i2c, ...p.adc].map((i) => i.id)
-})
-
-// 中间卡片流：可配置实例 + 选中的仅展示实例
-const displayIds = computed(() => {
-  const extra = selectedId.value && !configurables.value.includes(selectedId.value) ? [selectedId.value] : []
-  return [...configurables.value, ...extra]
-})
+// 概览统计
+const activeCount = computed(
+  () => derivePeripheralUsage(store.config, store.deviceData).filter((u) => u.enabled).length,
+)
 
 function collapseAll() {
   for (const id of allIds.value) {
@@ -56,11 +53,10 @@ function expandAll() {
   }
 }
 
-function selectAndScroll(id: string) {
-  selectedId.value = id
-  void nextTick(() => {
-    document.getElementById(cardDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  })
+/** 列表项点击不再滚动定位，而是打开对象页（M2.2）。 */
+function openPeripheral(id: string) {
+  store.openPeripheral(id)
+  showQuickMenu.value = false
 }
 </script>
 
@@ -79,8 +75,10 @@ function selectAndScroll(id: string) {
 
     <!-- 动作条 -->
     <div class="action-bar">
-      <el-button size="small" :icon="Fold" @click="collapseAll">Collapse all</el-button>
-      <el-button size="small" :icon="Expand" @click="expandAll">Expand all</el-button>
+      <template v-if="store.activePeripheralId">
+        <el-button size="small" :icon="Fold" @click="collapseAll">Collapse all</el-button>
+        <el-button size="small" :icon="Expand" @click="expandAll">Expand all</el-button>
+      </template>
       <el-button size="small" :icon="Menu" :type="showQuickMenu ? 'primary' : 'default'" @click="showQuickMenu = !showQuickMenu">
         Quick menu
       </el-button>
@@ -90,40 +88,73 @@ function selectAndScroll(id: string) {
       </el-button>
     </div>
 
-    <!-- 工作区 -->
+    <!-- 工作区：左列表 + 右对象页/概览 -->
     <div class="work-area">
-      <!-- 左：外设列表 -->
-      <PeripheralList :selected-id="selectedId" @select="selectAndScroll" />
+      <PeripheralList :selected-id="store.activePeripheralId" @select="openPeripheral" />
 
-      <!-- 中：卡片流 -->
-      <div class="card-flow">
-        <PeripheralConfigCard v-for="id in displayIds" :id="id" :key="id" class="flow-card" />
+      <PeripheralWorkspaceView
+        v-if="store.activePeripheralId"
+        :id="store.activePeripheralId"
+        :key="store.activePeripheralId"
+      />
+
+      <!-- 概览/汇总（无对象页时） -->
+      <div v-else class="overview">
+        <div class="ov-head">
+          <div>
+            <div class="ov-title">Peripheral overview</div>
+            <div class="ov-sub">从左侧列表选择实例进入单实例工作区；此处汇总当前引脚占用与分配面板。</div>
+          </div>
+        </div>
+
+        <div class="ov-stats">
+          <div class="ov-stat">
+            <div class="ov-stat-num">{{ allIds.length }}</div>
+            <div class="ov-stat-label">Instances</div>
+          </div>
+          <div class="ov-stat">
+            <div class="ov-stat-num success">{{ activeCount }}</div>
+            <div class="ov-stat-label">Active</div>
+          </div>
+          <div class="ov-stat">
+            <div class="ov-stat-num" :class="{ danger: store.errorCount > 0 }">{{ store.errorCount }}</div>
+            <div class="ov-stat-label">Errors</div>
+          </div>
+          <div class="ov-stat">
+            <div class="ov-stat-num" :class="{ warning: store.warningCount > 0 }">{{ store.warningCount }}</div>
+            <div class="ov-stat-label">Warnings</div>
+          </div>
+        </div>
+
+        <div class="ov-grid">
+          <section class="ov-card">
+            <SectionHeader title="Usage summary" subtitle="已分配引脚与占用驱动" />
+            <PeripheralUsagePanel />
+          </section>
+
+          <section class="ov-card">
+            <SectionHeader title="Allocations" subtitle="EXTI / ADC / 分组" />
+            <el-tabs v-model="rightTab" class="ov-tabs">
+              <el-tab-pane label="EXTI 分配" name="exti">
+                <ExtiAllocationPanel />
+              </el-tab-pane>
+              <el-tab-pane label="ADC 通道" name="adc">
+                <AdcChannelPanel />
+              </el-tab-pane>
+              <el-tab-pane label="分组" name="groups">
+                <GroupsPanel />
+              </el-tab-pane>
+            </el-tabs>
+          </section>
+        </div>
       </div>
 
       <!-- 代码预览（可拖拽分栏由 CodePreviewPanel 自身实现） -->
       <CodePreviewPanel v-if="showCode" context="peripherals" />
-
-      <!-- 右：面板 tabs -->
-      <div class="right-panel">
-        <el-tabs v-model="rightTab" class="right-tabs">
-          <el-tab-pane label="使用汇总" name="usage">
-            <PeripheralUsagePanel />
-          </el-tab-pane>
-          <el-tab-pane label="EXTI 分配" name="exti">
-            <ExtiAllocationPanel />
-          </el-tab-pane>
-          <el-tab-pane label="ADC 通道" name="adc">
-            <AdcChannelPanel />
-          </el-tab-pane>
-          <el-tab-pane label="分组" name="groups">
-            <GroupsPanel />
-          </el-tab-pane>
-        </el-tabs>
-      </div>
     </div>
 
     <!-- Quick menu 浮层 -->
-    <QuickMenu v-if="showQuickMenu" @select="selectAndScroll" @close="showQuickMenu = false" />
+    <QuickMenu v-if="showQuickMenu" @select="openPeripheral" @close="showQuickMenu = false" />
   </div>
 </template>
 
@@ -177,42 +208,78 @@ function selectAndScroll(id: string) {
   min-height: 0;
   border-top: 1px solid var(--mx-border);
 }
-.card-flow {
+.overview {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
   background: var(--mx-bg);
-  padding: 14px 16px;
+  padding: 16px 20px 24px;
+}
+.ov-head {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
 }
-.flow-card {
-  scroll-margin-top: 8px;
+.ov-title {
+  font-size: var(--mx-fz-card-title);
+  font-weight: 600;
+  color: var(--mx-text);
 }
-.right-panel {
-  width: var(--mx-detail-panel-w);
-  flex-shrink: 0;
-  border-left: 1px solid var(--mx-border);
+.ov-sub {
+  font-size: var(--mx-fz-label);
+  color: var(--mx-text-muted);
+  margin-top: 2px;
+}
+.ov-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.ov-stat {
   background: var(--mx-surface);
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-card);
+  box-shadow: var(--mx-shadow-card);
+  padding: 12px 14px;
 }
-.right-tabs {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+.ov-stat-num {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--mx-text);
+  line-height: 1.2;
 }
-.right-tabs :deep(.el-tabs__header) {
-  margin: 0;
-  padding: 0 8px;
+.ov-stat-num.success {
+  color: var(--mx-success);
 }
-.right-tabs :deep(.el-tabs__content) {
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
+.ov-stat-num.warning {
+  color: var(--mx-warning);
+}
+.ov-stat-num.danger {
+  color: var(--mx-error);
+}
+.ov-stat-label {
+  margin-top: 2px;
+  font-size: var(--mx-fz-label);
+  color: var(--mx-text-muted);
+}
+.ov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+.ov-card {
+  background: var(--mx-surface);
+  border: 1px solid var(--mx-border);
+  border-radius: var(--mx-radius-card);
+  box-shadow: var(--mx-shadow-card);
+  padding: 4px 12px 12px;
+  min-width: 0;
+}
+.ov-tabs :deep(.el-tabs__header) {
+  margin: 0 0 6px;
 }
 </style>
