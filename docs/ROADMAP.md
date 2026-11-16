@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-16）：M1–M8 八个里程碑核心项全部完成并推送。** 测试 380→882，19+3 个子智能体分域并行 + 主控基座/接线/集成（M8 期间子代理配额中断一次，换 API 后续作；模型层 RESERVED 链路由主控接管完成）。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-16）：M1–M9 九个里程碑核心项全部完成并推送。** 测试 380→920，23 个子智能体分域并行 + 主控基座/接线/集成/实机取证。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -161,6 +161,24 @@
 | 8.3 | **M4.7 信号选择器 + Reserved**：SignalsSelector（搜索/分组 GPIO/AF 按外设/Analog/Reserved、当前徽标、多 remap 档）；PinMode RESERVED 全链路（状态 reserved/生成跳过/RESERVED_PIN_IN_USE 冲突）；右键与详情面板入口 | 新 `pinout/SignalsSelector.vue`、`PinContextMenu.vue`、`PinConfigPanel.vue`、`pinFilter.ts`、`codegen/derive.ts`、`conflicts/rules/` | 单测 ≥22；生成物不含 reserved 引脚 | V |
 
 **M8 验收门禁**：823+ 测试全绿（新增 ≥40）；verify:build 三芯片；浏览器主题对照 + 策略下拉 + 选择器全流程；推送。
+
+---
+
+## M9（v0.10）芯片选择链路完善 —— 「对齐 MX2 创建向导，保持纯本地优势」 ✅ 已完成（2026-11-16）
+
+> **落地状态**：3 项完成并推送。920 测试全绿（882→920：chipPicker +23+5 排序修复 / createWizard 13）、verify:build 3/3、浏览器全链路验收通过（向导 stepper/选中门禁/逐列过滤/排序/Columns/Export CSV/分页文案/第二步名称门禁+只读存储预览+MCU 回显/创建落地 m9-demo+H417/设置页只读+提示/生成页内报告回归/底部选择器 Continue 预选）。子代理 W 实施；**主控验收发现并修复 Flash/RAM 字典序排序 bug**（改容量字节数值排序 + 5 回归测试）。
+> **保持的差异化**：纯本地秒建（不模仿 MX2 联网 setup 陷阱）；页内 GenerationReport（优于 MX2 toast）。
+
+> 依据：[ANALYSIS-MX2-CHIPFLOW-GAP.md](ANALYSIS-MX2-CHIPFLOW-GAP.md)（CDP 实机全链路取证：三步向导/逐列过滤/排序/Columns/Export/分页/选中门禁/名称路径创建时定/联网 setup 陷阱/生成 toast）。
+> 决策：补选型与创建向导差距；**不模仿联网 setup**（纯本地秒建=差异化）；**保持页内生成报告**（优于 MX2 toast）。
+
+| # | 任务 | 改动落点 | 验收 | 并行域 |
+|---|---|---|---|---|
+| 9.1 | ChipPicker 升级：行选中+Selected 计数+Continue 门禁、表头排序、逐列过滤、分页+页大小、Columns 菜单、Export list CSV | `components/home/ChipPicker.vue` | 纯函数测试 ≥12；浏览器选型操作 | W |
+| 9.2 | 两步创建向导：stepper + name 必填门禁 + 存储位置只读预览 + MCU 回显 + Previous/Cancel/Create | 新 `components/home/CreateProjectWizard.vue`、`HomeView.vue` | 测试 ≥8；浏览器全链路 | W |
+| 9.3 | 设置页 General 名称/路径只读化（创建时定；改名走工程库 rename） | `views/ProjectSettingsView.vue` | 浏览器只读+提示 | W |
+
+**M9 验收门禁**：882+ 测试（新增 ≥20）；verify:build 三芯片；浏览器 Home→向导→创建→Pinout→设置只读→生成 全链路；推送。
 
 ---
 

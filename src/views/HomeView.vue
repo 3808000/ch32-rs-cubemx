@@ -13,6 +13,9 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ChipPicker from '@/components/home/ChipPicker.vue'
+import CreateProjectWizard, {
+  type CreateProjectPayload,
+} from '@/components/home/CreateProjectWizard.vue'
 import { useProjectStore } from '@/controllers/project'
 import { parseProjectFile, readFileAsText } from '@/services/projectFile'
 import {
@@ -221,20 +224,29 @@ function confirmRenameLibrary(): void {
   }
 }
 
-// ---------- 新建 MCU：芯片对比选择器（M6） ----------
-// 「从 MCU 开始」动作卡滚动到对比表并聚焦搜索；点击行/按钮经 pick 事件走既有 newProject 流程。
-const chipPickerCard = ref<HTMLElement | null>(null)
-const chipPicker = ref<InstanceType<typeof ChipPicker> | null>(null)
+// ---------- 新建 MCU：两步创建向导（M9，对齐 MX2） ----------
+// MCU 卡 / 底部表格 Continue → 打开向导第一步；底部表格选中态受控于 HomeView。
+const selectedChip = ref<string | null>(null)
+const showCreateWizard = ref(false)
+const wizardInitialChip = ref<string | null>(null)
 
-function startFromMcu() {
-  chipPickerCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  chipPicker.value?.focusSearch()
+function openCreateWizard(chip: string | null = null) {
+  wizardInitialChip.value = chip
+  showCreateWizard.value = true
 }
 
-function newProject(chip: string) {
-  store.switchDevice(chip)
+/** 底部表格 Continue：带上已选芯片直接打开向导第一步。 */
+function openWizardFromPicker(chip: string) {
+  openCreateWizard(chip)
+}
+
+/** 向导 Create project：纯本地秒建（无联网 setup 步），随后进入 Pinout。 */
+function createProject(payload: CreateProjectPayload) {
+  store.setProjectName(payload.name)
+  store.switchDevice(payload.chip)
   store.setView('pinout')
-  store.notify(`已创建 ${chip} 工程`, 'info')
+  store.notify(`已创建 ${payload.name}（${payload.chip}）`, 'info')
+  showCreateWizard.value = false
 }
 
 function openProject() {
@@ -282,10 +294,10 @@ async function importProjectFile(file: File) {
       <p class="home-sub">纯本地配置器 · 生成可直接 cargo build 的 ch32-hal Rust 工程</p>
 
       <div class="action-cards">
-        <button class="action-card yellow" @click="startFromMcu">
+        <button class="action-card yellow" @click="openCreateWizard()">
           <el-icon :size="30"><Cpu /></el-icon>
           <span class="action-title">从 MCU 开始</span>
-          <span class="action-desc">搜索对比芯片，配置引脚与时钟</span>
+          <span class="action-desc">选择芯片 → 填写工程详情，纯本地秒建</span>
         </button>
         <button class="action-card blue" @click="openProject">
           <el-icon :size="30"><FolderOpened /></el-icon>
@@ -423,15 +435,22 @@ async function importProjectFile(file: File) {
         </div>
       </div>
 
-      <!-- 新建 MCU（M6）：可搜索芯片对比表，点击行即走既有 newProject 流程 -->
-      <div ref="chipPickerCard" class="recent-card mx-card">
+      <!-- 新建 MCU（M9）：底部芯片表选中后 Continue 打开两步创建向导 -->
+      <div class="recent-card mx-card">
         <div class="recent-head">
           <span class="recent-title">可用芯片</span>
         </div>
-        <ChipPicker ref="chipPicker" @pick="newProject" />
+        <ChipPicker v-model="selectedChip" @continue="openWizardFromPicker" />
         <p class="import-hint">导出的工程内 cube.json 可随时导入本工具继续配置</p>
       </div>
     </div>
+
+    <!-- 两步创建向导（M9，对齐 MX2：选芯片 → 工程详情；本地秒建，无联网 setup） -->
+    <CreateProjectWizard
+      v-model="showCreateWizard"
+      :initial-chip="wizardInitialChip"
+      @create="createProject"
+    />
 
     <!-- 保存当前工程到库：命名 + 同名覆盖确认 -->
     <el-dialog v-model="showSaveLibrary" title="保存到工程库" width="440px" append-to-body>

@@ -3,10 +3,25 @@
 // 数据全部来自仓库已注册芯片（listDevices），合成数据仅用于边界验证。
 import { describe, it, expect } from 'vitest'
 import {
+  CHIP_COLUMNS,
+  CHIP_PAGE_SIZES,
   SUPPORTED_HAL_BACKEND,
+  buildChipCsv,
   buildChipRows,
+  canContinueSelection,
   chipGenerationSupported,
+  chipPageCount,
+  csvCell,
+  defaultChipColumnFilters,
+  defaultChipColumnVisibility,
   filterChipRows,
+  filterChipRowsByColumn,
+  memoryValue,
+  paginateRows,
+  selectionLineCount,
+  setChipColumnVisible,
+  sortChipRows,
+  type ChipColumnId,
   type ChipRow,
 } from '@/components/home/ChipPicker.vue'
 import { listDevices } from '@/model/device'
@@ -156,5 +171,249 @@ describe('filterChipRows：搜索', () => {
     const filtered = filterChipRows(registeredRows, 'ch32')
     expect(filtered.map((r) => r.chip)).toEqual(before.filter((c) => c.toLowerCase().includes('ch32')))
     expect(registeredRows.map((r) => r.chip)).toEqual(before)
+  })
+})
+
+describe('sortChipRows：全列排序三态', () => {
+  it('key/dir 为 null 时回到默认芯片名升序（与输入顺序无关）', () => {
+    const reversed = [...registeredRows].reverse()
+    expect(sortChipRows(reversed)).toEqual(registeredRows)
+    expect(sortChipRows(reversed, null, null).map((r) => r.chip)).toEqual(
+      [...registeredRows].map((r) => r.chip),
+    )
+  })
+
+  it('数值列 asc/desc：引脚数排序且不修改输入', () => {
+    const snapshot = registeredRows.map((r) => r.chip)
+    const asc = sortChipRows(registeredRows, 'pinCount', 'asc')
+    const desc = sortChipRows(registeredRows, 'pinCount', 'desc')
+    expect(asc[0].chip).toBe('CH32V003F4P6')
+    expect(asc[asc.length - 1].chip).toBe('CH32H417QEU6')
+    expect(desc[0].chip).toBe('CH32H417QEU6')
+    expect(asc.map((r) => r.pinCount)).toEqual([...asc.map((r) => r.pinCount)].sort((a, b) => a - b))
+    expect(desc.map((r) => r.pinCount)).toEqual([...desc.map((r) => r.pinCount)].sort((a, b) => b - a))
+    expect(registeredRows.map((r) => r.chip)).toEqual(snapshot)
+  })
+
+  it('字符串列大小写不敏感，同值用芯片名升序兜底', () => {
+    const byPackage = sortChipRows(registeredRows, 'package', 'asc')
+    const expected = [...registeredRows]
+      .sort((a, b) => {
+        const sa = a.package.toLowerCase()
+        const sb = b.package.toLowerCase()
+        if (sa !== sb) return sa < sb ? -1 : 1
+        return a.chip < b.chip ? -1 : a.chip > b.chip ? 1 : 0
+      })
+      .map((r) => r.chip)
+    expect(byPackage.map((r) => r.chip)).toEqual(expected)
+    // 48 引脚的两颗芯片同值时按芯片名升序（CH32V203C8T6 在 CH582M 前）
+    const byPins = sortChipRows(registeredRows, 'pinCount', 'asc')
+    expect(byPins.map((r) => r.chip)).toEqual([
+      'CH32V003F4P6',
+      'CH32V203C8T6',
+      'CH582M',
+      'CH32H417QEU6',
+    ])
+  })
+
+  it('布尔列按 false < true 排序', () => {
+    const asc = sortChipRows(registeredRows, 'supported', 'asc')
+    expect(asc[0].supported).toBe(false)
+    expect(asc[0].chip).toBe('CH582M')
+    expect(asc[asc.length - 1].supported).toBe(true)
+  })
+})
+
+describe('filterChipRowsByColumn：逐列过滤', () => {
+  it('单列子串匹配，大小写不敏感', () => {
+    expect(filterChipRowsByColumn(registeredRows, { package: 'qfn48' }).map((r) => r.chip)).toEqual([
+      'CH582M',
+    ])
+    expect(filterChipRowsByColumn(registeredRows, { package: 'QFN' }).map((r) => r.chip)).toEqual([
+      'CH32H417QEU6',
+      'CH582M',
+    ])
+    expect(filterChipRowsByColumn(registeredRows, { package: 'LQFP' }).map((r) => r.chip)).toEqual([
+      'CH32V203C8T6',
+    ])
+    expect(filterChipRowsByColumn(registeredRows, { chip: 'v003' }).map((r) => r.chip)).toEqual([
+      'CH32V003F4P6',
+    ])
+  })
+
+  it('多列同时命中（AND），空白过滤视为不过滤', () => {
+    expect(
+      filterChipRowsByColumn(registeredRows, { core: 'v4b', package: 'lqfp' }).map((r) => r.chip),
+    ).toEqual(['CH32V203C8T6'])
+    expect(filterChipRowsByColumn(registeredRows, { core: 'v4b', package: 'qfn' })).toEqual([])
+    expect(filterChipRowsByColumn(registeredRows, { chip: '  ', core: '' })).toEqual(registeredRows)
+    expect(filterChipRowsByColumn(registeredRows, {})).toEqual(registeredRows)
+  })
+
+  it('与全局搜索叠加（先全局、再逐列）', () => {
+    const global = filterChipRows(registeredRows, 'ch32')
+    expect(filterChipRowsByColumn(global, { package: 'lqfp' }).map((r) => r.chip)).toEqual([
+      'CH32V203C8T6',
+    ])
+    expect(filterChipRowsByColumn(global, { package: 'qfn48' })).toEqual([])
+  })
+
+  it('数值/布尔列也参与逐列过滤', () => {
+    expect(filterChipRowsByColumn(registeredRows, { pinCount: '128' }).map((r) => r.chip)).toEqual([
+      'CH32H417QEU6',
+    ])
+    expect(filterChipRowsByColumn(registeredRows, { supported: 'false' }).map((r) => r.chip)).toEqual([
+      'CH582M',
+    ])
+  })
+
+  it('不修改输入行数组', () => {
+    const before = registeredRows.map((r) => r.chip)
+    filterChipRowsByColumn(registeredRows, { core: 'rv32' })
+    expect(registeredRows.map((r) => r.chip)).toEqual(before)
+  })
+})
+
+describe('paginateRows / chipPageCount：分页', () => {
+  it('按页大小切片，页码越界夹到有效范围', () => {
+    expect(paginateRows(registeredRows, 1, 2).map((r) => r.chip)).toEqual([
+      'CH32H417QEU6',
+      'CH32V003F4P6',
+    ])
+    expect(paginateRows(registeredRows, 2, 2).map((r) => r.chip)).toEqual([
+      'CH32V203C8T6',
+      'CH582M',
+    ])
+    expect(paginateRows(registeredRows, 0, 2).map((r) => r.chip)).toEqual([
+      'CH32H417QEU6',
+      'CH32V003F4P6',
+    ])
+    expect(paginateRows(registeredRows, 99, 2).map((r) => r.chip)).toEqual([
+      'CH32V203C8T6',
+      'CH582M',
+    ])
+  })
+
+  it('总页数至少 1；空表返回空切片', () => {
+    expect(chipPageCount(0, 5)).toBe(1)
+    expect(chipPageCount(4, 5)).toBe(1)
+    expect(chipPageCount(4, 3)).toBe(2)
+    expect(chipPageCount(514, 10)).toBe(52)
+    expect(paginateRows([], 1, 5)).toEqual([])
+  })
+
+  it('页大小非法时回退为 1，保持确定性', () => {
+    expect(paginateRows(registeredRows, 1, 0)).toEqual([registeredRows[0]])
+    expect(paginateRows(registeredRows, 1, Number.NaN)).toEqual([registeredRows[0]])
+    expect([...CHIP_PAGE_SIZES]).toEqual([5, 10, 20])
+  })
+
+  it('末页切片：size=3 时第 4 行出现在第 2 页', () => {
+    expect(paginateRows(registeredRows, 2, 3).map((r) => r.chip)).toEqual(['CH582M'])
+  })
+})
+
+describe('buildChipCsv：Export list', () => {
+  it('带 BOM，表头/行按可见列顺序输出（不分页由调用方保证）', () => {
+    const csv = buildChipCsv([rowOf('CH32V003F4P6'), rowOf('CH32V203C8T6')], ['chip', 'pinCount'])
+    expect(csv.startsWith('\uFEFF')).toBe(true)
+    const lines = csv.slice(1).split('\r\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toBe('芯片,引脚数')
+    expect(lines[1]).toBe('CH32V003F4P6,20')
+    expect(lines[2]).toBe('CH32V203C8T6,48')
+  })
+
+  it('逗号/双引号/换行按 CSV 规则转义', () => {
+    const synthetic: ChipRow = {
+      ...rowOf('CH32V003F4P6'),
+      package: 'LQFP,48 "x"',
+      core: 'line1\nline2',
+    }
+    const csv = buildChipCsv([synthetic], ['chip', 'package', 'core'])
+    const lines = csv.slice(1).split('\r\n')
+    expect(lines[1]).toBe('CH32V003F4P6,"LQFP,48 ""x""","line1\nline2"')
+    expect(csvCell('plain')).toBe('plain')
+    expect(csvCell(1)).toBe('1')
+    expect(csvCell(null)).toBe('')
+  })
+
+  it('隐藏列不出现在表头与数据行，未知列被忽略', () => {
+    const csv = buildChipCsv([rowOf('CH32V003F4P6')], [
+      'chip',
+      'supported',
+      'bogus' as ChipColumnId,
+    ])
+    const lines = csv.slice(1).split('\r\n')
+    expect(lines[0]).toBe('芯片,生成支持')
+    expect(lines[1]).toBe('CH32V003F4P6,true')
+    expect(csv).not.toContain('封装')
+    expect(csv).not.toContain('LQFP')
+  })
+
+  it('可见列顺序即导出顺序', () => {
+    const csv = buildChipCsv([rowOf('CH32V003F4P6')], ['flash', 'chip'])
+    expect(csv.slice(1).split('\r\n')[0]).toBe('Flash,芯片')
+  })
+})
+
+describe('选中门禁与 Columns 菜单', () => {
+  it('未选/空串/空白不可 Continue，选中芯片可 Continue', () => {
+    expect(canContinueSelection(null)).toBe(false)
+    expect(canContinueSelection('')).toBe(false)
+    expect(canContinueSelection('   ')).toBe(false)
+    expect(canContinueSelection('CH32V003F4P6')).toBe(true)
+    expect(selectionLineCount(null)).toBe(0)
+    expect(selectionLineCount('CH32V003F4P6')).toBe(1)
+  })
+
+  it('Columns 默认全显，芯片名列是保留列不可隐藏', () => {
+    const visibility = defaultChipColumnVisibility()
+    expect(Object.values(visibility).every(Boolean)).toBe(true)
+    expect(Object.keys(visibility)).toEqual(CHIP_COLUMNS.map((c) => c.id))
+    const hiddenChip = setChipColumnVisible(visibility, 'chip', false)
+    expect(hiddenChip.chip).toBe(true)
+    const hiddenPackage = setChipColumnVisible(visibility, 'package', false)
+    expect(hiddenPackage.package).toBe(false)
+    expect(visibility.package).toBe(true) // 不修改输入
+  })
+
+  it('逐列过滤初始值全部为空串', () => {
+    const filters = defaultChipColumnFilters()
+    expect(Object.keys(filters)).toEqual(CHIP_COLUMNS.map((c) => c.id))
+    expect(Object.values(filters).every((v) => v === '')).toBe(true)
+  })
+})
+
+describe('ChipPicker 容量列数值排序（M9 验收修复：MX2 按数值而非字典序）', () => {
+  const rows = buildChipRows(listDevices())
+
+  it('memoryValue 解析 K/M/纯数字', () => {
+    expect(memoryValue('16K')).toBe(16 * 1024)
+    expect(memoryValue('896K')).toBe(896 * 1024)
+    expect(memoryValue('1M')).toBe(1024 * 1024)
+    expect(memoryValue('2048')).toBe(2048)
+    expect(Number.isNaN(memoryValue('abc'))).toBe(true)
+  })
+
+  it('Flash 升序为 16K < 64K < 448K < 960K（非字典序 16K<448K<64K）', () => {
+    const sorted = sortChipRows(rows, 'flash', 'asc')
+    expect(sorted.map((r) => r.flash)).toEqual(['16K', '64K', '448K', '960K'])
+  })
+
+  it('Flash 降序反向且同值芯片名兜底', () => {
+    const sorted = sortChipRows(rows, 'flash', 'desc')
+    expect(sorted.map((r) => r.flash)).toEqual(['960K', '448K', '64K', '16K'])
+  })
+
+  it('RAM 升序按数值（2K < 20K < 32K < 896K）', () => {
+    const sorted = sortChipRows(rows, 'sram', 'asc')
+    expect(sorted.map((r) => r.sram)).toEqual(['2K', '20K', '32K', '896K'])
+  })
+
+  it('引脚数升序仍按数值（20 < 48 = 48 < 128，同值芯片名序）', () => {
+    const sorted = sortChipRows(rows, 'pinCount', 'asc')
+    expect(sorted.map((r) => r.pinCount)).toEqual([20, 48, 48, 128])
+    expect(sorted[1].chip < sorted[2].chip).toBe(true)
   })
 })

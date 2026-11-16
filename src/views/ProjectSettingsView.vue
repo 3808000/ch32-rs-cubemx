@@ -1,16 +1,17 @@
 <script setup lang="ts">
 // Project settings 主视图（M2.4）：General / Runtime / Code Generation / Advanced 可折叠面板。
-// General 编辑工程名并只读展示芯片、target、toolchain、HAL rev；
+// General（M9）只读展示工程名/存储位置与芯片、target、toolchain、HAL rev（名称与位置在创建向导中设定）；
 // Runtime（M6）选择 blocking/embassy 运行时与调试打印（rtic 待 HAL 支持，禁激活）；
 // Code Generation（M7）为唯一生成决议中心：子项/档位/IDE/导出方式/检查确认/预览决议/结果报告全在页内（对齐 CubeMX2，无二次弹窗）；
 // Generation 说明导出选项并打开 CodegenDialog（与 Pinout 共用同一生成服务）；
 // Advanced 展示 M1 再生成安全网的 fileGroup 策略、M8 类别级冲突策略（Automatic Conflict Handling Rules）
 // 与冲突决议选项。
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive } from 'vue'
 import { Expand, Fold, FolderOpened, Menu, Promotion } from '@element-plus/icons-vue'
 import type { ConflictPolicyMode, ConflictResolution, FileGroup } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
 import { HAL_GIT } from '@/model/codegen/halRev'
+import { storagePreview, wizardIsDesktop } from '@/components/home/CreateProjectWizard.vue'
 import CollapsiblePanel from '@/components/common/CollapsiblePanel.vue'
 import PreflightPanel from '@/components/codegen/PreflightPanel.vue'
 import ExportPlanPreview from '@/components/codegen/ExportPlanPreview.vue'
@@ -20,25 +21,12 @@ import { useGenerationFlow, GENERATION_ITEMS } from '@/components/codegen/useGen
 
 const store = useProjectStore()
 
-// ---- General ----
-const projectName = ref(store.projectName)
-watch(
-  () => store.projectName,
-  (name) => {
-    projectName.value = name
-  },
-)
-
+// ---- General（M9：名称与存储位置创建时设定，此处只读） ----
 const chip = computed(() => store.deviceData.chip)
 const toolchain = computed(() => (chip.value.nightly ? 'nightly + rust-src' : 'stable'))
 const halRevShort = computed(() => store.halRev.slice(0, 12))
 const halRevUrl = computed(() => `${HAL_GIT.replace(/\.git$/, '')}/commit/${store.halRev}`)
-
-function commitProjectName() {
-  const name = projectName.value.trim() || 'ch32-project'
-  projectName.value = name
-  if (name !== store.projectName) store.setProjectName(name)
-}
+const storage = computed(() => storagePreview(wizardIsDesktop(), store.projectName))
 
 // ---- Runtime（M6：运行时一等公民） ----
 // features.embassy 驱动生成器（main.rs / 外设 async API / DMA 冲突规则），此前无 UI 开关。
@@ -184,7 +172,6 @@ function scrollTo(command: string | number | object) {
 }
 
 function onGenerate() {
-  commitProjectName()
   void generate()
 }
 </script>
@@ -224,15 +211,16 @@ function onGenerate() {
             <div class="ps-row">
               <div class="ps-label">Project name</div>
               <div class="ps-value">
-                <el-input
-                  v-model="projectName"
-                  size="small"
-                  class="ps-name-input"
-                  placeholder="ch32-project"
-                  @change="commitProjectName"
-                  @keyup.enter="commitProjectName"
-                />
-                <span class="ps-note">写入 cube.json 与生成的 Cargo package 名（Ctrl+S 保存工程）</span>
+                <code>{{ store.projectName }}</code>
+                <span class="ps-note">名称与存储位置在创建工程时设定；改名请用工程库重命名</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">存储位置</div>
+              <div class="ps-value ps-storage-value">
+                <code>{{ storage.location }}</code>
+                <span class="ps-note">{{ storage.note }}</span>
+                <span class="ps-note">自动路径：<code>{{ storage.path }}</code></span>
               </div>
             </div>
             <div class="ps-row">
@@ -594,8 +582,8 @@ function onGenerate() {
   border-radius: 4px;
   padding: 1px 5px;
 }
-.ps-name-input {
-  width: 280px;
+.ps-storage-value {
+  flex-wrap: wrap;
 }
 .ps-runtime-value {
   flex-wrap: wrap;
