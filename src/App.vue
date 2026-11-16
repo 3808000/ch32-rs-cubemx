@@ -13,13 +13,15 @@ import PeripheralsView from './views/PeripheralsView.vue'
 import ProjectSettingsView from './views/ProjectSettingsView.vue'
 import { useProjectStore } from '@/controllers/project'
 import { HAL_REV } from '@/model/codegen/halRev'
-import { parseProjectFile, readFileAsText } from '@/services/projectFile'
+import { parseProjectFile, readFileAsText, downloadProjectFile } from '@/services/projectFile'
+import { touchRecent, getRecent } from '@/services/recentProjects'
 
 const store = useProjectStore()
 const showNotifications = ref(false)
 const showAbout = ref(false)
 const showShortcuts = ref(false)
 const draggingFile = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
 /** 当前芯片的文档链接（chip.json.docUrl），缺省回退 WCH 官网首页 */
 const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.cn/')
 
@@ -62,6 +64,7 @@ async function onDrop(e: DragEvent) {
       return
     }
     store.openConfig(result.config)
+    touchRecent(result.config)
     ElMessage.success(`已导入 ${result.config.projectName}（${result.config.chip}）`)
   } catch (err) {
     ElMessage.error(`读取工程配置失败：${err instanceof Error ? err.message : String(err)}`)
@@ -73,15 +76,48 @@ onMounted(() => {
 })
 
 function onMenu(key: string) {
-  if (key === 'help') showAbout.value = true
-  else if (key === 'settings') showShortcuts.value = true
-  else if (key === 'project') store.save()
+  // Project 菜单
+  if (key === 'new-mcu') store.setView('home')
+  else if (key === 'open-file') openFilePicker()
+  else if (key === 'save') { store.save(); touchRecent(store.config) }
+  else if (key === 'save-as') downloadProjectFile(store.config)
+  else if (key === 'project-settings') store.setView('project-settings')
+  else if (key.startsWith('open-recent:')) {
+    const r = getRecent(key.slice('open-recent:'.length))
+    if (r) { store.openConfig(r.config); touchRecent(r.config) }
+  }
+  // View / Help / 其它
+  else if (key === 'help' || key === 'about') showAbout.value = true
+  else if (key === 'settings' || key === 'preferences' || key === 'shortcuts') showShortcuts.value = true
+  else if (key === 'documentation') window.open(docUrl.value, '_blank', 'noopener')
+  else if (key === 'project') store.setView('project-settings')
+}
+
+function openFilePicker() {
+  fileInput.value?.click()
+}
+
+async function onFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const result = parseProjectFile(await readFileAsText(file))
+    if ('error' in result) { ElMessage.error(result.error); return }
+    store.openConfig(result.config)
+    touchRecent(result.config)
+    ElMessage.success(`已导入 ${result.config.projectName}（${result.config.chip}）`)
+  } catch (err) {
+    ElMessage.error(`读取工程配置失败：${err instanceof Error ? err.message : String(err)}`)
+  }
 }
 
 function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's') {
     e.preventDefault()
     store.save()
+    touchRecent(store.config)
   }
   if (e.key === '?' && !(e.target instanceof HTMLInputElement)) {
     showShortcuts.value = !showShortcuts.value
@@ -100,6 +136,7 @@ function onKeydown(e: KeyboardEvent) {
     @drop="onDrop"
   >
     <AppShell @menu="onMenu" />
+    <input ref="fileInput" type="file" accept=".json,.cube.json,application/json" style="display: none" @change="onFileChange" />
     <TabStrip />
     <div class="app-body">
       <IconRail @action="onMenu" />
