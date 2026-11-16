@@ -14,6 +14,8 @@ import QuickMenu from '../components/QuickMenu.vue'
 import PeripheralUsagePanel from '../components/PeripheralUsagePanel.vue'
 import ExtiAllocationPanel from '../components/ExtiAllocationPanel.vue'
 import AdcChannelPanel from '../components/AdcChannelPanel.vue'
+import NvicPanel from '../components/peripherals/NvicPanel.vue'
+import DmaPanel from '../components/peripherals/DmaPanel.vue'
 import GroupsPanel from '../components/GroupsPanel.vue'
 import CodePreviewPanel from '../components/CodePreviewPanel.vue'
 import SectionHeader from '../components/common/SectionHeader.vue'
@@ -23,6 +25,7 @@ const store = useProjectStore()
 const showQuickMenu = ref(false)
 const showCode = ref(false)
 const rightTab = ref('exti')
+const systemTab = ref('nvic')
 
 /** 页头文档链接：优先芯片数据里的 docUrl，缺省回退 WCH 官网首页 */
 const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.cn/')
@@ -143,6 +146,18 @@ function openPeripheral(id: string) {
               </el-tab-pane>
               <el-tab-pane label="分组" name="groups">
                 <GroupsPanel />
+              </el-tab-pane>
+            </el-tabs>
+          </section>
+
+          <section class="ov-card">
+            <SectionHeader title="System" subtitle="NVIC 中断 / DMA 通道（M3）" />
+            <el-tabs v-model="systemTab" class="ov-tabs">
+              <el-tab-pane label="NVIC 中断" name="nvic">
+                <NvicPanel />
+              </el-tab-pane>
+              <el-tab-pane label="DMA 通道" name="dma">
+                <DmaPanel />
               </el-tab-pane>
             </el-tabs>
           </section>
