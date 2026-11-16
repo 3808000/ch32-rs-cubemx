@@ -16,10 +16,29 @@ export function nextTiltAngle(raw: number): number {
   return raw - TILT_STEP
 }
 
+/** 下一次 90° 旋转的原始角度：每次 −90°（沿用累减不回卷约定，与 45° 步进可叠加）。 */
+export function nextTilt90Angle(raw: number): number {
+  return raw - 90
+}
+
 /** Top 复位目标：最近的 360° 整倍数，保证过渡沿最短方向回正（归一化 -0 → 0）。 */
 export function topAngle(raw: number): number {
   const target = Math.round(raw / 360) * 360
   return target === 0 ? 0 : target
+}
+
+/** 倾斜组 CSS transform：bottom 时列表前置 scaleX(-1)。
+ *  CSS 列表从右往左作用：rotate 先作用于基础布局，scaleX(-1) 再按屏幕竖直轴镜像旋转结果，
+ *  即底面视图 = 当前旋转画面的水平镜像（1 号脚标记随几何一起镜像）。 */
+export function rotatorTransform(angle: number, bottom: boolean): string {
+  return `scaleX(${bottom ? -1 : 1}) rotate(${-angle}deg)`
+}
+
+/** 文字可读性补偿 transform：bottom 时前置 scaleX(-1) 抵消父级镜像，
+ *  两次镜像相消（行列式 +1）字形不被镜像；任意 45° 倍数下总旋转仍落在可读区间。
+ *  flip 仍由 readabilityFlip 计算（0/±180/±360…），top 时保持纯 rotate。 */
+export function textTransform(flip: number, bottom: boolean): string {
+  return bottom ? `scaleX(-1) rotate(${flip}deg)` : `rotate(${flip}deg)`
 }
 
 /** 正方形画布边长：≥ 布局对角线，任意 45° 步进角度下都完整可见。 */
@@ -75,12 +94,13 @@ export function pinOuterText(pin: ChipPin, a: { label?: string; function?: strin
 </script>
 
 <script setup lang="ts">
-// 封装图画布：原生 SVG，dual/quad 布局，45° 倾斜/缩放/抓手，悬停浮卡，点选引脚。
+// 封装图画布：原生 SVG，dual/quad 布局，45°/90° 倾斜/缩放/抓手，悬停浮卡，点选引脚，
+// 拖拽移动信号（M6，pointer 工具 + data 就绪时启用），Bottom 底面镜像视图。
 // 倾斜：基础布局整体放入 .package-rotator（CSS rotate，transform-box: view-box），
 // 主体轮廓/引脚胶囊/胶囊内引脚名/外置标签全部随转（每次 −45°，首次读数 315°），
 // 画布为容纳对角线的最小正方形。胶囊内显示引脚名（quad 顶/底竖排），序号只在浮卡/表格。
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import type { ChipData, PinAssignment } from '@/model/types'
+import type { ChipData, DeviceData, PinAssignment } from '@/model/types'
 import { computePackageGeometry } from '@/model/package'
 import {
   pinMatchesFilter,
@@ -89,6 +109,7 @@ import {
   type PinFilter,
   type PinStateId,
 } from '@/model/pins/pinFilter'
+import { canMoveTo, moveCandidates, type MoveCandidate } from '@/model/pins/moveSignal'
 import { RefreshRight, ZoomIn, ZoomOut, FullScreen, Pointer, Rank, Monitor } from '@element-plus/icons-vue'
 import PinContextMenu from '@/components/pinout/PinContextMenu.vue'
 
@@ -100,6 +121,8 @@ const props = defineProps<{
   filter: PinFilter
   /** 引脚名 → 九态（由 PinoutView 统一派生） */
   pinStates: Record<string, PinStateId>
+  /** 完整芯片数据（M6 拖拽移动信号用 remap 查询）；缺省时拖拽移动不可用，其余交互不受影响 */
+  data?: DeviceData
 }>()
 
 const emit = defineEmits<{
@@ -107,11 +130,15 @@ const emit = defineEmits<{
   (e: 'configure', pin: string): void
   /** 右键菜单 Assign / 信号分配完成后：选中引脚并打开 Detail view */
   (e: 'assign', pin: string): void
+  /** 拖拽移动信号（M4.8）：目标引脚已由画布保证可承载同一信号且未被占用；配置搬移由父视图执行 */
+  (e: 'move-signal', payload: { from: string; to: string }): void
 }>()
 
 /** 倾斜角度原始值：只累加，CSS 过渡始终按 +45° 前进；显示值取模。 */
 const angle = ref(0)
 const displayAngle = computed(() => normalizeAngle(angle.value))
+/** 底面视图（M6）：屏幕竖直轴镜像，可与任意倾角叠加；角度读数不受影响 */
+const bottom = ref(false)
 const zoom = ref(1)
 const tool = ref<'pointer' | 'hand'>('pointer')
 const pan = reactive({ x: 0, y: 0 })
@@ -139,6 +166,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   ro?.disconnect()
   if (zoomTimer !== null) window.clearTimeout(zoomTimer)
+  endMoveDrag(false) // 卸载时兜底移除拖拽 window 监听
 })
 
 // 始终使用基础布局（rotation=0）：旋转只由 .package-rotator 的 CSS transform 承担
@@ -212,6 +240,11 @@ function tilt() {
   startZoomAnim()
   angle.value = nextTiltAngle(angle.value)
 }
+/** −90° 旋转（M6）：沿用累减不回卷约定，可读性翻转对 90° 倍数天然成立 */
+function tilt90() {
+  startZoomAnim()
+  angle.value = nextTilt90Angle(angle.value)
+}
 /** Top 复位：回到 0° 朝向（沿最短方向动画回正） */
 function resetTop() {
   startZoomAnim()
@@ -267,16 +300,142 @@ function onMouseUp() {
 }
 
 function onPinClick(pinName: string, type: string) {
+  // 拖拽刚结束：抑制紧随 mouseup 的 click，避免误触点选（标志位用后即清）
+  if (suppressClick) {
+    suppressClick = false
+    return
+  }
   if (tool.value === 'hand') return
   emit('select', pinName)
   if (type === 'IO') emit('configure', pinName)
 }
 function onPinHover(pinName: string, e: MouseEvent) {
+  if (moveDrag.active) return // 拖拽中抑制悬停浮卡
   hovered.value = pinName
   const rect = container.value?.getBoundingClientRect()
   if (rect) {
     hoverPos.x = e.clientX - rect.left + 14
     hoverPos.y = e.clientY - rect.top + 14
+  }
+}
+
+// ---- 拖拽移动信号（M6）：pointer 工具下拖动已配置引脚胶囊到候选脚 ----
+/** 位移阈值（px）：超过才进入拖拽态，否则视为点选 */
+const MOVE_DRAG_THRESHOLD = 6
+const moveDrag = reactive({
+  /** mousedown 已记录起点，尚未超过阈值 */
+  pending: false,
+  /** 已进入拖拽态（候选高亮 + 幽灵标签跟随） */
+  active: false,
+  from: null as string | null,
+  startX: 0,
+  startY: 0,
+  candidates: [] as MoveCandidate[],
+})
+/** 幽灵标签位置（相对画布容器） */
+const ghostPos = reactive({ x: 0, y: 0 })
+/** 拖拽结束后的 click 守卫（mouseup 与 click 同任务派发，setTimeout 兜底复位） */
+let suppressClick = false
+
+/** 拖拽源引脚（幽灵标签文本用） */
+const dragFromPin = computed(() =>
+  moveDrag.from ? (props.chip.pins.find((p) => p.name === moveDrag.from) ?? null) : null,
+)
+const dragGhostText = computed(() => {
+  const pin = dragFromPin.value
+  return pin ? pinOuterText(pin, assignmentMap.value.get(pin.name)) : ''
+})
+const moveTargetSet = computed(() => new Set(moveDrag.candidates.map((c) => c.pin)))
+
+/** 候选脚：accent 虚线描边 + 微光晕 */
+function isMoveTarget(pinName: string): boolean {
+  return moveDrag.active && moveTargetSet.value.has(pinName)
+}
+/** 拖拽中非候选脚略暗（源脚保持不暗） */
+function isMoveDimmed(pinName: string): boolean {
+  return moveDrag.active && pinName !== moveDrag.from && !moveTargetSet.value.has(pinName)
+}
+
+/** 已配置引脚胶囊 mousedown：记录起点，挂 window 监听（拖出画布也能继续/落点取消） */
+function onPinMouseDown(pinName: string, e: MouseEvent) {
+  if (tool.value !== 'pointer' || e.button !== 0) return
+  if (!props.data) return // data 缺省：拖拽功能静默禁用
+  if (!assignmentMap.value.has(pinName)) return // 仅已配置引脚可拖拽
+  e.preventDefault() // 避免拖拽中选中 SVG 文本
+  moveDrag.pending = true
+  moveDrag.from = pinName
+  moveDrag.startX = e.clientX
+  moveDrag.startY = e.clientY
+  window.addEventListener('mousemove', onMoveDragMouseMove)
+  window.addEventListener('mouseup', onMoveDragMouseUp)
+  window.addEventListener('keydown', onMoveDragKeyDown)
+}
+
+/** 超过阈值进入拖拽态：计算候选；无候选则放弃拖拽（保留正常点选） */
+function enterMoveDrag() {
+  if (!props.data || !moveDrag.from) return
+  const candidates = moveCandidates(props.data, props.assignments, moveDrag.from)
+  if (candidates.length === 0) {
+    endMoveDrag(false)
+    return
+  }
+  moveDrag.candidates = candidates
+  moveDrag.pending = false
+  moveDrag.active = true
+  hovered.value = null
+  closeMenu()
+}
+
+function onMoveDragMouseMove(e: MouseEvent) {
+  if (!moveDrag.pending && !moveDrag.active) return
+  if (moveDrag.pending) {
+    if (Math.hypot(e.clientX - moveDrag.startX, e.clientY - moveDrag.startY) <= MOVE_DRAG_THRESHOLD) return
+    enterMoveDrag()
+    if (!moveDrag.active) return // 无候选已放弃
+  }
+  const rect = container.value?.getBoundingClientRect()
+  ghostPos.x = (rect ? e.clientX - rect.left : e.clientX) + 12
+  ghostPos.y = (rect ? e.clientY - rect.top : e.clientY) + 12
+  hovered.value = null
+}
+
+/** mouseup 落点命中：elementFromPoint + closest('[data-pin-name]')，
+ *  天然兼容旋转/缩放/镜像变换（屏幕坐标命中，无需逆矩阵） */
+function onMoveDragMouseUp(e: MouseEvent) {
+  if (moveDrag.active && moveDrag.from) {
+    const from = moveDrag.from
+    const el = document.elementFromPoint(e.clientX, e.clientY)
+    const target = el?.closest('[data-pin-name]')?.getAttribute('data-pin-name') ?? null
+    if (target && props.data && canMoveTo(props.data, props.assignments, from, target)) {
+      emit('move-signal', { from, to: target })
+    }
+    endMoveDrag(true)
+  } else {
+    endMoveDrag(false) // 未超阈值：正常点选流程
+  }
+}
+
+/** Esc 取消拖拽（不 emit） */
+function onMoveDragKeyDown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  endMoveDrag(moveDrag.active)
+}
+
+/** 结束拖拽：移除 window 监听；suppress 时守卫紧随的 click */
+function endMoveDrag(suppress: boolean) {
+  moveDrag.pending = false
+  moveDrag.active = false
+  moveDrag.from = null
+  moveDrag.candidates = []
+  window.removeEventListener('mousemove', onMoveDragMouseMove)
+  window.removeEventListener('mouseup', onMoveDragMouseUp)
+  window.removeEventListener('keydown', onMoveDragKeyDown)
+  if (suppress) {
+    suppressClick = true
+    // 落点在画布外等无 click 跟随的场景：下一宏任务自动复位
+    window.setTimeout(() => {
+      suppressClick = false
+    }, 0)
   }
 }
 
@@ -292,6 +451,7 @@ function onPinContextMenu(pinName: string, e: MouseEvent) {
   e.preventDefault()
   e.stopPropagation()
   if (tool.value === 'hand') return
+  if (moveDrag.active) return // 拖拽中抑制右键菜单
   const pin = props.chip.pins.find((p) => p.name === pinName)
   if (!pin) return
   emit('select', pinName)
@@ -340,8 +500,9 @@ const zoomLayerStyle = computed(() => ({
   height: `${canvasSide.value}px`,
   transform: `translate(${pan.x}px, ${pan.y}px) scale(${effectiveScale.value})`,
 }))
-/** 倾斜组的 CSS transform：原版 315° 读数对应视觉 +45°（左边缘转向左上），故取反角度 */
-const rotatorStyle = computed(() => ({ transform: `rotate(${-angle.value}deg)` }))
+/** 倾斜组的 CSS transform：原版 315° 读数对应视觉 +45°（左边缘转向左上），故取反角度；
+ *  bottom 时前置 scaleX(-1)（屏幕竖直轴镜像作用于旋转结果） */
+const rotatorStyle = computed(() => ({ transform: rotatorTransform(angle.value, bottom.value) }))
 /** 倾斜组当前的原始旋转角（与 angle 反号，持续累加不回卷） */
 const packageRotation = computed(() => -angle.value)
 /** 左/右文字（基准水平）的自转补偿；顶/底文字（基准 −90°）的同理。
@@ -354,7 +515,7 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
 </script>
 
 <template>
-  <div ref="container" class="canvas-wrap" @wheel="onWheel" @mousedown="onMouseDown" @mousemove="onMouseMove" @mouseup="onMouseUp" @mouseleave="onMouseUp">
+  <div ref="container" class="canvas-wrap" :class="{ 'move-dragging': moveDrag.active }" @wheel="onWheel" @mousedown="onMouseDown" @mousemove="onMouseMove" @mouseup="onMouseUp" @mouseleave="onMouseUp">
     <div class="canvas-scroll" :class="{ hand: tool === 'hand', dragging }">
       <div class="package-zoom" :class="{ 'zoom-anim': zoomAnimating }" :style="zoomLayerStyle">
         <svg :width="canvasSide" :height="canvasSide" :viewBox="`0 0 ${canvasSide} ${canvasSide}`" class="package-svg">
@@ -376,7 +537,7 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
                   font-weight="600"
                   fill="#1A1A1A"
                   class="tilt-text"
-                  :style="{ transform: `rotate(${flipTB}deg)` }"
+                  :style="{ transform: textTransform(flipTB, bottom) }"
                 >
                   {{ chip.chip }}
                 </text>
@@ -389,14 +550,14 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
                   font-size="11"
                   fill="#8A8F98"
                   class="tilt-text"
-                  :style="{ transform: `rotate(${flipTB}deg)` }"
+                  :style="{ transform: textTransform(flipTB, bottom) }"
                 >
                   {{ chip.package }}
                 </text>
               </g>
 
               <!-- 引脚 -->
-              <g v-for="pl in visiblePins" :key="pl.pin.number" class="pin-group" @click="onPinClick(pl.pin.name, pl.pin.type)" @contextmenu="onPinContextMenu(pl.pin.name, $event)" @mouseenter="onPinHover(pl.pin.name, $event)" @mouseleave="hovered = null">
+              <g v-for="pl in visiblePins" :key="pl.pin.number" class="pin-group" :class="{ 'move-dim': isMoveDimmed(pl.pin.name) }" :data-pin-name="pl.pin.name" @mousedown="onPinMouseDown(pl.pin.name, $event)" @click="onPinClick(pl.pin.name, pl.pin.type)" @contextmenu="onPinContextMenu(pl.pin.name, $event)" @mouseenter="onPinHover(pl.pin.name, $event)" @mouseleave="hovered = null">
                 <rect
                   :x="pl.x"
                   :y="pl.y"
@@ -406,7 +567,7 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
                   :fill="colorsOf(pl.pin.name).bg"
                   :stroke="selectedPin === pl.pin.name ? '#2A62B7' : colorsOf(pl.pin.name).border"
                   :stroke-width="selectedPin === pl.pin.name ? 2.5 : 1.2"
-                  :class="{ selected: selectedPin === pl.pin.name }"
+                  :class="{ selected: selectedPin === pl.pin.name, 'move-target': isMoveTarget(pl.pin.name) }"
                 />
                 <!-- 胶囊内引脚名（居中；quad 顶/底边胶囊竖放 → 0° 时文字随长轴竖排，倾斜后随整体刚体旋转，
                      进入倒置区间时补 180° 翻转动画保证可读） -->
@@ -419,7 +580,7 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
                     font-weight="600"
                     :fill="colorsOf(pl.pin.name).fg"
                     class="tilt-text"
-                    :style="{ transform: `rotate(${pl.side === 'top' || pl.side === 'bottom' ? flipTB : flipLR}deg)` }"
+                    :style="{ transform: textTransform(pl.side === 'top' || pl.side === 'bottom' ? flipTB : flipLR, bottom) }"
                   >
                     {{ pl.pin.name }}
                   </text>
@@ -433,7 +594,7 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
                     :font-size="pl.side === 'top' || pl.side === 'bottom' ? 10 : 11"
                     :fill="isCustomLabel(pl.pin.name) ? '#2A62B7' : '#8A8F98'"
                     class="tilt-text"
-                    :style="{ transform: `rotate(${pl.side === 'top' || pl.side === 'bottom' ? flipTB : flipLR}deg)` }"
+                    :style="{ transform: textTransform(pl.side === 'top' || pl.side === 'bottom' ? flipTB : flipLR, bottom) }"
                   >
                     {{ pinOuterText(pl.pin, assignmentMap.get(pl.pin.name)) }}
                   </text>
@@ -463,6 +624,11 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
       <div v-if="(hoveredInfo.pin.adc ?? []).length" class="hover-row">ADC：{{ hoveredInfo.pin.adc!.join(', ') }}</div>
     </div>
 
+    <!-- 拖拽幽灵标签（M6）：跟随光标显示源引脚外部文本；pointer-events:none 不阻挡落点命中 -->
+    <div v-if="moveDrag.active && dragGhostText" class="drag-ghost" :style="{ left: ghostPos.x + 'px', top: ghostPos.y + 'px' }">
+      {{ dragGhostText }}
+    </div>
+
     <!-- 右键菜单（点击空白/Esc 关闭） -->
     <div v-if="menu.open" class="menu-backdrop" @mousedown.prevent="closeMenu" @contextmenu.prevent="closeMenu"></div>
     <PinContextMenu
@@ -488,9 +654,15 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
       <el-tooltip content="倾斜封装 45°" placement="top">
         <button class="ft-btn" aria-label="倾斜封装 45°" :class="{ active: displayAngle !== 0 }" @click="tilt"><el-icon :size="15"><RefreshRight /></el-icon></button>
       </el-tooltip>
+      <el-tooltip content="旋转 90°" placement="top">
+        <button class="ft-btn ft-top" aria-label="旋转 90°" @click="tilt90">90°</button>
+      </el-tooltip>
       <span class="ft-angle" title="当前倾斜角度">{{ displayAngle }}°</span>
       <el-tooltip content="复位到 Top 视图（0°）" placement="top">
         <button class="ft-btn ft-top" aria-label="Top 复位" @click="resetTop">Top</button>
+      </el-tooltip>
+      <el-tooltip content="底面视图（镜像）" placement="top">
+        <button class="ft-btn ft-top" aria-label="底面视图（镜像）" :class="{ active: bottom }" @click="bottom = !bottom">Bottom</button>
       </el-tooltip>
       <span class="ft-sep"></span>
       <el-tooltip content="缩小" placement="top">
@@ -564,6 +736,39 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
 }
 .pin-group rect.selected {
   filter: drop-shadow(0 0 4px rgba(42, 98, 183, 0.5));
+}
+/* 拖拽移动信号（M6）：候选脚 accent 虚线描边 + 微光晕（CSS 覆盖 presentation attribute） */
+.pin-group rect.move-target {
+  stroke: var(--mx-accent);
+  stroke-dasharray: 5 3;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 5px rgba(42, 98, 183, 0.45));
+}
+/* 拖拽中非候选脚略暗，突出可落点 */
+.pin-group.move-dim {
+  opacity: 0.45;
+}
+.canvas-wrap.move-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+.canvas-wrap.move-dragging .pin-group {
+  cursor: grabbing;
+}
+/* 幽灵标签：跟随光标的源引脚文本，不拦截鼠标事件 */
+.drag-ghost {
+  position: absolute;
+  z-index: 30;
+  pointer-events: none;
+  background: #fff;
+  border: 1px solid var(--mx-accent);
+  color: var(--mx-accent);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--mx-shadow-popover);
 }
 .hover-card {
   position: absolute;

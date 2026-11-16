@@ -19,8 +19,12 @@ import { HAL_REV } from '@/model/codegen/halRev'
 import { parseProjectFile, readFileAsText, downloadProjectFile } from '@/services/projectFile'
 import { touchRecent, getRecent } from '@/services/recentProjects'
 import { startAutosave } from '@/services/projectStorage'
+import { useHistory } from '@/components/common/useHistory'
 
 const store = useProjectStore()
+// 全局 Undo/Redo（M6）：全应用只在此挂载一次（每次调用都会新建独立栈）；
+// 快捷键 Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y 由 composable 内部注册，按钮经 AppShell 展示。
+const { canUndo, canRedo, undo, redo } = useHistory()
 const showInbox = ref(false)
 /** 问题/通知抽屉的当前标签（M5：持久化到 uiPreferences）。 */
 const inboxTab = ref<InboxTab>(getPreference('inbox.tab'))
@@ -244,7 +248,13 @@ function onKeydown(e: KeyboardEvent) {
     @dragleave="onDragLeave"
     @drop="onDrop"
   >
-    <AppShell @menu="onMenu" />
+    <AppShell
+      :can-undo="canUndo"
+      :can-redo="canRedo"
+      @undo="undo"
+      @redo="redo"
+      @menu="onMenu"
+    />
     <input ref="fileInput" type="file" accept=".json,.cube.json,application/json" style="display: none" @change="onFileChange" />
     <TabStrip :health-badges="healthBadges" />
     <div class="app-body">

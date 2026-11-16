@@ -7,15 +7,13 @@ import {
   Cpu,
   Delete,
   EditPen,
-  Folder,
   FolderOpened,
   Plus,
-  Search,
   Upload,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ChipPicker from '@/components/home/ChipPicker.vue'
 import { useProjectStore } from '@/controllers/project'
-import { listDevices } from '@/model/device'
 import { parseProjectFile, readFileAsText } from '@/services/projectFile'
 import {
   getLibrary,
@@ -35,7 +33,6 @@ import {
 import { AUTOSAVE_DEBOUNCE_MS, startAutosave } from '@/services/projectStorage'
 
 const store = useProjectStore()
-const search = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
 const recentProjects = ref<RecentProject[]>([])
@@ -224,9 +221,15 @@ function confirmRenameLibrary(): void {
   }
 }
 
-const devices = computed(() =>
-  listDevices().filter((d) => d.chip.toLowerCase().includes(search.value.toLowerCase())),
-)
+// ---------- 新建 MCU：芯片对比选择器（M6） ----------
+// 「从 MCU 开始」动作卡滚动到对比表并聚焦搜索；点击行/按钮经 pick 事件走既有 newProject 流程。
+const chipPickerCard = ref<HTMLElement | null>(null)
+const chipPicker = ref<InstanceType<typeof ChipPicker> | null>(null)
+
+function startFromMcu() {
+  chipPickerCard.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  chipPicker.value?.focusSearch()
+}
 
 function newProject(chip: string) {
   store.switchDevice(chip)
@@ -279,15 +282,10 @@ async function importProjectFile(file: File) {
       <p class="home-sub">纯本地配置器 · 生成可直接 cargo build 的 ch32-hal Rust 工程</p>
 
       <div class="action-cards">
-        <button class="action-card yellow" @click="newProject('CH32V003F4P6')">
+        <button class="action-card yellow" @click="startFromMcu">
           <el-icon :size="30"><Cpu /></el-icon>
           <span class="action-title">从 MCU 开始</span>
-          <span class="action-desc">选择芯片，配置引脚与时钟</span>
-        </button>
-        <button class="action-card yellow disabled" title="即将推出">
-          <el-icon :size="30"><Folder /></el-icon>
-          <span class="action-title">从开发板开始</span>
-          <span class="action-desc">板级预设（即将推出）</span>
+          <span class="action-desc">搜索对比芯片，配置引脚与时钟</span>
         </button>
         <button class="action-card blue" @click="openProject">
           <el-icon :size="30"><FolderOpened /></el-icon>
@@ -425,25 +423,12 @@ async function importProjectFile(file: File) {
         </div>
       </div>
 
-      <div class="recent-card mx-card">
+      <!-- 新建 MCU（M6）：可搜索芯片对比表，点击行即走既有 newProject 流程 -->
+      <div ref="chipPickerCard" class="recent-card mx-card">
         <div class="recent-head">
           <span class="recent-title">可用芯片</span>
-          <el-input v-model="search" placeholder="搜索芯片" :prefix-icon="Search" size="small" style="width: 220px" clearable />
         </div>
-        <div v-for="d in devices" :key="d.chip" class="recent-row">
-          <div class="recent-thumb">
-            <svg width="40" height="40" viewBox="0 0 40 40">
-              <rect x="8" y="8" width="24" height="24" rx="4" fill="#173564" />
-              <rect x="12" y="12" width="16" height="16" rx="2" fill="#2a62b7" />
-            </svg>
-          </div>
-          <div class="recent-info">
-            <div class="recent-name">{{ d.chip }}</div>
-            <div class="recent-meta">{{ d.package }} · {{ d.core }} · Flash {{ d.flash }} / SRAM {{ d.sram }}</div>
-          </div>
-          <el-button type="primary" size="small" @click="newProject(d.chip)">新建工程</el-button>
-        </div>
-        <div v-if="devices.length === 0" class="empty-note">没有匹配的芯片</div>
+        <ChipPicker ref="chipPicker" @pick="newProject" />
         <p class="import-hint">导出的工程内 cube.json 可随时导入本工具继续配置</p>
       </div>
     </div>
@@ -715,32 +700,6 @@ async function importProjectFile(file: File) {
 .recent-title {
   font-size: 15px;
   font-weight: 600;
-}
-.recent-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 8px;
-  border-radius: 8px;
-}
-.recent-row:hover {
-  background: var(--mx-accent-soft);
-}
-.recent-info {
-  flex: 1;
-}
-.recent-name {
-  font-weight: 600;
-  font-size: 13px;
-}
-.recent-meta {
-  font-size: 12px;
-  color: var(--mx-text-muted);
-}
-.empty-note {
-  color: var(--mx-text-muted);
-  text-align: center;
-  padding: 20px;
 }
 .file-input {
   display: none;

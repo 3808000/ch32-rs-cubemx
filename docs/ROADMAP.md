@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-16）：M1–M5 五个里程碑核心项全部完成并推送。** 测试 380→664，13 个子智能体分域并行 + 主控基座/接线/集成。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-16）：M1–M6 六个里程碑核心项全部完成并推送。** 测试 380→815，19 个子智能体分域并行 + 主控基座/接线/集成。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -105,6 +105,29 @@
 按价值排序：HTML 单文件报告（差异化卖点）→ 引脚表升级（Used only/Columns/分页/行内 Assign）→ 状态徽标进标签页 + Problems/Notifications 分离 → 拖拽移动信号 → 全局 Undo/Redo → 悬停卡/图例增强 → 主题切换 + UI 偏好持久化 → 时钟节点内联编辑（foreignObject）→ 封装 90° 旋转/Bottom 翻转 → 板卡模型（`data/boards/`，Home「从开发板开始」入口）→ 运行时一等公民（blocking/embassy/rtic 单选）→ Export pinout 含/不含 AF → 分屏。
 
 明确**不做**（超出定位或 CubeMX 也无）：C 工具链选择、Theia 级分屏、pack 正则布局、打印导出、多部件工程管理。
+
+---
+
+## M6（v0.07）运行时与交互深化 —— 「配得全、改得快、看得清」 ✅ 已完成（2026-11-16）
+
+> **落地状态**：7 项全部完成并推送。815 测试全绿（664→815，+151）、verify:build 3/3、validate 0 错、浏览器逐项验收通过（Runtime 双向切换+持久化 / Undo-Redo 快捷键+按钮+引脚/时钟操作入栈 / 拖拽搬移候选精确=remap 数据 / 90°+Bottom 任意角度文字可读 / 时钟内联 select+number+Esc / 面板调宽刷新保持 / 芯片搜索对比 / HTML 报告视觉验收）。子代理 N/O/P/Q/R/S 分域并行；Runtime 选择器、生成链/Undo 挂载、占位卡移除由主控亲自完成。**板卡功能按用户决定取消**（个人项目无厂商合作，版权风险），S 转向芯片选择增强。
+
+> 来源：M4/M5 暂缓项 + 新发现的 UI 缺口（`features.embassy/debugPrint` 驱动生成器却无任何 UI 开关）。
+> 作战模式沿用 M1–M5：主控基座/契约/接线 + 6 个子代理分域并行（N/O/P/Q/R/S）。
+
+| # | 任务 | 改动落点 | 验收 | 并行域 |
+|---|---|---|---|---|
+| 6.1 | **Runtime 一等公民**：Project settings 新增 Runtime 段（blocking/embassy 单选 + debugPrint 开关；rtic 禁激活标注待核实；embassy 按 chip.unsupportedFeatures 禁用）；生成对话框显示当前运行时 | `views/ProjectSettingsView.vue`、`components/CodegenDialog.vue`（主控亲自做） | 浏览器：切换 embassy→生成 main.rs 含 embassy_executor；H417 embassy 禁用 | 主控 |
+| 6.2 | **HTML 单文件报告**：`sel.htmlReport`（缺省 false）→ `report.html`（generated 组，随重新生成更新）：内联 CSS 无外部依赖，引脚全表/时钟/外设/中断/DMA/文件清单+哈希/生成元数据；HTML 转义防注入 | 新 `model/codegen/htmlReport.ts` + 模板；index/workspace/CodegenDialog 接线（主控） | 单测 ≥12；浏览器打开报告验收 | N：model/codegen |
+| 6.3 | **全局 Undo/Redo**：配置快照栈（合并窗口+容量上限）；Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y；标题栏按钮；与引脚覆盖撤回共存（全局撤回时清覆盖栈）；换芯片/导入工程重置 | 新 `services/historyStack.ts` + `components/common/useHistory.ts` + `UndoRedoButtons.vue`；App/AppShell 挂载（主控） | 单测 ≥15；浏览器：配置→Ctrl+Z→Ctrl+Y 往返 | O：services+common |
+| 6.4 | **封装交互深化（M4.8）**：拖拽移动信号（候选脚高亮+幽灵标签+落点搬移）；90° 旋转按钮；Bottom 镜像翻转（文字保持可读） | `components/PackageCanvas.vue` + 新 `model/pins/moveSignal.ts`；PinoutView 搬移 handler（主控已预接线） | 单测 ≥12；浏览器：拖拽换脚/90°/Bottom 验收 | P：PackageCanvas+pins |
+| 6.5 | **时钟节点内联编辑**：number 控件 foreignObject 内联输入（Enter/blur 提交、Esc 取消）；select 控件内联下拉；锁定/fixed 不可编辑 | `components/clock/ClockNode.vue`、`ClockCanvas.vue`、新 `clock/inlineEdit.ts` | 单测 ≥10；浏览器：内联改分频→频率联动 | Q：clock 组件 |
+| 6.6 | **面板宽度/可见性持久化 + 拖拽调宽**：接线已有 uiPreferences key（pinout/clock/peripherals 的 detail/code 宽度与可见性）；新增拖拽分隔条（夹取范围） | 三视图 + `PinConfigPanel/ClockDetail/CodePreviewPanel` + 新 `common/PanelResizer.vue` | 单测 ≥8；浏览器：调宽→刷新→保持 | R：views+panels |
+| 6.7 | **Home 芯片选择增强**：新建 MCU 升级为可搜索芯片对比表（封装/引脚数/Flash/RAM/内核/target/工具链/生成支持徽标），数据全部来自仓库已有 chip.json | 新 `components/home/ChipPicker.vue` + `views/HomeView.vue` | 单测 ≥10；浏览器：搜索→选芯片→新建 | S：Home+ChipPicker |
+
+> **已取消：板卡模型（原 6.7）**。用户决定：个人项目从未与厂商合作，引入厂商开发板数据存在版权纠纷风险，整个「从开发板新建」功能不做。子代理 S 已转向芯片选择增强（纯仓库数据，无外部版权内容）。
+
+**M6 验收门禁**：664+ 测试全绿（新增 ≥70）；`verify:build` 三芯片仍过；embassy 工程端到端编译；浏览器全视图走查 + 推送。
 
 ---
 

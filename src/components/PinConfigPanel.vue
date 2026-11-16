@@ -234,8 +234,10 @@ const speedOptions = [
 </template>
 
 <style scoped>
+/* 宽度由宿主 detail-col 决定（M6）：填满父容器，保留内部滚动 */
 .pin-panel {
-  width: var(--mx-detail-panel-w);
+  width: 100%;
+  min-width: 0;
   flex-shrink: 0;
   border-left: 1px solid var(--mx-border);
   background: var(--mx-surface);

@@ -1,13 +1,13 @@
 <script setup lang="ts">
-// 时钟树画布：原生 SVG 绘制 + 缩放工具条 + 节点内嵌控件弹层。
+// 时钟树画布：原生 SVG 绘制 + 缩放工具条 + 节点内嵌控件内联编辑。
 // 越界按级别着色（error 红 / warning 橙）、连接点实心蓝/空心灰、点节点向父级抛 focus。
-// 节点 / 连线 / 控件弹层拆分到 components/clock/ 子组件；本组件保留画布、缩放与交互状态。
+// 节点 / 连线拆分到 components/clock/ 子组件；本组件保留画布、缩放与交互状态，
+// 并协调 editingNodeId：同一时刻画布内只允许一个节点处于编辑态（开新关旧）。
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ZoomIn, ZoomOut, FullScreen } from '@element-plus/icons-vue'
 import type { ClockNodeControl, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
 import ClockNode from '@/components/clock/ClockNode.vue'
 import ClockWire from '@/components/clock/ClockWire.vue'
-import ClockPopup from '@/components/clock/ClockPopup.vue'
 
 const props = defineProps<{
   layout: ClockTreeLayout
@@ -114,44 +114,36 @@ const searchMatch = computed(() => {
 const svgW = computed(() => props.layout.width * effScale.value)
 const svgH = computed(() => props.layout.height * effScale.value)
 
-// ---------- 节点内嵌控件弹层（Teleport 到 body，fixed 定位） ----------
-// seq 递增作为弹层 key：即使连续点击同一数字控件，也按最新值重建数字草稿
-const open = reactive<{
-  nodeId: string | null
-  control: ClockNodeControl | null
-  x: number
-  y: number
-  seq: number
-}>({ nodeId: null, control: null, x: 0, y: 0, seq: 0 })
+// ---------- 节点内嵌控件内联编辑（foreignObject 原位编辑，画布协调单一编辑态） ----------
+const editingNodeId = ref<string | null>(null)
 
-/** 弹层预计高度：select 每项约 30px + 上下内边距 8px；number 控件约 44px */
-function popHeight(c: ClockNodeControl): number {
-  if (c.kind === 'number') return 44
-  return (c.options?.length ?? 0) * 30 + 8
+/** 节点请求进入编辑态：单一状态天然「开新关旧」（旧节点 editing 变 false 即退出） */
+function startEdit(nodeId: string) {
+  editingNodeId.value = nodeId
 }
 
-/** 节点控件行被点击：用控件元素的视口矩形定位 fixed 弹层 */
-function openControl(n: ClockTreeNode, rect: DOMRect) {
-  if (!n.control || n.control.fixed) return
-  const h = popHeight(n.control)
-  const below = rect.bottom + 4
-  // 下方空间不足时翻转到控件上方，保证弹层完整可见
-  const top = below + h > window.innerHeight - 8 ? Math.max(8, rect.top - h - 4) : below
-  open.nodeId = n.id
-  open.control = n.control
-  open.x = rect.left
-  open.y = top
-  open.seq += 1
+/** 节点退出编辑态（提交/取消/置灰）：仅当仍是当前编辑节点时清空，避免误关新打开的节点 */
+function endEdit(nodeId: string) {
+  if (editingNodeId.value === nodeId) editingNodeId.value = null
 }
 
-function closeControl() {
-  open.nodeId = null
-  open.control = null
+/** 点击画布空白处关闭编辑态（控件行点击已 stopPropagation，不会误关） */
+function closeEdit() {
+  editingNodeId.value = null
 }
 
-function onPopupChange(control: ClockNodeControl, value: string | number) {
+/** 内联编辑提交：契约与既有 ClockView @control-change 一致 (control, value) */
+function onControlChange(control: ClockNodeControl, value: string | number) {
   emit('control-change', control, value)
 }
+
+// 编辑节点随布局变化消失（如切换芯片）时清空编辑态
+watch(
+  () => props.layout.nodes,
+  (nodes) => {
+    if (editingNodeId.value !== null && !nodes.some((n) => n.id === editingNodeId.value)) editingNodeId.value = null
+  },
+)
 
 function onNodeClick(nodeId: string) {
   emit('focus', nodeId)
@@ -159,8 +151,9 @@ function onNodeClick(nodeId: string) {
 </script>
 
 <template>
-  <div ref="wrap" class="canvas-wrap" @wheel="onWheel" @click="closeControl">
-    <div class="canvas-scroll" @scroll="closeControl">
+  <div ref="wrap" class="canvas-wrap" @wheel="onWheel" @click="closeEdit">
+    <!-- 内联编辑器随 SVG 内容一起滚动，无需在滚动时关闭 -->
+    <div class="canvas-scroll">
       <div class="canvas-inner" :class="{ 'zoom-anim': zoomAnimating }" :style="{ width: svgW + 'px', height: svgH + 'px' }">
         <svg :width="svgW" :height="svgH" :viewBox="`0 0 ${layout.width} ${layout.height}`" class="clock-svg">
           <!-- 分组容器 -->
@@ -180,24 +173,16 @@ function onNodeClick(nodeId: string) {
             :selected="n.id === selectedId"
             :dimmed="searchMatch !== null && !searchMatch.has(n.id)"
             :pulse="pulseIds.has(n.id)"
+            :editing="n.id === editingNodeId"
             @focus="onNodeClick"
-            @control-open="openControl"
+            @edit-start="startEdit"
+            @edit-end="endEdit"
+            @control-change="onControlChange"
             @toggle-lock="(id: string) => emit('toggle-lock', id)"
           />
         </svg>
       </div>
     </div>
-
-    <!-- 控件弹层：Teleport 到 body + fixed 定位，避免被画布裁剪（点击外部/滚动关闭） -->
-    <ClockPopup
-      v-if="open.control"
-      :key="open.seq"
-      :control="open.control"
-      :x="open.x"
-      :y="open.y"
-      @change="onPopupChange"
-      @close="closeControl"
-    />
 
     <!-- 底部浮动缩放条 -->
     <div class="zoom-bar" title="Ctrl/⌘ + 滚轮缩放；也可使用按钮缩放">

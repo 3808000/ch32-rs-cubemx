@@ -25,6 +25,8 @@ export interface CodegenSelection {
   ideConfig?: IdeConfigKind
   /** 默认构建档位（M4.4），仅用于 IDE 任务的默认项；缺省 release-size。 */
   profile?: BuildProfile
+  /** HTML 单文件工程报告（M6）。可选，缺省 false（不改变既有生成结果）；产物 report.html 属 generated 组（随重新生成更新）。 */
+  htmlReport?: boolean
 }
 
 export const DEFAULT_SELECTION: CodegenSelection = {
@@ -40,6 +42,7 @@ export const DEFAULT_SELECTION: CodegenSelection = {
   vendorHal: true,
   ideConfig: 'none',
   profile: 'release-size',
+  htmlReport: false,
 }
 
 /** 文件组（对齐 CubeMX2 fileGroup）：决定再生成时的覆盖/保护策略。

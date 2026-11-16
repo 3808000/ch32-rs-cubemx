@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { useProjectStore, type ViewId } from '@/controllers/project'
 import { listRecent, type RecentProject } from '@/services/recentProjects'
 import { useHotkeys } from '@/components/common/useHotkeys'
+import UndoRedoButtons from '@/components/common/UndoRedoButtons.vue'
 import {
   ArrowRight,
   Check,
@@ -28,7 +29,10 @@ import {
 const store = useProjectStore()
 const subtitle = computed(() => `${store.projectName} • ${store.deviceData.chip.chip} / ${store.deviceData.chip.package}`)
 
-const emit = defineEmits<{ (e: 'menu', key: string): void }>()
+// 全局 Undo/Redo 状态由 App.vue 的 useHistory() 单例下发（M6）；本组件只展示与转发。
+withDefaults(defineProps<{ canUndo?: boolean; canRedo?: boolean }>(), { canUndo: false, canRedo: false })
+
+const emit = defineEmits<{ (e: 'menu', key: string): void; (e: 'undo'): void; (e: 'redo'): void }>()
 
 // 全局快捷键挂在常驻的标题栏组件上（Ctrl+S 仍由 App.vue 处理）
 useHotkeys()
@@ -242,6 +246,7 @@ function toggleRecent(): void {
     </div>
     <div class="titlebar-center">{{ subtitle }}</div>
     <div class="titlebar-right">
+      <UndoRedoButtons :can-undo="canUndo" :can-redo="canRedo" @undo="emit('undo')" @redo="emit('redo')" />
       <el-tooltip content="设置" placement="bottom">
         <button class="win-btn" @click="emit('menu', 'settings')"><el-icon :size="14"><Setting /></el-icon></button>
       </el-tooltip>

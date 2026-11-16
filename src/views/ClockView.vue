@@ -1,9 +1,15 @@
 <script setup lang="ts">
 // Clock 视图：页头 + 工具栏（搜索 / Resolve clock issues / Reset clock）+ 分段 Graphic/Table
 // + 画布或表格 + 右侧 Detail view + Code preview。
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Search, RefreshLeft, WarningFilled, CircleCheck } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
+import { getPreference, setPreference } from '@/services/uiPreferences'
+import PanelResizer, {
+  CODE_WIDTH_RANGE,
+  DETAIL_WIDTH_RANGE,
+  clampPanelWidth,
+} from '@/components/common/PanelResizer.vue'
 import { computeClock, resolveClockIssues, validateClock } from '@/model/clock'
 import { applyClockControl, buildClockTree, formatMhz } from '@/model/clock/tree'
 import type { ClockNodeControl, ClockTreeLayout } from '@/model/clock/tree'
@@ -31,8 +37,33 @@ const layoutError = computed(() => layoutState.value.error)
 const layoutReady = computed(() => layout.value.nodes.length > 0)
 
 const viewMode = ref<'graphic' | 'table'>('graphic')
-const showDetail = ref(true)
-const showCode = ref(false)
+
+// ---------- 面板可见性 / 宽度持久化（M6） ----------
+// 初始化即从偏好恢复（刷新后还原），读取时夹取到合法范围；可见性变化经 watch 写回。
+// 宽度刻意不 watch：拖拽中 resize 只更新本地 ref，松手 commit 时才 setPreference，
+// 避免 mousemove 每帧写 localStorage。
+const showDetail = ref(getPreference('clock.detailVisible'))
+const showCode = ref(getPreference('clock.codeVisible'))
+const detailWidth = ref(clampPanelWidth(getPreference('clock.detailWidth'), DETAIL_WIDTH_RANGE.min, DETAIL_WIDTH_RANGE.max))
+const codeWidth = ref(clampPanelWidth(getPreference('clock.codeWidth'), CODE_WIDTH_RANGE.min, CODE_WIDTH_RANGE.max))
+watch(showDetail, (v) => setPreference('clock.detailVisible', v))
+watch(showCode, (v) => setPreference('clock.codeVisible', v))
+
+function onDetailResize(w: number) {
+  detailWidth.value = w
+}
+function onDetailCommit(w: number) {
+  detailWidth.value = w
+  setPreference('clock.detailWidth', w)
+}
+function onCodeResize(w: number) {
+  codeWidth.value = w
+}
+function onCodeCommit(w: number) {
+  codeWidth.value = w
+  setPreference('clock.codeWidth', w)
+}
+
 const search = ref('')
 const selectedId = ref<string | null>(null)
 const showIssues = ref(false)
@@ -226,11 +257,34 @@ const filteredRows = computed(() => {
         </el-table>
       </div>
 
-      <div v-if="showDetail" class="detail-col">
+      <!-- Detail 面板：左缘分隔条拖拽调宽（宽度持久化到 clock.detailWidth） -->
+      <PanelResizer
+        v-if="showDetail"
+        :width="detailWidth"
+        :min="DETAIL_WIDTH_RANGE.min"
+        :max="DETAIL_WIDTH_RANGE.max"
+        side="right"
+        @resize="onDetailResize"
+        @commit="onDetailCommit"
+      />
+      <div v-if="showDetail" class="detail-col" :style="{ width: detailWidth + 'px' }">
         <ClockDetail :node-id="selectedId" @focus="focusNode" />
       </div>
 
-      <CodePreviewPanel v-if="showCode" context="clock" />
+      <!-- Code 预览：外层容器持有持久化宽度，PanelResizer 在面板左缘 -->
+      <template v-if="showCode">
+        <PanelResizer
+          :width="codeWidth"
+          :min="CODE_WIDTH_RANGE.min"
+          :max="CODE_WIDTH_RANGE.max"
+          side="right"
+          @resize="onCodeResize"
+          @commit="onCodeCommit"
+        />
+        <div class="code-col" :style="{ width: codeWidth + 'px' }">
+          <CodePreviewPanel context="clock" />
+        </div>
+      </template>
     </div>
 
     <!-- 问题定位对话框 -->
@@ -350,6 +404,13 @@ const filteredRows = computed(() => {
   display: flex;
   min-height: 0;
   flex-shrink: 0;
+  max-height: 100%;
+}
+.code-col {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
   max-height: 100%;
 }
 .no-issue {

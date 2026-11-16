@@ -8,11 +8,14 @@ import {
   readableAngle,
   readabilityFlip,
   nextTiltAngle,
+  nextTilt90Angle,
   topAngle,
   packageCanvasSide,
   packageCanvasOffset,
   pinNameFontSize,
   pinOuterText,
+  rotatorTransform,
+  textTransform,
 } from '../src/components/PackageCanvas.vue'
 import type { ChipData, ChipPin, PinAssignment } from '@/model/types'
 import { getDeviceData } from '@/model/device'
@@ -544,6 +547,165 @@ describe('pinColors', () => {
       expect(typeof c.bg).toBe('string')
       expect(typeof c.fg).toBe('string')
       expect(typeof c.border).toBe('string')
+    }
+  })
+})
+
+describe('90° 旋转（nextTilt90Angle，M6）', () => {
+  it('连点 4 次：每次 −90°，读数 0/270/180/90/0，原始值累减到 −360 不回卷', () => {
+    let raw = 0
+    const readings: number[] = [normalizeAngle(raw)]
+    for (let i = 0; i < 4; i++) {
+      raw = nextTilt90Angle(raw)
+      readings.push(normalizeAngle(raw))
+    }
+    expect(readings).toEqual([0, 270, 180, 90, 0])
+    expect(raw).toBe(-360)
+  })
+
+  it('与 45° 步进可叠加：90° 后再 45° → 读数 225°；Top 复位仍沿最短方向回正', () => {
+    const raw = nextTiltAngle(nextTilt90Angle(0))
+    expect(raw).toBe(-135)
+    expect(normalizeAngle(raw)).toBe(225)
+    expect(topAngle(raw)).toBe(0)
+  })
+})
+
+describe('90° 倍数下文字正立（flipLR/flipTB 天然成立）', () => {
+  const visual = (R: number, base: number) => normalizeSigned(R + base + readabilityFlip(R, base))
+
+  it('90/180/270（含负角）下左/右与顶/底文字总旋转均在 [−90°, 90°]', () => {
+    for (const R of [90, 180, 270, -90, -180, -270]) {
+      for (const base of [0, -90]) {
+        const v = visual(R, base)
+        expect(v).toBeGreaterThanOrEqual(-90)
+        expect(v).toBeLessThanOrEqual(90)
+      }
+    }
+  })
+
+  it('具体补偿值：180° 补 −180°、270° 补 −360°（连续累加，CSS 过渡不反向绕圈）', () => {
+    expect(readabilityFlip(90, 0)).toBe(0)
+    expect(readabilityFlip(180, 0)).toBe(-180)
+    expect(readabilityFlip(270, 0)).toBe(-360)
+    expect(visual(180, 0)).toBe(0)
+    expect(visual(270, 0)).toBe(-90)
+    // 顶/底基准 −90°：270° 时总朝向 180° 倒置 → 补 −180° 回正
+    expect(readabilityFlip(270, -90)).toBe(-180)
+    expect(visual(270, -90)).toBe(0)
+  })
+})
+
+describe('Bottom 镜像变换（rotatorTransform / textTransform，M6）', () => {
+  // 2×2 矩阵 [a,b,c,d] = [[a,b],[c,d]]；列向量约定下 CSS 列表 A B = A·B（最右先作用）。
+  type Mat = [number, number, number, number]
+  const mul = (m: Mat, n: Mat): Mat => [
+    m[0] * n[0] + m[1] * n[2],
+    m[0] * n[1] + m[1] * n[3],
+    m[2] * n[0] + m[3] * n[2],
+    m[2] * n[1] + m[3] * n[3],
+  ]
+  const rot = (deg: number): Mat => {
+    const r = (deg * Math.PI) / 180
+    const c = Math.cos(r)
+    const s = Math.sin(r)
+    return [c, -s, s, c]
+  }
+  const MIRROR: Mat = [-1, 0, 0, 1] // scaleX(-1)：屏幕竖直轴镜像
+  const det = (m: Mat) => m[0] * m[3] - m[1] * m[2]
+  const angleOf = (m: Mat) => (Math.atan2(m[2], m[0]) * 180) / Math.PI
+  const apply = (m: Mat, p: [number, number]): [number, number] => [m[0] * p[0] + m[1] * p[1], m[2] * p[0] + m[3] * p[1]]
+
+  /** 文字总变换 = 父链(scaleX·rotate) · 基准朝向 g(SVG rotate) · 文字局部(textTransform) */
+  const compose = (angle: number, bottom: boolean, base: number): Mat => {
+    const flip = readabilityFlip(-angle, base)
+    const parent = bottom ? mul(MIRROR, rot(-angle)) : rot(-angle)
+    const local = bottom ? mul(MIRROR, rot(flip)) : rot(flip)
+    return mul(mul(parent, rot(base)), local)
+  }
+  // 组件原始角累减为负：读数 d 对应 raw = −d
+  const rawAngles = [0, -45, -90, -135, -180, -225, -270, -315]
+
+  it('rotatorTransform top：scaleX(1) + 反角 rotate（315° 读数 → rotate(45deg)）', () => {
+    expect(rotatorTransform(0, false)).toBe('scaleX(1) rotate(0deg)')
+    expect(rotatorTransform(-45, false)).toBe('scaleX(1) rotate(45deg)')
+    expect(rotatorTransform(-270, false)).toBe('scaleX(1) rotate(270deg)')
+  })
+
+  it('rotatorTransform bottom：scaleX(-1) 列表在前 = 屏幕竖直轴镜像作用于旋转结果', () => {
+    expect(rotatorTransform(0, true)).toBe('scaleX(-1) rotate(0deg)')
+    expect(rotatorTransform(-45, true)).toBe('scaleX(-1) rotate(45deg)')
+    expect(rotatorTransform(90, true)).toBe('scaleX(-1) rotate(-90deg)')
+    // 采样点验证：先旋转 (1,0) 再镜像，与父链矩阵一次作用结果一致
+    const parent = mul(MIRROR, rot(45))
+    const rotated = apply(rot(45), [1, 0])
+    const mirrored: [number, number] = [-rotated[0], rotated[1]]
+    const direct = apply(parent, [1, 0])
+    expect(direct[0]).toBeCloseTo(mirrored[0], 10)
+    expect(direct[1]).toBeCloseTo(mirrored[1], 10)
+  })
+
+  it('textTransform：top 纯 rotate，bottom 前置 scaleX(-1)（镜像列表在前）', () => {
+    expect(textTransform(0, false)).toBe('rotate(0deg)')
+    expect(textTransform(-180, false)).toBe('rotate(-180deg)')
+    expect(textTransform(0, true)).toBe('scaleX(-1) rotate(0deg)')
+    expect(textTransform(-180, true)).toBe('scaleX(-1) rotate(-180deg)')
+  })
+
+  it('关键角度组合字符串契约：0/45/90/180/225/270/315 × top/bottom', () => {
+    for (const d of [0, 45, 90, 180, 225, 270, 315]) {
+      const raw = -d
+      expect(rotatorTransform(raw, false)).toBe(`scaleX(1) rotate(${d}deg)`)
+      expect(rotatorTransform(raw, true)).toBe(`scaleX(-1) rotate(${d}deg)`)
+      const flip = readabilityFlip(d, 0)
+      expect(textTransform(flip, false)).toBe(`rotate(${flip}deg)`)
+      expect(textTransform(flip, true)).toBe(`scaleX(-1) rotate(${flip}deg)`)
+    }
+  })
+
+  it('字形不被镜像：任意角度 × top/bottom × 基准朝向(0/−90°) 组合矩阵行列式 = +1', () => {
+    for (const raw of rawAngles) {
+      for (const bottom of [false, true]) {
+        for (const base of [0, -90]) {
+          expect(det(compose(raw, bottom, base))).toBeCloseTo(1, 9)
+        }
+      }
+    }
+  })
+
+  it('文字正立：bottom 与任意倾角叠加后总旋转仍归一化到 [−90°, 90°]（两次镜像相消）', () => {
+    for (const raw of rawAngles) {
+      for (const bottom of [false, true]) {
+        for (const base of [0, -90]) {
+          const v = normalizeSigned(angleOf(compose(raw, bottom, base)))
+          expect(v).toBeGreaterThanOrEqual(-90 - 1e-6)
+          expect(v).toBeLessThanOrEqual(90 + 1e-6)
+        }
+      }
+    }
+  })
+
+  it('top 视图与旧版纯旋转完全等价：scaleX(1) 不改变几何', () => {
+    for (const raw of rawAngles) {
+      for (const base of [0, -90]) {
+        const flip = readabilityFlip(-raw, base)
+        const legacy = rot(-raw + base + flip)
+        const m = compose(raw, false, base)
+        for (let i = 0; i < 4; i++) expect(m[i]).toBeCloseTo(legacy[i], 9)
+      }
+    }
+  })
+
+  it('Bottom 不改变角度读数与自适应包围盒：rotate 分量相同，矩阵元素绝对值不变', () => {
+    for (const raw of rawAngles) {
+      const top = rotatorTransform(raw, false)
+      const bot = rotatorTransform(raw, true)
+      // rotate 分量完全一致 → 角度读数 normalizeAngle(raw) 不受镜像影响
+      expect(bot.slice('scaleX(-1)'.length)).toBe(top.slice('scaleX(1)'.length))
+      // 镜像只翻转矩阵第一行符号：各元素绝对值不变 → 轴对齐包围盒（|cos|/|sin|）不变
+      const mt = rot(-raw)
+      const mb = mul(MIRROR, rot(-raw))
+      for (let i = 0; i < 4; i++) expect(Math.abs(mb[i])).toBeCloseTo(Math.abs(mt[i]), 9)
     }
   })
 })

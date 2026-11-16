@@ -417,3 +417,30 @@ describe('generateProject 后端守卫', () => {
     ])
   })
 })
+
+describe('generateProject HTML 报告接线（M6）', () => {
+  it('缺省不生成 report.html（不改变既有产物）', () => {
+    const r = generateProject(baseConfig(), data)
+    expect(r.errors).toEqual([])
+    expect(r.files.some((f) => f.path === 'report.html')).toBe(false)
+  })
+
+  it('htmlReport=true → report.html 属 generated 组且含工程/芯片信息', () => {
+    const r = generateProject(baseConfig(), data, { htmlReport: true })
+    expect(r.errors).toEqual([])
+    const report = r.files.find((f) => f.path === 'report.html')
+    expect(report).toBeDefined()
+    expect(report!.group).toBe('generated')
+    expect(report!.content).toContain('demo-app')
+    expect(report!.content).toContain('CH32V003F4P6')
+  })
+
+  it('双核 workspace 同样支持 htmlReport', () => {
+    const dualData = getDeviceData('CH32H417QEU6')
+    const r = generateProject(baseConfig({ chip: 'CH32H417QEU6' }), dualData, { htmlReport: true })
+    expect(r.errors).toEqual([])
+    const report = r.files.find((f) => f.path === 'report.html')
+    expect(report).toBeDefined()
+    expect(report!.group).toBe('generated')
+  })
+})

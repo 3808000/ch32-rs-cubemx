@@ -9,6 +9,7 @@ import { renderClock } from './clock'
 import { renderCoreGenerated } from './core'
 import { renderCubeFile } from './cubefile'
 import { renderDualReadme } from './readme'
+import { renderHtmlReport } from './htmlReport'
 import { renderIdeConfigFiles } from './ideConfig'
 import * as T from './templates'
 
@@ -195,6 +196,9 @@ export function generateDualCoreProject(
 
   // ---------- README（含工程报告，与单核同源） ----------
   if (sel.readme) files.push(renderDualReadme(config, data, sel, files, dualFileDesc))
+
+  // ---------- HTML 单文件报告（M6，与单核同源） ----------
+  if (sel.htmlReport) files.push(renderHtmlReport(config, data, sel, files, embassy))
 
   return { files: withFileGroups(files), errors: [] }
 }

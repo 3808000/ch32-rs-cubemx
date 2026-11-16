@@ -1,20 +1,28 @@
 <script setup lang="ts">
 // 单个时钟树节点：上限标签 / 输入-输出两栏频率 / 标题 / 内嵌控件行（或只读 hint）。
-// 节点整体点击向父级抛 focus；控件行点击抛 control-open（附控件元素视口矩形，供弹层定位）。
-// 可锁定节点右上角显示锁图标，点击或右键切换锁定（锁定后控件置灰）。
+// 节点整体点击向父级抛 focus；控件行单击原位切换为 foreignObject 内联编辑（input/select），
+// 提交抛 control-change（契约与弹层时代一致），编辑态由父级 editingNodeId 协调（开新关旧）。
+// 可锁定节点右上角显示锁图标，点击或右键切换锁定（锁定后控件置灰不可编辑）。
 import type { ClockNodeControl, ClockTreeNode } from '@/model/clock/tree'
 import { formatMhz } from '@/model/clock/tree'
-import { computed } from 'vue'
+import { canEditControl, editKeyAction, parseNumberInput, resolveSelectValue } from '@/components/clock/inlineEdit'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 
-const props = withDefaults(defineProps<{ node: ClockTreeNode; selected?: boolean; dimmed?: boolean; pulse?: boolean }>(), {
-  selected: false,
-  dimmed: false,
-  pulse: false,
-})
+const props = withDefaults(
+  defineProps<{ node: ClockTreeNode; selected?: boolean; dimmed?: boolean; pulse?: boolean; editing?: boolean }>(),
+  {
+    selected: false,
+    dimmed: false,
+    pulse: false,
+    editing: false,
+  },
+)
 
 const emit = defineEmits<{
   (e: 'focus', nodeId: string): void
-  (e: 'control-open', node: ClockTreeNode, rect: DOMRect): void
+  (e: 'control-change', control: ClockNodeControl, value: string | number): void
+  (e: 'edit-start', nodeId: string): void
+  (e: 'edit-end', nodeId: string): void
   (e: 'toggle-lock', nodeId: string): void
 }>()
 
@@ -29,14 +37,117 @@ function ctrlText(c: ClockNodeControl): string {
 
 const controlText = computed(() => (props.node.control ? ctrlText(props.node.control) : ''))
 
+/** 控件可编辑（fixed/锁定置灰）且父级把本节点标记为编辑态时，渲染内联编辑器 */
+const editable = computed(() => canEditControl(props.node.control, props.node.locked))
+const inlineEditing = computed(() => props.editing && editable.value)
+
+// ---------- 内联编辑状态 ----------
+const draft = ref('')
+const invalid = ref(false)
+const inputEl = ref<HTMLInputElement | null>(null)
+const selectEl = ref<HTMLSelectElement | null>(null)
+let invalidTimer: number | null = null
+
+function clearInvalidTimer() {
+  if (invalidTimer !== null) {
+    window.clearTimeout(invalidTimer)
+    invalidTimer = null
+  }
+}
+
+/** 控件行单击：请求进入编辑态（父级协调同一时刻仅一个节点编辑） */
 function onControlClick(e: MouseEvent) {
   e.stopPropagation()
+  if (!editable.value) return
+  emit('edit-start', props.node.id)
+}
+
+// 进入编辑态：按当前控件值初始化草稿，聚焦并全选（number）；退出时清理红框提示
+watch(
+  () => props.editing,
+  (on) => {
+    clearInvalidTimer()
+    invalid.value = false
+    if (!on) return
+    const c = props.node.control
+    draft.value = c ? String(c.value) : ''
+    void nextTick(() => {
+      const el = inputEl.value ?? selectEl.value
+      el?.focus()
+      if (el instanceof HTMLInputElement) el.select()
+    })
+  },
+)
+
+// 编辑期间被锁定/置灰（如右键锁定、预设写回）：立即退出编辑态
+watch(editable, (ok) => {
+  if (!ok && props.editing) emit('edit-end', props.node.id)
+})
+
+onBeforeUnmount(clearInvalidTimer)
+
+/** 非法输入：回退原值 + 短暂红框，随后关闭编辑态（红框可见后再退出） */
+function flashInvalid() {
   const c = props.node.control
-  if (!c || c.fixed) return
-  // 用被点击控件元素的视口矩形定位 fixed 弹层（不受画布滚动/裁剪影响）
-  const el = e.currentTarget instanceof Element ? e.currentTarget : null
-  if (!el) return
-  emit('control-open', props.node, el.getBoundingClientRect())
+  draft.value = c ? String(c.value) : ''
+  invalid.value = true
+  clearInvalidTimer()
+  invalidTimer = window.setTimeout(() => {
+    invalidTimer = null
+    invalid.value = false
+    emit('edit-end', props.node.id)
+  }, 500)
+}
+
+/** number 提交：Enter / blur 触发；非法回退原值并红框提示 */
+function commitNumber() {
+  if (!props.editing) return
+  // 红框提示期间草稿已回退原值：此时 blur 直接关闭，不再重复提交
+  if (invalid.value) {
+    cancelEdit()
+    return
+  }
+  const c = props.node.control
+  if (!c || c.kind !== 'number') return
+  const r = parseNumberInput(draft.value, c)
+  if (!r.ok || r.value === undefined) {
+    flashInvalid()
+    return
+  }
+  clearInvalidTimer()
+  emit('control-change', c, r.value)
+  emit('edit-end', props.node.id)
+}
+
+/** select 提交：change 立即提交（值按 options 匹配，保留原始类型） */
+function onSelectChange(e: Event) {
+  if (!props.editing) return
+  const c = props.node.control
+  const raw = e.target instanceof HTMLSelectElement ? e.target.value : ''
+  if (!c || c.kind !== 'select') return
+  const v = resolveSelectValue(raw, c)
+  if (v !== null) emit('control-change', c, v)
+  emit('edit-end', props.node.id)
+}
+
+/** Esc 取消 / select blur 关闭：不提交，直接退出编辑态 */
+function cancelEdit() {
+  if (!props.editing) return
+  clearInvalidTimer()
+  invalid.value = false
+  emit('edit-end', props.node.id)
+}
+
+/** number 按键：Enter 提交 / Esc 取消（其余按键交还原生输入） */
+function onNumberKeydown(e: KeyboardEvent) {
+  const action = editKeyAction(e.key)
+  if (action === 'commit') {
+    e.preventDefault()
+    commitNumber()
+  } else if (action === 'cancel') {
+    e.preventDefault()
+    cancelEdit()
+  }
 }
 
 /** 节点右键：可锁定节点直接切换锁定（不可锁定节点保持浏览器默认行为）。 */
@@ -125,15 +236,57 @@ function onToggleLock(e: MouseEvent) {
     </text>
     <!-- 节点标题 -->
     <text :x="node.x + 8" :y="node.y + 64" class="node-title">{{ node.label }}</text>
-    <!-- 内嵌控件行 -->
-    <g v-if="node.control" class="ctrl" :class="{ fixed: node.control.fixed }" @click="onControlClick">
+    <!-- 内嵌控件行：编辑态原位替换为 foreignObject 内联 input/select -->
+    <g v-if="node.control" class="ctrl" :class="{ fixed: node.control.fixed || node.locked }" @click="onControlClick">
       <rect :x="ctrlRect.x" :y="ctrlRect.y" :width="ctrlRect.w" :height="ctrlRect.h" rx="4" class="ctrl-box" />
-      <text :x="ctrlRect.x + 8" :y="ctrlRect.y + 19" class="ctrl-text">{{ controlText }}</text>
-      <path
-        v-if="node.control.kind === 'select'"
-        :d="`M ${ctrlRect.x + ctrlRect.w - 16} ${ctrlRect.y + 11} l 5 6 l 5 -6 z`"
-        class="ctrl-caret"
-      />
+      <template v-if="inlineEditing">
+        <!-- 编辑态点击不冒泡到节点（不触发 focus）；尺寸与控件行一致 -->
+        <foreignObject
+          :x="ctrlRect.x"
+          :y="ctrlRect.y"
+          :width="ctrlRect.w"
+          :height="ctrlRect.h"
+          class="ctrl-inline"
+          @click.stop
+          @mousedown.stop
+          @contextmenu.stop
+        >
+          <input
+            v-if="node.control.kind === 'number'"
+            ref="inputEl"
+            v-model="draft"
+            type="text"
+            inputmode="decimal"
+            class="inline-input"
+            :class="{ invalid }"
+            :aria-label="node.control.label"
+            @keydown="onNumberKeydown"
+            @blur="commitNumber"
+          />
+          <select
+            v-else
+            ref="selectEl"
+            class="inline-select"
+            :value="String(node.control.value)"
+            :aria-label="node.control.label"
+            @change="onSelectChange"
+            @keydown.esc.prevent="cancelEdit"
+            @blur="cancelEdit"
+          >
+            <option v-for="opt in node.control.options" :key="String(opt.value)" :value="String(opt.value)">
+              {{ opt.label }}
+            </option>
+          </select>
+        </foreignObject>
+      </template>
+      <template v-else>
+        <text :x="ctrlRect.x + 8" :y="ctrlRect.y + 19" class="ctrl-text">{{ controlText }}</text>
+        <path
+          v-if="node.control.kind === 'select'"
+          :d="`M ${ctrlRect.x + ctrlRect.w - 16} ${ctrlRect.y + 11} l 5 6 l 5 -6 z`"
+          class="ctrl-caret"
+        />
+      </template>
     </g>
     <text v-else-if="node.hint" :x="node.x + 10" :y="ctrlRect.y + 19" class="node-hint">{{ node.hint }}</text>
   </g>
@@ -263,5 +416,32 @@ function onToggleLock(e: MouseEvent) {
 }
 .ctrl-caret {
   fill: var(--mx-text-muted);
+}
+
+/* 内联编辑器：与控件行同尺寸，11px 字体；非法输入短暂红框 */
+.ctrl-inline {
+  overflow: visible;
+}
+.inline-input,
+.inline-select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--mx-text);
+  background: #fff;
+  border: 1px solid var(--mx-accent);
+  border-radius: 4px;
+  outline: none;
+}
+.inline-input.invalid {
+  border-color: var(--mx-error);
+  box-shadow: 0 0 0 2px rgba(217, 45, 32, 0.18);
+}
+.inline-select {
+  cursor: pointer;
 }
 </style>

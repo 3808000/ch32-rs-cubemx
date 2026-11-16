@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 时钟详情面板（右侧 360px）：选中节点参数控件 + 问题列表 + 预设快捷 + 目标频率解算。
+// 时钟详情面板（右侧，宽度由宿主视图持久化控制）：选中节点参数控件 + 问题列表 + 预设快捷 + 目标频率解算。
 // 修改即 store.setClock(mergeClockConfig(spec, {...cfg, ...patch}))；锁定节点的控件禁用且不会被预设/解算覆盖。
 import { computed, ref } from 'vue'
 import { useProjectStore } from '@/controllers/project'
@@ -308,8 +308,10 @@ function sourceLabel(id: string): string {
 </template>
 
 <style scoped>
+/* 宽度由宿主 detail-col 决定（M6）：填满父容器，保留内部滚动 */
 .clock-detail {
-  width: var(--mx-detail-panel-w);
+  width: 100%;
+  min-width: 0;
   flex-shrink: 0;
   background: var(--mx-surface);
   border-left: 1px solid var(--mx-border);

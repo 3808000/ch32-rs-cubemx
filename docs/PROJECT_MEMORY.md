@@ -68,7 +68,8 @@
 
 ## 7. 测试与门禁现状（2026-11-16 工程化重构后）
 
-- 单元测试：**664 个用例全绿**（12 文件：clock 65 / conflicts 75 / packageSvg 58 / deviceData 46 / peripherals 34 / allocation 12 / groups 18 / usage 12 / clockTree 19 / codegen 23 / projectFile / peripheralActivation）。
+- 单元测试：**815 个用例全绿**（39 文件；M6 新增：htmlReport 19 / historyStack 23 / useHistory 15 / moveSignal 20 / packageSvg +10 / clockInlineEdit 26 / panelResize 16 / chipPicker 17 / codegen 接线 +3）。
+- M6（v0.07）：Runtime 一等公民（blocking/embassy 选择器，rtic 禁激活待核实）/ HTML 单文件报告（report.html，generated 组）/ 全局 Undo-Redo（Ctrl+Z/Y，快照栈合并窗口）/ 封装拖拽移动信号+90°+Bottom 镜像（文字可读性矩阵验证）/ 时钟节点 foreignObject 内联编辑 / 面板宽度持久化+拖拽调宽 / Home 芯片搜索对比表。板卡功能按用户决定取消（版权风险）。
 - 类型检查 vue-tsc、ESLint（含分层边界规则）、vite build 全绿。
 - validate:device：V003 / V203 / CH582M / H417 全部 0 错误 0 警告。
 - verify:build：V003 ✓ / V203 ✓ / H417 双核 workspace ✓（CH582M 按设计被 halBackend 守卫拦截）。

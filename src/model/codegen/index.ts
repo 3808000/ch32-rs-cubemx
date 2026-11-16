@@ -13,6 +13,7 @@ import { renderSkeletonFiles } from './cargo'
 import { renderCoreGenerated } from './core'
 import { renderCubeFile } from './cubefile'
 import { renderReadme } from './readme'
+import { renderHtmlReport } from './htmlReport'
 import { generateDualCoreProject } from './workspace'
 import { render } from './render'
 import { withFileGroups } from './fileGroup'
@@ -105,6 +106,9 @@ export function generateProject(
 
   // ---------- README ----------
   if (sel.readme) files.push(renderReadme(config, data, sel, embassy, files))
+
+  // ---------- HTML 单文件报告（M6，generated 组：随重新生成更新） ----------
+  if (sel.htmlReport) files.push(renderHtmlReport(config, data, sel, files, embassy))
 
   return { files: withFileGroups(files), errors: [] }
 }

@@ -19,31 +19,8 @@ const props = defineProps<{
 
 const store = useProjectStore()
 
-// ---------- 面板尺寸（左缘拖拽，420~720） ----------
-const PANEL_MIN = 420
-const PANEL_MAX = 720
-const panelWidth = ref(480)
-const drag = { active: false, startX: 0, startW: 0 }
-
-function onDragStart(e: MouseEvent) {
-  drag.active = true
-  drag.startX = e.clientX
-  drag.startW = panelWidth.value
-  document.addEventListener('mousemove', onDragMove)
-  document.addEventListener('mouseup', onDragEnd)
-  e.preventDefault()
-}
-function onDragMove(e: MouseEvent) {
-  if (!drag.active) return
-  // 面板右缘固定，向左拖动 = 变宽
-  const w = drag.startW + (drag.startX - e.clientX)
-  panelWidth.value = Math.min(PANEL_MAX, Math.max(PANEL_MIN, w))
-}
-function onDragEnd() {
-  drag.active = false
-  document.removeEventListener('mousemove', onDragMove)
-  document.removeEventListener('mouseup', onDragEnd)
-}
+// 面板宽度（M6）：不再自带拖拽与固定宽度，由宿主视图的外层容器 + PanelResizer 控制，
+// 本组件以 width:100% 填满父容器；内部 Monaco 通过 ResizeObserver 自适应布局。
 
 // ---------- 状态 ----------
 const host = ref<HTMLDivElement>()
@@ -219,7 +196,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = null
-  onDragEnd()
   resizeObserver?.disconnect()
   resizeObserver = null
   destroyEditors()
@@ -241,9 +217,7 @@ watch(useDiff, buildEditors)
 </script>
 
 <template>
-  <div class="code-preview" :style="{ width: panelWidth + 'px' }">
-    <div class="drag-handle" title="拖拽调整宽度" @mousedown="onDragStart"></div>
-
+  <div class="code-preview">
     <div class="cp-header">
       <div class="cp-title">
         <span class="obj">{{ objectName }}</span>
@@ -327,40 +301,17 @@ watch(useDiff, buildEditors)
 </template>
 
 <style scoped>
+/* 宽度由宿主容器决定（M6）：填满父容器，内部滚动/布局不受影响 */
 .code-preview {
   position: relative;
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   height: 100%;
-  flex-shrink: 0;
   background: var(--mx-surface);
   border-left: 1px solid var(--mx-border);
   overflow: hidden;
-}
-
-/* 左缘拖拽把手：8px 命中区 + 2px 可视线 */
-.drag-handle {
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 8px;
-  margin-left: -4px;
-  z-index: 10;
-  cursor: col-resize;
-}
-.drag-handle::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: transparent;
-  transition: background 0.15s;
-}
-.drag-handle:hover::after {
-  background: var(--mx-accent);
 }
 
 .cp-header {

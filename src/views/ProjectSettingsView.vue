@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// Project settings 主视图（M2.4）：General / Generation / Advanced 三段可折叠面板。
+// Project settings 主视图（M2.4）：General / Runtime / Generation / Advanced 四段可折叠面板。
 // General 编辑工程名并只读展示芯片、target、toolchain、HAL rev；
+// Runtime（M6）选择 blocking/embassy 运行时与调试打印（rtic 待 HAL 支持，禁激活）；
 // Generation 说明导出选项并打开 CodegenDialog（与 Pinout 共用同一生成服务）；
 // Advanced 展示 M1 再生成安全网的 fileGroup 策略与冲突决议选项。
 import { computed, reactive, ref, watch } from 'vue'
@@ -30,6 +31,24 @@ function commitProjectName() {
   const name = projectName.value.trim() || 'ch32-project'
   projectName.value = name
   if (name !== store.projectName) store.setProjectName(name)
+}
+
+// ---- Runtime（M6：运行时一等公民） ----
+// features.embassy 驱动生成器（main.rs / 外设 async API / DMA 冲突规则），此前无 UI 开关。
+// rtic 在 ch32-hal 尚未支持：选项禁激活并诚实标注，不臆造生成路径。
+type RuntimeKind = 'blocking' | 'embassy' | 'rtic'
+const runtime = computed<RuntimeKind>(() => (store.features.embassy ? 'embassy' : 'blocking'))
+const embassySupported = computed(() => !(chip.value.unsupportedFeatures ?? []).includes('embassy'))
+
+function setRuntime(kind: RuntimeKind) {
+  if (kind === 'rtic') return
+  if (kind === 'embassy' && !embassySupported.value) return
+  store.setFeatures({ embassy: kind === 'embassy' })
+  store.notify(kind === 'embassy' ? '运行时已切换为 embassy（async）' : '运行时已切换为 blocking（阻塞）', 'info')
+}
+
+function setDebugPrint(v: boolean) {
+  store.setFeatures({ debugPrint: v })
 }
 
 // ---- Generation ----
@@ -79,16 +98,18 @@ const resolutionOptions: { label: string; desc: string }[] = [
 ]
 
 // ---- 章节展开 / 导航 ----
-const open = reactive({ general: true, generation: true, advanced: true })
+const open = reactive({ general: true, runtime: true, generation: true, advanced: true })
 
 function expandAll() {
   open.general = true
+  open.runtime = true
   open.generation = true
   open.advanced = true
 }
 
 function collapseAll() {
   open.general = false
+  open.runtime = false
   open.generation = false
   open.advanced = false
 }
@@ -118,6 +139,7 @@ function openGenerate() {
           <template #dropdown>
             <el-dropdown-menu>
               <el-dropdown-item command="general">General</el-dropdown-item>
+              <el-dropdown-item command="runtime">Runtime</el-dropdown-item>
               <el-dropdown-item command="generation">Generation</el-dropdown-item>
               <el-dropdown-item command="advanced">Advanced</el-dropdown-item>
             </el-dropdown-menu>
@@ -176,6 +198,50 @@ function openGenerate() {
             <div class="ps-row">
               <div class="ps-label">HAL feature</div>
               <div class="ps-value"><code>{{ chip.halFeature }}</code></div>
+            </div>
+          </div>
+        </CollapsiblePanel>
+      </div>
+
+      <!-- Runtime（M6） -->
+      <div id="ps-runtime" class="ps-section">
+        <CollapsiblePanel v-model:open="open.runtime" title="Runtime">
+          <div class="ps-rows">
+            <div class="ps-row">
+              <div class="ps-label">运行时</div>
+              <div class="ps-value ps-runtime-value">
+                <el-radio-group :model-value="runtime" size="small" @change="setRuntime($event as RuntimeKind)">
+                  <el-radio-button value="blocking">blocking（阻塞）</el-radio-button>
+                  <el-radio-button value="embassy" :disabled="!embassySupported">embassy（async）</el-radio-button>
+                  <el-radio-button value="rtic" disabled>rtic</el-radio-button>
+                </el-radio-group>
+                <span class="ps-note">
+                  {{
+                    runtime === 'embassy'
+                      ? '生成 embassy 异步工程：main.rs 使用 #[embassy_executor::main]，外设按 async API 初始化'
+                      : '生成阻塞式工程：main.rs 使用 #[entry]，外设按 blocking API 初始化'
+                  }}
+                </span>
+              </div>
+            </div>
+            <div v-if="!embassySupported" class="ps-row">
+              <div class="ps-label"></div>
+              <div class="ps-value">
+                <span class="ps-note ps-runtime-warn">该芯片（{{ chip.chip }}）暂不支持 embassy（chip.json unsupportedFeatures），已禁用。</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">rtic</div>
+              <div class="ps-value">
+                <span class="ps-note">ch32-hal 尚未提供 RTIC 支持，待 HAL 上游核实后再开放（不臆造生成路径）。</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">调试打印</div>
+              <div class="ps-value">
+                <el-switch :model-value="store.features.debugPrint" size="small" @change="setDebugPrint($event === true)" />
+                <span class="ps-note">main.rs 内生成 println!（经 ch32-hal 的调试串口输出）</span>
+              </div>
             </div>
           </div>
         </CollapsiblePanel>
@@ -336,6 +402,12 @@ function openGenerate() {
 }
 .ps-name-input {
   width: 280px;
+}
+.ps-runtime-value {
+  flex-wrap: wrap;
+}
+.ps-runtime-warn {
+  color: var(--mx-warning);
 }
 .ps-note {
   font-size: var(--mx-fz-label);

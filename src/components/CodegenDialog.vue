@@ -68,7 +68,14 @@ const items: { key: keyof CodegenSelection; label: string; desc: string }[] = [
   { key: 'i2c', label: 'I2C', desc: 'generated/i2c.rs' },
   { key: 'adc', label: 'ADC', desc: 'generated/adc.rs' },
   { key: 'readme', label: 'README', desc: '说明文档' },
+  { key: 'htmlReport', label: 'HTML 报告', desc: 'report.html 单文件工程报告（浏览器直接打开，M6）' },
 ]
+
+/** 运行时展示（M6）：生成器按 store.features 决定 blocking/embassy；更改入口在 Project settings。 */
+function gotoRuntimeSettings() {
+  visible.value = false
+  store.setView('project-settings')
+}
 
 // ---------- 生成前 Check（M3.7） ----------
 /** 导出前检查摘要：用于提示数量；真正阻断/确认在 gateExport 中弹 CheckDialog。 */
@@ -142,7 +149,10 @@ function buildZipReport(
     files,
     summary: { create: files.length, update: 0, unchanged: 0, delete: 0, conflict: 0 },
     warnings: confirmedWarnings(),
-    notes: selection.vendorHal ? ['ZIP 内含 vendor/ch32-hal 完整 HAL 源码。'] : [],
+    notes: [
+      ...(selection.vendorHal ? ['ZIP 内含 vendor/ch32-hal 完整 HAL 源码。'] : []),
+      ...(selection.htmlReport ? ['report.html 为单文件工程报告，浏览器直接打开即可查阅。'] : []),
+    ],
   }
 }
 
@@ -155,6 +165,9 @@ function buildFolderReport(
   const notes: string[] = []
   if (!result.readable) {
     notes.push('目标目录不可读：已按全量写入处理，未检测冲突，也未保留已有文件。')
+  }
+  if (selection.htmlReport) {
+    notes.push('report.html 为单文件工程报告，浏览器直接打开即可查阅。')
   }
   return {
     mode: 'folder',
@@ -310,6 +323,14 @@ function finishReport() {
       <div class="form-row">
         <label>工程名</label>
         <el-input v-model="projectName" size="small" style="width: 240px" placeholder="ch32-project" />
+      </div>
+      <div class="form-row">
+        <label>运行时</label>
+        <el-tag size="small" :type="store.features.embassy ? 'success' : 'info'">
+          {{ store.features.embassy ? 'embassy（async）' : 'blocking（阻塞）' }}
+        </el-tag>
+        <el-tag size="small" type="info">调试打印 {{ store.features.debugPrint ? '开' : '关' }}</el-tag>
+        <el-button link type="primary" size="small" @click="gotoRuntimeSettings">在 Project settings 中更改</el-button>
       </div>
       <div class="selection-grid">
         <el-checkbox v-for="it in items" :key="it.key" v-model="selection[it.key]">

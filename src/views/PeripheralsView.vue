@@ -2,9 +2,11 @@
 // Peripherals 视图（M2.2）：左侧实例列表 + 右侧工作区。
 // activePeripheralId 非空时渲染单实例 PeripheralWorkspaceView；否则渲染概览/汇总
 // （使用汇总 + EXTI/ADC/分组分配面板），保留 Quick menu / Code preview。
-import { computed, provide, reactive, ref } from 'vue'
+import { computed, provide, reactive, ref, watch } from 'vue'
 import { Document, Expand, Fold, Menu, Promotion } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
+import { getPreference, setPreference } from '@/services/uiPreferences'
+import PanelResizer, { CODE_WIDTH_RANGE, clampPanelWidth } from '@/components/common/PanelResizer.vue'
 import { derivePeripheralUsage } from '@/model/peripherals'
 import PeripheralList from '../components/PeripheralList.vue'
 import PeripheralWorkspaceView from './PeripheralWorkspaceView.vue'
@@ -23,7 +25,22 @@ import SectionHeader from '../components/common/SectionHeader.vue'
 const store = useProjectStore()
 
 const showQuickMenu = ref(false)
-const showCode = ref(false)
+
+// ---------- Code 面板可见性 / 宽度持久化（M6） ----------
+// 本视图无 detail 面板，只接 code 两项。初始化即从偏好恢复（刷新后还原）；
+// 可见性经 watch 写回；宽度刻意不 watch，拖拽中只更新本地 ref，松手 commit 时才写偏好。
+const showCode = ref(getPreference('peripherals.codeVisible'))
+const codeWidth = ref(clampPanelWidth(getPreference('peripherals.codeWidth'), CODE_WIDTH_RANGE.min, CODE_WIDTH_RANGE.max))
+watch(showCode, (v) => setPreference('peripherals.codeVisible', v))
+
+function onCodeResize(w: number) {
+  codeWidth.value = w
+}
+function onCodeCommit(w: number) {
+  codeWidth.value = w
+  setPreference('peripherals.codeWidth', w)
+}
+
 const rightTab = ref('exti')
 const systemTab = ref('nvic')
 
@@ -164,8 +181,20 @@ function openPeripheral(id: string) {
         </div>
       </div>
 
-      <!-- 代码预览（可拖拽分栏由 CodePreviewPanel 自身实现） -->
-      <CodePreviewPanel v-if="showCode" context="peripherals" />
+      <!-- 代码预览（M6）：外层容器持有持久化宽度，PanelResizer 在面板左缘 -->
+      <template v-if="showCode">
+        <PanelResizer
+          :width="codeWidth"
+          :min="CODE_WIDTH_RANGE.min"
+          :max="CODE_WIDTH_RANGE.max"
+          side="right"
+          @resize="onCodeResize"
+          @commit="onCodeCommit"
+        />
+        <div class="code-col" :style="{ width: codeWidth + 'px' }">
+          <CodePreviewPanel context="peripherals" />
+        </div>
+      </template>
     </div>
 
     <!-- Quick menu 浮层 -->
@@ -229,6 +258,13 @@ function openPeripheral(id: string) {
   overflow-y: auto;
   background: var(--mx-bg);
   padding: 16px 20px 24px;
+}
+.code-col {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
+  max-height: 100%;
 }
 .ov-head {
   display: flex;

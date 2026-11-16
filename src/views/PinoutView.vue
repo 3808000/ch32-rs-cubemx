@@ -1,11 +1,17 @@
 <script setup lang="ts">
 // Pinout 视图：页头 + 工具栏 + 分段控件 + 封装图/表格 + Detail view + Code preview
 // 统一过滤（M2.5/M2.6）：本视图持有唯一 PinFilter 与九态派生，图形/表格/图例共同消费。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { isDesktopApp, saveFileNative } from '@/services/desktop'
-import { remapsOfPin } from '@/model/device'
+import { getPreference, setPreference } from '@/services/uiPreferences'
+import PanelResizer, {
+  CODE_WIDTH_RANGE,
+  DETAIL_WIDTH_RANGE,
+  clampPanelWidth,
+} from '@/components/common/PanelResizer.vue'
+import { remapsOfPin, remapValuesFor } from '@/model/device'
 import PackageCanvas from '@/components/PackageCanvas.vue'
 import PinTable from '@/components/PinTable.vue'
 import PinConfigPanel from '@/components/PinConfigPanel.vue'
@@ -37,8 +43,32 @@ const { undo } = usePinOverwrite(store)
 const showExport = ref(false)
 
 const viewMode = ref<'graphic' | 'table'>('graphic')
-const showDetail = ref(true)
-const showCode = ref(false)
+
+// ---------- 面板可见性 / 宽度持久化（M6） ----------
+// 初始化即从偏好恢复（刷新后还原），读取时夹取到合法范围；可见性变化经 watch 写回。
+// 宽度刻意不 watch：拖拽中 resize 只更新本地 ref，松手 commit 时才 setPreference，
+// 避免 mousemove 每帧写 localStorage。
+const showDetail = ref(getPreference('pinout.detailVisible'))
+const showCode = ref(getPreference('pinout.codeVisible'))
+const detailWidth = ref(clampPanelWidth(getPreference('pinout.detailWidth'), DETAIL_WIDTH_RANGE.min, DETAIL_WIDTH_RANGE.max))
+const codeWidth = ref(clampPanelWidth(getPreference('pinout.codeWidth'), CODE_WIDTH_RANGE.min, CODE_WIDTH_RANGE.max))
+watch(showDetail, (v) => setPreference('pinout.detailVisible', v))
+watch(showCode, (v) => setPreference('pinout.codeVisible', v))
+
+function onDetailResize(w: number) {
+  detailWidth.value = w
+}
+function onDetailCommit(w: number) {
+  detailWidth.value = w
+  setPreference('pinout.detailWidth', w)
+}
+function onCodeResize(w: number) {
+  codeWidth.value = w
+}
+function onCodeCommit(w: number) {
+  codeWidth.value = w
+  setPreference('pinout.codeWidth', w)
+}
 
 /** 单一真相：图形、表格、Show 计数、搜索建议都从这份过滤状态派生。 */
 const filter = ref<PinFilter>({ ...DEFAULT_PIN_FILTER, states: [], types: [] })
@@ -92,6 +122,24 @@ function applyFilterPatch(patch: Partial<PinFilter>) {
 function focusPin(pin: string) {
   store.selectPin(pin)
   showDetail.value = true
+}
+
+/** 拖拽移动信号（M4.8）：画布已保证目标脚可承载同一信号且未占用；这里执行配置搬移。
+ *  AF 信号按目标脚的 remap 档位重映射（优先保留原档位）；纯 GPIO 配置直接搬移。 */
+function onMoveSignal(payload: { from: string; to: string }) {
+  const a = store.assignmentOf(payload.from)
+  if (!a) return
+  let remap = a.remap
+  if (a.function) {
+    const values = remapValuesFor(store.deviceData, payload.to, a.function)
+    if (values.length === 0) return
+    remap = values.includes(a.remap ?? 0) ? (a.remap ?? 0) : values[0]
+  }
+  const { mode, label, function: fn, params } = a
+  store.clearPin(payload.from)
+  store.setPinAssignment(payload.to, mode, { label, function: fn, remap, params })
+  store.selectPin(payload.to)
+  store.notify(`信号已移动：${payload.from} → ${payload.to}${fn ? `（${fn}）` : ''}`, 'info')
 }
 
 /** 页头文档链接：优先芯片数据里的 docUrl，缺省回退 WCH 官网首页 */
@@ -196,13 +244,25 @@ async function exportPins(flavor: PinoutExportFlavor) {
         :selected-pin="store.selectedPin"
         :filter="filter"
         :pin-states="pinStates"
+        :data="store.deviceData"
         @select="store.selectPin"
         @configure="store.selectPin"
         @assign="focusPin"
+        @move-signal="onMoveSignal"
       />
       <PinTable v-else :filter="filter" :pin-states="pinStates" @configure="focusPin" />
 
-      <div v-if="showDetail" class="detail-col">
+      <!-- Detail 面板：左缘分隔条拖拽调宽，宽度与 conflicts-section 同源（detailWidth） -->
+      <PanelResizer
+        v-if="showDetail"
+        :width="detailWidth"
+        :min="DETAIL_WIDTH_RANGE.min"
+        :max="DETAIL_WIDTH_RANGE.max"
+        side="right"
+        @resize="onDetailResize"
+        @commit="onDetailCommit"
+      />
+      <div v-if="showDetail" class="detail-col" :style="{ width: detailWidth + 'px' }">
         <PinConfigPanel />
         <div class="conflicts-section">
           <div class="conflicts-head">冲突检查</div>
@@ -210,7 +270,20 @@ async function exportPins(flavor: PinoutExportFlavor) {
         </div>
       </div>
 
-      <CodePreviewPanel v-if="showCode" context="pinout" />
+      <!-- Code 预览：外层容器持有持久化宽度，PanelResizer 在面板左缘 -->
+      <template v-if="showCode">
+        <PanelResizer
+          :width="codeWidth"
+          :min="CODE_WIDTH_RANGE.min"
+          :max="CODE_WIDTH_RANGE.max"
+          side="right"
+          @resize="onCodeResize"
+          @commit="onCodeCommit"
+        />
+        <div class="code-col" :style="{ width: codeWidth + 'px' }">
+          <CodePreviewPanel context="pinout" />
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -267,12 +340,21 @@ async function exportPins(flavor: PinoutExportFlavor) {
   flex: 1;
   min-height: 0;
 }
+/* 宽度跟随 detail-col（M6）：不再依赖 --mx-detail-panel-w，与 detailWidth 同源 */
 .conflicts-section {
   border-top: 1px solid var(--mx-border);
   max-height: 240px;
   overflow-y: auto;
   background: var(--mx-surface);
-  width: var(--mx-detail-panel-w);
+  width: 100%;
+  min-width: 0;
+}
+.code-col {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 0;
+  max-height: 100%;
 }
 .conflicts-head {
   font-size: 12px;
