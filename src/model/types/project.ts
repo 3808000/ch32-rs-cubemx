@@ -50,4 +50,6 @@ export interface ProjectConfig {
   peripherals?: Record<string, PeripheralState>
   features: { embassy: boolean; debugPrint: boolean }
   hal: { rev: string }
+  /** 显式解锁的特殊引脚（NRST/SWD/OSC）。可选，向后兼容；导入/导出往返保留。 */
+  unlockedPins?: string[]
 }
