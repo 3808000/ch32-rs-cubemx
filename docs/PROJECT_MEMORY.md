@@ -66,12 +66,14 @@
 - Phase 3（完成）：外设视图（列表/卡片/参数/remap 切换）+ EXTI/ADC/分组/使用汇总分配面板。
 - Phase 4（进行中）：多芯片——CH32V203C8T6 已接入并通过编译验证；CH32H417QEU6（QFN128 双核 V3F+V5F）已接入，代码生成产出 Cargo workspace（ch32-hal-template h417-dual：`cargo xtask build` 逐核构建）并**端到端编译通过**；CH582M 数据录入完成（48 脚 QFN48、28 条 remap、5 档 480MHz VCO÷div 预设、14 路 ADC、20 条中断；halBackend=ch58x-hal，代码生成守卫阻止导出）；待办：ch58x 后端、V103/X035/V307、多封装、EasyEDA 同步、一键烧录。
 
-## 7. 测试与门禁现状（2026-11-15）
+## 7. 测试与门禁现状（2026-11-16 工程化重构后）
 
-- 单元测试：**380 个用例全绿**（clock 61 / conflicts 75 / packageSvg 58 / deviceData / peripherals 34 / allocation 12 / groups 18 / usage 12 / clockTree 17 / codegen 18 快照 / H417 双核）。
-- 类型检查 vue-tsc、ESLint、vite build 全绿。
-- validate:device：V003（20 脚）、V203（48 脚）、CH582M（48 脚）、H417（128 脚）全部 0 错误 0 警告。
-- verify:build：V003（nightly rv32ec）阻塞 ✓ / embassy ✓；V203（stable rv32imac）阻塞 ✓ / embassy ✓；H417 双核 workspace `cargo xtask build` ✓；vendor HAL path 依赖模式验证通过。CH582M 按设计被 halBackend 守卫拦截（ch58x-hal 后端未实现）。
+- 单元测试：**380 个用例全绿**（12 文件：clock 65 / conflicts 75 / packageSvg 58 / deviceData 46 / peripherals 34 / allocation 12 / groups 18 / usage 12 / clockTree 19 / codegen 23 / projectFile / peripheralActivation）。
+- 类型检查 vue-tsc、ESLint（含分层边界规则）、vite build 全绿。
+- validate:device：V003 / V203 / CH582M / H417 全部 0 错误 0 警告。
+- verify:build：V003 ✓ / V203 ✓ / H417 双核 workspace ✓（CH582M 按设计被 halBackend 守卫拦截）。
+- 工程化重构等价性验证：codegen 160 次全量差分逐字节一致；clock tree 4 芯片 ×198 配置深比较一致；templates 33 导出运行时逐字节比对一致；快照 0 改动。
+- 网络受限推送：`scripts/git-api-push.mjs`（github.com 被断时经 api.github.com Git Data API 逐提交推送，树对齐断点续推，内容寻址保证远端 sha 与本地一致）。
 - 集成期修复的真实 bug：EXTI Pull 变体名（UP→Up）、ADC 双实例共享通道引脚重复移动（改为单归属）、packageSvg 旋转双重平移、ADC 占用判定过严、matchPreset 缺省 pllSource。
 ## 8. 生成工程结构（对照 CubeMX1 / CubeMX2）
 
