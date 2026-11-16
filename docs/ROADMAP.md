@@ -1,5 +1,7 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
+> **总体进度（2026-11-16）：M1–M5 五个里程碑核心项全部完成并推送。** 测试 380→664，13 个子智能体分域并行 + 主控基座/接线/集成。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
+
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
 >
@@ -96,7 +98,9 @@
 
 ---
 
-## M5（v0.06+）体验打磨（P2 精选）
+## M5（v0.06+）体验打磨（P2 精选） ✅ 核心项已完成（2026-11-16）
+
+> **落地状态**：引脚表升级（Used only/分页/列可见/行内 Assign）、Export pinout 含/不含 AF、Problems/Notifications 分离、每标签健康徽标、uiPreferences 持久化（引脚表/图例已接线）完成并推送（commits…ab8ed75）。664 测试全绿、verify:build 3/3、浏览器验收通过。**剩余 P2**（低优先，按需）：面板宽度持久化接线、全局 Undo/Redo、时钟节点内联编辑、封装 90°/Bottom 翻转、板卡模型、运行时候选、分屏、HTML 报告。
 
 按价值排序：HTML 单文件报告（差异化卖点）→ 引脚表升级（Used only/Columns/分页/行内 Assign）→ 状态徽标进标签页 + Problems/Notifications 分离 → 拖拽移动信号 → 全局 Undo/Redo → 悬停卡/图例增强 → 主题切换 + UI 偏好持久化 → 时钟节点内联编辑（foreignObject）→ 封装 90° 旋转/Bottom 翻转 → 板卡模型（`data/boards/`，Home「从开发板开始」入口）→ 运行时一等公民（blocking/embassy/rtic 单选）→ Export pinout 含/不含 AF → 分屏。
 
