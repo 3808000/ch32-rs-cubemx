@@ -68,7 +68,7 @@
 
 ## 7. 测试与门禁现状（2026-11-16 工程化重构后）
 
-- 单元测试：**425 个用例全绿**（12 文件：clock 65 / conflicts 75 / packageSvg 58 / deviceData 46 / peripherals 34 / allocation 12 / groups 18 / usage 12 / clockTree 19 / codegen 23 / projectFile / peripheralActivation）。
+- 单元测试：**490 个用例全绿**（12 文件：clock 65 / conflicts 75 / packageSvg 58 / deviceData 46 / peripherals 34 / allocation 12 / groups 18 / usage 12 / clockTree 19 / codegen 23 / projectFile / peripheralActivation）。
 - 类型检查 vue-tsc、ESLint（含分层边界规则）、vite build 全绿。
 - validate:device：V003 / V203 / CH582M / H417 全部 0 错误 0 警告。
 - verify:build：V003 ✓ / V203 ✓ / H417 双核 workspace ✓（CH582M 按设计被 halBackend 守卫拦截）。
