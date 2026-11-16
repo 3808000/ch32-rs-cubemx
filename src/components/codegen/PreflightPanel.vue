@@ -1,18 +1,14 @@
 <script setup lang="ts">
-// 生成前 Check 报告（M3.7）：errors 阻止继续，warnings 允许“我已知晓，继续”。
+// 生成前检查面板（M7 决议入页）：原 CheckDialog 的列表本体改为页内常驻组件。
+// errors 阻止生成、warnings 需页内勾选确认（确认 checkbox 由父视图持有）；
 // 点击条目按 target 定位：引脚 → selectPin + Pinout；外设 → openPeripheral；
-// 时钟节点 → setView('clock') + requestClockFocus（跨视图聚焦）；工程设置 → 对应视图。
+// 时钟节点 → setView('clock') + requestClockFocus（跨视图聚焦）。
 import { computed } from 'vue'
 import { useProjectStore } from '@/controllers/project'
 import type { PreflightItem, PreflightReport, PreflightTarget } from '@/model/preflight'
 import { requestClockFocus } from '@/components/clock/clockFocus'
 
 const props = defineProps<{ report: PreflightReport }>()
-const visible = defineModel<boolean>({ default: false })
-const emit = defineEmits<{
-  (e: 'locate', item: PreflightItem): void
-  (e: 'continue'): void
-}>()
 
 const store = useProjectStore()
 const hasErrors = computed(() => props.report.errors.length > 0)
@@ -26,7 +22,7 @@ function targetLabel(t: PreflightTarget): string {
   return t.pin ? `引脚 · ${t.pin}` : '引脚'
 }
 
-/** 定位：先切视图/选中，再抛事件让父级（CodegenDialog）关闭自身以露出目标。 */
+/** 定位：切视图/选中目标（页内面板无需关闭自身，跳转即露出目标）。 */
 function locate(item: PreflightItem) {
   const t = item.target
   if (t.pin) store.selectPin(t.pin)
@@ -41,19 +37,11 @@ function locate(item: PreflightItem) {
   } else {
     store.setView('pinout')
   }
-  emit('locate', item)
-  visible.value = false
-}
-
-/** 警告确认：先通知父级继续（父级读取 pending 动作），再关闭自身。 */
-function continueExport() {
-  emit('continue')
-  visible.value = false
 }
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="生成前检查" width="600px" append-to-body>
+  <div class="preflight-panel">
     <div v-if="empty" class="check-ok">检查通过：没有发现错误或警告。</div>
 
     <section v-if="hasErrors" class="check-group">
@@ -67,7 +55,7 @@ function continueExport() {
     </section>
 
     <section v-if="hasWarnings" class="check-group">
-      <div class="check-title warning">警告（{{ report.warnings.length }}）· 确认后可继续生成</div>
+      <div class="check-title warning">警告（{{ report.warnings.length }}）· 勾选确认后可继续生成</div>
       <button v-for="(item, i) in report.warnings" :key="'w' + i" class="check-row warning" @click="locate(item)">
         <el-tag type="warning" size="small">警告</el-tag>
         <span class="check-code">{{ item.code }}</span>
@@ -75,23 +63,26 @@ function continueExport() {
         <span class="check-loc">{{ targetLabel(item.target) }}</span>
       </button>
     </section>
-
-    <template #footer>
-      <el-button size="small" @click="visible = false">{{ empty ? '关闭' : '取消' }}</el-button>
-      <el-button v-if="!hasErrors && !empty" size="small" type="warning" @click="continueExport">我已知晓，继续</el-button>
-      <el-button v-else-if="hasErrors" size="small" type="danger" disabled>存在错误，无法继续</el-button>
-    </template>
-  </el-dialog>
+  </div>
 </template>
 
 <style scoped>
+.preflight-panel {
+  border: 1px solid var(--mx-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f7f9fc;
+}
 .check-ok {
-  padding: 12px 4px;
+  padding: 4px 2px;
   font-size: 13px;
   color: var(--mx-success);
 }
 .check-group {
-  margin-bottom: 14px;
+  margin-bottom: 6px;
+}
+.check-group:last-child {
+  margin-bottom: 0;
 }
 .check-title {
   font-size: 12px;

@@ -68,7 +68,8 @@
 
 ## 7. 测试与门禁现状（2026-11-16 工程化重构后）
 
-- 单元测试：**815 个用例全绿**（39 文件；M6 新增：htmlReport 19 / historyStack 23 / useHistory 15 / moveSignal 20 / packageSvg +10 / clockInlineEdit 26 / panelResize 16 / chipPicker 17 / codegen 接线 +3）。
+- 单元测试：**823 个用例全绿**（40 文件；M6 新增：htmlReport 19 / historyStack 23 / useHistory 15 / moveSignal 20 / packageSvg +10 / clockInlineEdit 26 / panelResize 16 / chipPicker 17 / codegen 接线 +3；M7 新增 generationGate 8）。
+- M7（v0.08）：生成决议入页（对齐 CubeMX2 实机取证）——CodegenDialog/CheckDialog 删除，useGenerationFlow composable + PreflightPanel 页内检查 + Project settings 唯一决议中心（选项/门禁/预览决议/结果报告全页内），Pinout 导出按钮跳转 settings。
 - M6（v0.07）：Runtime 一等公民（blocking/embassy 选择器，rtic 禁激活待核实）/ HTML 单文件报告（report.html，generated 组）/ 全局 Undo-Redo（Ctrl+Z/Y，快照栈合并窗口）/ 封装拖拽移动信号+90°+Bottom 镜像（文字可读性矩阵验证）/ 时钟节点 foreignObject 内联编辑 / 面板宽度持久化+拖拽调宽 / Home 芯片搜索对比表。板卡功能按用户决定取消（版权风险）。
 - 类型检查 vue-tsc、ESLint（含分层边界规则）、vite build 全绿。
 - validate:device：V003 / V203 / CH582M / H417 全部 0 错误 0 警告。

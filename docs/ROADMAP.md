@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-16）：M1–M6 六个里程碑核心项全部完成并推送。** 测试 380→815，19 个子智能体分域并行 + 主控基座/接线/集成。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-16）：M1–M7 七个里程碑核心项全部完成并推送。** 测试 380→823，19 个子智能体分域并行 + 主控基座/接线/集成。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -128,6 +128,21 @@
 > **已取消：板卡模型（原 6.7）**。用户决定：个人项目从未与厂商合作，引入厂商开发板数据存在版权纠纷风险，整个「从开发板新建」功能不做。子代理 S 已转向芯片选择增强（纯仓库数据，无外部版权内容）。
 
 **M6 验收门禁**：664+ 测试全绿（新增 ≥70）；`verify:build` 三芯片仍过；embassy 工程端到端编译；浏览器全视图走查 + 推送。
+
+---
+
+## M7（v0.08）生成决议入页 —— 「一切决议在 Project settings，无二次弹窗」 ✅ 已完成（2026-11-16）
+
+> 来源：用户指示 + 实机 CubeMX2 CDP 截图取证（Project settings → IDE Project Generation：General Setup 的 Format/toolchain/Destination 目录选择、Advanced 的目录映射与 **Automatic Conflict Handling Rules** 类别策略表、段末黄色 Generate 按钮；全程无决议弹窗）。
+> **落地状态**：CodegenDialog / CheckDialog 两个弹窗删除；编排移入 `components/codegen/useGenerationFlow.ts`（含纯函数门禁 `generationGate`：error 阻止 / warning 需页内勾选）；CheckDialog 列表本体改为页内常驻 `PreflightPanel.vue`（条目点击定位不变）；Project settings 的 Code Generation 段成为唯一决议中心（子项复选/ includeMain / 档位 / IDE / 导出方式 ZIP|目录+目录选择 / 检查面板+警告确认 / 段末生成按钮）；目录导出两段式预览与逐文件冲突决议、生成结果报告均为页内折叠段；Pinout「导出工程」改为跳转 Project settings。823 测试全绿（+8 门禁测试）、verify:build 3/3、浏览器验收（跳转无弹窗 / 未勾选警告被阻 / 勾选后 ZIP 426 文件页内报告 / 截图对齐 MX2 形态）。主控亲自完成（单域重构，不派子代理）。
+> **对齐差异（诚实记录）**：MX2 的冲突策略为类别级下拉（All: Update files on change / Custom…）；我们保留 M1 安全网的逐文件页内决议（用户手改默认 skip），类别级策略编辑列为后续 fidelity 项。
+
+| # | 任务 | 改动落点 | 验收 |
+|---|---|---|---|
+| 7.1 | 生成编排 composable 化 + 门禁纯函数 | 新 `components/codegen/useGenerationFlow.ts` | generationGate 8 测试 |
+| 7.2 | 检查面板页内化 | 新 `components/codegen/PreflightPanel.vue`；删 `CheckDialog.vue` | 浏览器：警告列表+定位链接页内可见 |
+| 7.3 | Project settings 决议中心 | `views/ProjectSettingsView.vue` 重写 Generation 段 + 预览/结果段 | 浏览器：选项/门禁/ZIP 结果全页内 |
+| 7.4 | 入口收敛 | `views/PinoutView.vue` 导出按钮跳转；删 `CodegenDialog.vue` | 浏览器：Pinout→settings 无弹窗 |
 
 ---
 

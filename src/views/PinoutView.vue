@@ -17,7 +17,6 @@ import PinTable from '@/components/PinTable.vue'
 import PinConfigPanel from '@/components/PinConfigPanel.vue'
 import ConflictsPanel from '@/components/ConflictsPanel.vue'
 import CodePreviewPanel from '@/components/CodePreviewPanel.vue'
-import CodegenDialog from '@/components/CodegenDialog.vue'
 import PinoutToolbar, {
   buildPinoutCsv,
   pinoutCsvFileName,
@@ -40,7 +39,11 @@ import {
 
 const store = useProjectStore()
 const { undo } = usePinOverwrite(store)
-const showExport = ref(false)
+
+/** 导出工程（M7）：生成决议统一在 Project settings 页内完成，此处仅跳转（对齐 CubeMX2，无弹窗）。 */
+function openGeneration() {
+  store.setView('project-settings')
+}
 
 const viewMode = ref<'graphic' | 'table'>('graphic')
 
@@ -217,11 +220,9 @@ async function exportPins(flavor: PinoutExportFlavor) {
       @locate="focusPin"
       @undo="undo"
       @export-pins="exportPins"
-      @export-project="showExport = true"
+      @export-project="openGeneration"
       @reset="resetPinout"
     />
-
-    <CodegenDialog v-model="showExport" />
 
     <!-- 分段控件 + 右侧面板开关 -->
     <PinoutViewBar

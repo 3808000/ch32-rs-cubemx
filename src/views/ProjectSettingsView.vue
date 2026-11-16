@@ -1,15 +1,20 @@
 <script setup lang="ts">
-// Project settings 主视图（M2.4）：General / Runtime / Generation / Advanced 四段可折叠面板。
+// Project settings 主视图（M2.4）：General / Runtime / Code Generation / Advanced 可折叠面板。
 // General 编辑工程名并只读展示芯片、target、toolchain、HAL rev；
 // Runtime（M6）选择 blocking/embassy 运行时与调试打印（rtic 待 HAL 支持，禁激活）；
+// Code Generation（M7）为唯一生成决议中心：子项/档位/IDE/导出方式/检查确认/预览决议/结果报告全在页内（对齐 CubeMX2，无二次弹窗）；
 // Generation 说明导出选项并打开 CodegenDialog（与 Pinout 共用同一生成服务）；
 // Advanced 展示 M1 再生成安全网的 fileGroup 策略与冲突决议选项。
 import { computed, reactive, ref, watch } from 'vue'
-import { Expand, Fold, Menu, Promotion } from '@element-plus/icons-vue'
+import { Expand, Fold, FolderOpened, Menu, Promotion } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { HAL_GIT } from '@/model/codegen/halRev'
 import CollapsiblePanel from '@/components/common/CollapsiblePanel.vue'
-import CodegenDialog from '@/components/CodegenDialog.vue'
+import PreflightPanel from '@/components/codegen/PreflightPanel.vue'
+import ExportPlanPreview from '@/components/codegen/ExportPlanPreview.vue'
+import ConflictRules from '@/components/codegen/ConflictRules.vue'
+import GenerationReport from '@/components/codegen/GenerationReport.vue'
+import { useGenerationFlow, GENERATION_ITEMS } from '@/components/codegen/useGenerationFlow'
 
 const store = useProjectStore()
 
@@ -51,18 +56,31 @@ function setDebugPrint(v: boolean) {
   store.setFeatures({ debugPrint: v })
 }
 
-// ---- Generation ----
-const showGenerate = ref(false)
+// ---- Generation（M7：一切生成决议在页内，对齐 CubeMX2，无二次弹窗） ----
+const {
+  selection,
+  includeMain,
+  generating,
+  writingFolder,
+  exportMode,
+  folderTarget,
+  canWriteFolder,
+  folderHint,
+  report,
+  pendingFolder,
+  resolutions,
+  conflictEntries,
+  checkReport,
+  warnAcknowledged,
+  pickFolder,
+  exportConfigOnly,
+  generate,
+  confirmFolderWrite,
+  cancelFolderPreview,
+  finishReport,
+} = useGenerationFlow()
 
-const generationItems: { label: string; desc: string }[] = [
-  { label: '工程骨架', desc: 'Cargo.toml / rust-toolchain / .cargo / build.rs / target json' },
-  { label: '内嵌 HAL 源码', desc: 'vendor/ch32-hal（path 依赖，便于查阅 HAL 代码）' },
-  { label: '时钟配置', desc: 'src/generated/clock.rs' },
-  { label: 'GPIO 引脚', desc: 'src/generated/pins.rs' },
-  { label: 'EXTI', desc: 'src/generated/exti.rs（存在外部中断配置时）' },
-  { label: 'USART / SPI / I2C / ADC', desc: 'src/generated/{usart,spi,i2c,adc}.rs' },
-  { label: 'README', desc: '工程说明与引脚/外设摘要' },
-]
+const generationItems = GENERATION_ITEMS
 
 // ---- Advanced ----
 const groupPolicies: { group: string; paths: string; policy: string }[] = [
@@ -98,12 +116,14 @@ const resolutionOptions: { label: string; desc: string }[] = [
 ]
 
 // ---- 章节展开 / 导航 ----
-const open = reactive({ general: true, runtime: true, generation: true, advanced: true })
+const open = reactive({ general: true, runtime: true, generation: true, preview: true, result: true, advanced: true })
 
 function expandAll() {
   open.general = true
   open.runtime = true
   open.generation = true
+  open.preview = true
+  open.result = true
   open.advanced = true
 }
 
@@ -111,6 +131,8 @@ function collapseAll() {
   open.general = false
   open.runtime = false
   open.generation = false
+  open.preview = false
+  open.result = false
   open.advanced = false
 }
 
@@ -119,9 +141,9 @@ function scrollTo(command: string | number | object) {
   document.getElementById(`ps-${section}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
-function openGenerate() {
+function onGenerate() {
   commitProjectName()
-  showGenerate.value = true
+  void generate()
 }
 </script>
 
@@ -140,7 +162,9 @@ function openGenerate() {
             <el-dropdown-menu>
               <el-dropdown-item command="general">General</el-dropdown-item>
               <el-dropdown-item command="runtime">Runtime</el-dropdown-item>
-              <el-dropdown-item command="generation">Generation</el-dropdown-item>
+              <el-dropdown-item command="generation">Code Generation</el-dropdown-item>
+              <el-dropdown-item v-if="pendingFolder" command="preview">导出预览</el-dropdown-item>
+              <el-dropdown-item v-if="report" command="result">生成结果</el-dropdown-item>
               <el-dropdown-item command="advanced">Advanced</el-dropdown-item>
             </el-dropdown-menu>
           </template>
@@ -247,29 +271,101 @@ function openGenerate() {
         </CollapsiblePanel>
       </div>
 
-      <!-- Generation -->
+      <!-- Generation（M7：页内决议中心，对齐 CubeMX2 IDE Project Generation） -->
       <div id="ps-generation" class="ps-section">
-        <CollapsiblePanel v-model:open="open.generation" title="Generation">
-          <el-alert
-            v-if="store.errorCount > 0"
-            type="error"
-            :closable="false"
-            class="ps-alert"
-            :title="`存在 ${store.errorCount} 个错误级冲突，生成将被阻止。请先在 Pinout 冲突面板修复。`"
-          />
-          <div class="ps-gen-grid">
-            <div v-for="item in generationItems" :key="item.label" class="ps-gen-item">
-              <div class="ps-gen-label">{{ item.label }}</div>
-              <div class="ps-gen-desc">{{ item.desc }}</div>
+        <CollapsiblePanel v-model:open="open.generation" title="Code Generation">
+          <div class="ps-gen-checks">
+            <el-checkbox v-for="it in generationItems" :key="it.key" v-model="selection[it.key]">
+              <span class="ps-check-label">{{ it.label }}</span>
+              <span class="ps-check-desc">{{ it.desc }}</span>
+            </el-checkbox>
+          </div>
+          <el-checkbox v-model="includeMain" class="ps-main-check">
+            包含 src/main.rs 骨架（双核为各核 src/main.rs；已有自己的 main.rs 时取消勾选，生成器永不覆盖用户文件）
+          </el-checkbox>
+          <div class="ps-rows">
+            <div class="ps-row">
+              <div class="ps-label">构建档位</div>
+              <div class="ps-value">
+                <el-select v-model="selection.profile" size="small" style="width: 200px">
+                  <el-option label="体积优先 (release-size)" value="release-size" />
+                  <el-option label="速度优先 (release-speed)" value="release-speed" />
+                  <el-option label="可调试 (release-debug)" value="release-debug" />
+                </el-select>
+                <span class="ps-note">写入 Cargo.toml 标记区 profile</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">IDE 配置</div>
+              <div class="ps-value">
+                <el-select v-model="selection.ideConfig" size="small" style="width: 140px">
+                  <el-option label="不生成" value="none" />
+                  <el-option label="VS Code" value="vscode" />
+                </el-select>
+                <span class="ps-note">.vscode/settings.json + tasks.json</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">导出方式</div>
+              <div class="ps-value ps-dest-value">
+                <el-radio-group v-model="exportMode" size="small">
+                  <el-radio-button value="zip">ZIP 归档</el-radio-button>
+                  <el-radio-button value="folder" :disabled="!canWriteFolder">本地目录</el-radio-button>
+                </el-radio-group>
+                <template v-if="exportMode === 'folder'">
+                  <el-button size="small" :icon="FolderOpened" @click="pickFolder">选择目录…</el-button>
+                  <code v-if="folderTarget" class="ps-dest-path">{{ folderTarget.root }}</code>
+                  <span v-else class="ps-note">未选择（生成时会再次询问）</span>
+                </template>
+                <span v-else class="ps-note">浏览器下载 / 桌面端原生保存对话框</span>
+                <span v-if="!canWriteFolder && folderHint" class="ps-note ps-runtime-warn">{{ folderHint }}</span>
+              </div>
             </div>
           </div>
+          <div class="ps-sub-title">生成前检查</div>
+          <PreflightPanel :report="checkReport" />
+          <el-checkbox v-if="checkReport.warnings.length > 0" v-model="warnAcknowledged" class="ps-main-check">
+            我已知晓上述 {{ checkReport.warnings.length }} 个警告，继续生成
+          </el-checkbox>
           <p class="ps-note ps-gen-note">
-            cube.json（配置回读）与 generated/mod.rs 始终生成。生成对话框支持导出 ZIP 或写入本地目录；
-            已存在的文件按 Advanced 的 fileGroup 策略处理。
+            cube.json（配置回读）与 generated/mod.rs 始终生成。已存在的文件按 Advanced 的 fileGroup 策略处理；
+            目录导出的逐文件冲突决议在下方「导出预览」段页内完成。
           </p>
           <div class="ps-gen-actions">
-            <el-button type="primary" :icon="Promotion" @click="openGenerate">生成工程</el-button>
-            <span class="ps-note">打开代码生成对话框（选项确认 / ZIP / 目录导出）</span>
+            <el-button type="primary" :icon="Promotion" :loading="generating || writingFolder" @click="onGenerate">
+              {{ writingFolder ? '正在写入…' : generating ? '正在生成…' : '生成工程' }}
+            </el-button>
+            <el-button plain :disabled="generating || writingFolder" @click="exportConfigOnly">仅导出配置 (cube.json)</el-button>
+            <span class="ps-note">一切决议在本页完成，无弹窗（对齐 CubeMX2）</span>
+          </div>
+        </CollapsiblePanel>
+      </div>
+
+      <!-- 导出预览 / 冲突决议（M7：页内两段式，仅有冲突或删除时出现） -->
+      <div v-if="pendingFolder" id="ps-preview" class="ps-section">
+        <CollapsiblePanel v-model:open="open.preview" title="导出预览 · 冲突决议">
+          <ExportPlanPreview
+            :plan="pendingFolder.inspection.plan"
+            :summary="pendingFolder.inspection.summary"
+            :readable="pendingFolder.inspection.readable"
+            :manifest-found="pendingFolder.inspection.manifestFound"
+          />
+          <ConflictRules v-if="conflictEntries.length > 0" :conflicts="conflictEntries" v-model="resolutions" />
+          <div class="ps-gen-actions">
+            <el-button :disabled="writingFolder" @click="cancelFolderPreview">返回</el-button>
+            <el-button type="primary" :icon="FolderOpened" :loading="writingFolder" @click="confirmFolderWrite">
+              {{ writingFolder ? '正在写入…' : '确认写入' }}
+            </el-button>
+          </div>
+        </CollapsiblePanel>
+      </div>
+
+      <!-- 生成结果（M7：页内报告，替代原对话框结果页） -->
+      <div v-if="report" id="ps-result" class="ps-section">
+        <CollapsiblePanel v-model:open="open.result" title="生成结果">
+          <GenerationReport :report="report" />
+          <div class="ps-gen-actions">
+            <el-button type="primary" @click="finishReport">完成</el-button>
           </div>
         </CollapsiblePanel>
       </div>
@@ -279,7 +375,7 @@ function openGenerate() {
         <CollapsiblePanel v-model:open="open.advanced" title="Advanced">
           <p class="ps-adv-hint">
             再生成安全网（M1）：生成器通过 <code>.ch32cube/export-manifest.json</code> 记录上次导出的文件哈希；
-            用户手改过的文件不会被静默覆盖，而是进入冲突决议。
+            用户手改过的文件不会被静默覆盖，而是进入冲突决议（M7：决议在「导出预览」段页内逐项完成，无弹窗）。
           </p>
           <table class="ps-table">
             <thead>
@@ -314,9 +410,6 @@ function openGenerate() {
         </CollapsiblePanel>
       </div>
     </div>
-
-    <!-- 页面内直接挂载生成对话框：与 Pinout 的导出共用 services/projectExport -->
-    <CodegenDialog v-if="showGenerate" v-model="showGenerate" />
   </div>
 </template>
 
@@ -420,27 +513,74 @@ function openGenerate() {
 .ps-link:hover {
   text-decoration: underline;
 }
-.ps-alert {
-  margin-bottom: 12px;
-}
-.ps-gen-grid {
+.ps-gen-checks {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 8px 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 20px;
+  margin-bottom: 10px;
 }
-.ps-gen-item {
-  padding: 6px 0;
-  border-bottom: 1px dashed var(--mx-border);
+/* Element Plus 默认 nowrap + 固定高度会裁掉右列描述，这里允许换行 */
+.ps-gen-checks :deep(.el-checkbox) {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  width: 100%;
+  height: auto;
+  margin-right: 0;
+  white-space: normal;
 }
-.ps-gen-label {
-  font-size: var(--mx-fz-body);
-  font-weight: 600;
-  color: var(--mx-text);
-}
-.ps-gen-desc {
-  font-size: var(--mx-fz-label);
-  color: var(--mx-text-muted);
+.ps-gen-checks :deep(.el-checkbox__input) {
+  flex-shrink: 0;
   margin-top: 1px;
+}
+.ps-gen-checks :deep(.el-checkbox__label) {
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.ps-check-label {
+  font-weight: 600;
+  margin-right: 4px;
+}
+.ps-check-desc {
+  font-size: 11px;
+  color: var(--mx-text-muted);
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.ps-main-check {
+  display: flex;
+  align-items: flex-start;
+  height: auto;
+  margin: 4px 0 8px;
+  white-space: normal;
+}
+.ps-main-check :deep(.el-checkbox__input) {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.ps-main-check :deep(.el-checkbox__label) {
+  min-width: 0;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.ps-dest-value {
+  flex-wrap: wrap;
+}
+.ps-dest-path {
+  font-family: var(--mx-font-mono);
+  font-size: 12px;
+  color: var(--mx-text-secondary);
+  background: #f2f5fa;
+  border-radius: 4px;
+  padding: 1px 5px;
+  overflow-wrap: anywhere;
 }
 .ps-gen-note {
   margin: 10px 0 0;
