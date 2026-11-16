@@ -1,14 +1,17 @@
 <script setup lang="ts">
-// 状态栏：左 Saved/Click to save，右通知铃铛 + 未读数
+// 状态栏：左保存状态，中问题徽标（点击打开 Problems），右芯片信息 + 通知铃铛（未读数）。
 import { computed } from 'vue'
-import { Bell, Check, WarningFilled } from '@element-plus/icons-vue'
+import { Bell, Check, CircleCloseFilled, WarningFilled } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 
+const props = withDefaults(defineProps<{ unreadNotifications?: number }>(), { unreadNotifications: 0 })
+const emit = defineEmits<{ (e: 'problems'): void; (e: 'notifications'): void }>()
+
 const store = useProjectStore()
-const emit = defineEmits<{ (e: 'notifications'): void }>()
 
 const statusText = computed(() => (store.dirty ? 'Click to save' : 'Saved'))
-const issueCount = computed(() => store.errorCount + store.warningCount)
+/** 铃铛角标只统计通知未读，问题数由错误/警告徽标承担。 */
+const unreadLabel = computed(() => (props.unreadNotifications > 99 ? '99+' : String(props.unreadNotifications)))
 </script>
 
 <template>
@@ -20,13 +23,34 @@ const issueCount = computed(() => store.errorCount + store.warningCount)
       </el-icon>
       <span>{{ statusText }}</span>
     </button>
-    <span v-if="store.errorCount" class="issue err">{{ store.errorCount }} 错误</span>
-    <span v-if="store.warningCount" class="issue warn">{{ store.warningCount }} 警告</span>
+    <button
+      v-if="store.errorCount"
+      class="issue err"
+      title="打开问题列表（Problems）"
+      @click="emit('problems')"
+    >
+      <el-icon :size="12"><CircleCloseFilled /></el-icon>
+      <span>{{ store.errorCount }} 错误</span>
+    </button>
+    <button
+      v-if="store.warningCount"
+      class="issue warn"
+      title="打开问题列表（Problems）"
+      @click="emit('problems')"
+    >
+      <el-icon :size="12"><WarningFilled /></el-icon>
+      <span>{{ store.warningCount }} 警告</span>
+    </button>
     <div class="fill"></div>
     <span class="chip-info">{{ store.deviceData.chip.chip }} · {{ store.deviceData.chip.package }}</span>
-    <button class="bell" @click="emit('notifications')">
+    <button
+      class="bell"
+      :title="`通知（${props.unreadNotifications} 条未读）`"
+      :aria-label="`通知，${props.unreadNotifications} 条未读`"
+      @click="emit('notifications')"
+    >
       <el-icon :size="13"><Bell /></el-icon>
-      <span v-if="issueCount" class="badge">{{ issueCount }}</span>
+      <span v-if="props.unreadNotifications > 0" class="badge">{{ unreadLabel }}</span>
     </button>
   </footer>
 </template>
@@ -60,6 +84,20 @@ const issueCount = computed(() => store.errorCount + store.warningCount)
   color: var(--mx-warning);
 }
 .save-state:hover {
+  background: var(--mx-accent-soft);
+}
+.issue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.issue:hover {
   background: var(--mx-accent-soft);
 }
 .issue.err {

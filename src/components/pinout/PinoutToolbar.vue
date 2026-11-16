@@ -1,3 +1,60 @@
+<script lang="ts">
+// Export pinout 的纯函数与选项（M5）：含/不含 AF 两种 CSV 粒度。
+// 随组件导出，供 PinoutView 调用与 tests/pinTable.test.ts 验证。
+import type { ChipPin, PinAssignment } from '@/model/types'
+
+export type PinoutExportFlavor = 'without-af' | 'with-af'
+
+export interface PinoutExportFlavorMeta {
+  id: PinoutExportFlavor
+  label: string
+}
+
+/** 菜单顺序对齐 CubeMX2：简化版在前，完整版在后。 */
+export const PINOUT_EXPORT_FLAVORS: PinoutExportFlavorMeta[] = [
+  { id: 'without-af', label: 'Without Alternate Functions' },
+  { id: 'with-af', label: 'With Alternate Functions' },
+]
+
+/** CSV 单元格转义：含逗号/引号/换行时加引号并双写内部引号。 */
+export function csvCell(value: string | number | null | undefined): string {
+  const text = value === null || value === undefined ? '' : String(value)
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text
+}
+
+/**
+ * 生成 Export pinout CSV（全部芯片引脚，按数据层顺序）。
+ * without-af：number,name,mode,label；
+ * with-af：追加 function/remap 与可用信号（用 | 连接，避免与逗号分隔符冲突）。
+ */
+export function buildPinoutCsv(
+  pins: readonly ChipPin[],
+  assignmentOf: (pin: string) => PinAssignment | undefined,
+  flavor: PinoutExportFlavor,
+  signalsOf: (pin: string) => string[] = () => [],
+): string {
+  const withAf = flavor === 'with-af'
+  const header = withAf
+    ? ['number', 'name', 'mode', 'function', 'remap', 'label', 'signals']
+    : ['number', 'name', 'mode', 'label']
+  const lines = [header.join(',')]
+  for (const pin of pins) {
+    const a = assignmentOf(pin.name)
+    const cells: (string | number | undefined)[] = withAf
+      ? [pin.number, pin.name, a?.mode, a?.function, a?.remap, a?.label, signalsOf(pin.name).join('|')]
+      : [pin.number, pin.name, a?.mode, a?.label]
+    lines.push(cells.map(csvCell).join(','))
+  }
+  return lines.join('\n')
+}
+
+/** 导出文件名：<chip>-pinout-<YYYY-MM-DD>.csv（本地日期）。 */
+export function pinoutCsvFileName(chip: string, date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${chip}-pinout-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.csv`
+}
+</script>
+
 <script setup lang="ts">
 // Pinout 工具栏：统一 PinFilter（搜索类型/文本/Show 九态/Type）+ 建议列表 + 撤回/导出/重置。
 // 单一真相：本组件只发出 Partial<PinFilter> 补丁，由 PinoutView 持有并传给图形/表格。
@@ -27,7 +84,7 @@ const emit = defineEmits<{
   (e: 'update:filter', patch: Partial<PinFilter>): void
   (e: 'locate', pin: string): void
   (e: 'undo'): void
-  (e: 'export-pins'): void
+  (e: 'export-pins', flavor: PinoutExportFlavor): void
   (e: 'export-project'): void
   (e: 'reset'): void
 }>()
@@ -77,6 +134,11 @@ function onBlur() {
 
 function typeCount(t: string): number {
   return props.typeCounts[t] ?? 0
+}
+
+/** el-dropdown 的 command 类型宽松；转成受控的导出粒度。 */
+function onExportCommand(command: string | number | object) {
+  if (command === 'without-af' || command === 'with-af') emit('export-pins', command)
 }
 </script>
 
@@ -150,7 +212,16 @@ function typeCount(t: string): number {
 
     <div class="toolbar-fill"></div>
     <el-button size="small" @click="emit('undo')">撤回</el-button>
-    <el-button size="small" @click="emit('export-pins')">Export pin…</el-button>
+    <el-dropdown trigger="click" @command="onExportCommand">
+      <el-button size="small">Export pin…</el-button>
+      <template #dropdown>
+        <el-dropdown-menu>
+          <el-dropdown-item v-for="f in PINOUT_EXPORT_FLAVORS" :key="f.id" :command="f.id">
+            {{ f.label }}
+          </el-dropdown-item>
+        </el-dropdown-menu>
+      </template>
+    </el-dropdown>
     <el-button size="small" type="primary" :icon="Download" @click="emit('export-project')">导出工程</el-button>
     <el-button size="small" type="primary" :icon="RefreshLeft" @click="emit('reset')">Reset pinout</el-button>
   </div>

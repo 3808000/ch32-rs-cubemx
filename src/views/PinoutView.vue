@@ -4,13 +4,19 @@
 import { computed, ref } from 'vue'
 import { Document } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
+import { isDesktopApp, saveFileNative } from '@/services/desktop'
+import { remapsOfPin } from '@/model/device'
 import PackageCanvas from '@/components/PackageCanvas.vue'
 import PinTable from '@/components/PinTable.vue'
 import PinConfigPanel from '@/components/PinConfigPanel.vue'
 import ConflictsPanel from '@/components/ConflictsPanel.vue'
 import CodePreviewPanel from '@/components/CodePreviewPanel.vue'
 import CodegenDialog from '@/components/CodegenDialog.vue'
-import PinoutToolbar from '@/components/pinout/PinoutToolbar.vue'
+import PinoutToolbar, {
+  buildPinoutCsv,
+  pinoutCsvFileName,
+  type PinoutExportFlavor,
+} from '@/components/pinout/PinoutToolbar.vue'
 import PinoutViewBar from '@/components/pinout/PinoutViewBar.vue'
 import PinLegend from '@/components/pinout/PinLegend.vue'
 import { usePinOverwrite, clearUndo } from '@/model/pins/pinOverwrite'
@@ -98,19 +104,43 @@ function resetPinout() {
   store.notify('配置已重置', 'info')
 }
 
-function exportPins() {
-  const lines = ['number,name,mode,function,remap,label']
-  for (const p of store.deviceData.chip.pins) {
-    const a = store.assignmentOf(p.name)
-    lines.push([p.number, p.name, a?.mode ?? '', a?.function ?? '', a?.remap ?? '', a?.label ?? ''].join(','))
-  }
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+/** 浏览器下载：Blob + 临时 <a>（桌面端会先尝试原生保存）。 */
+function downloadCsv(name: string, text: string) {
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
-  const el = document.createElement('a')
-  el.href = url
-  el.download = `${store.chip}-pinout.csv`
-  el.click()
-  URL.revokeObjectURL(url)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  link.style.display = 'none'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // 等浏览器开始下载后再释放对象 URL
+  setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+/** Export pinout（M5）：二选一 CSV 粒度；桌面端优先原生另存对话框。 */
+async function exportPins(flavor: PinoutExportFlavor) {
+  const csv = buildPinoutCsv(
+    store.deviceData.chip.pins,
+    store.assignmentOf,
+    flavor,
+    (pin) => [...new Set(remapsOfPin(store.deviceData, pin).map((e) => e.signal))],
+  )
+  const fileName = pinoutCsvFileName(store.chip, new Date())
+
+  if (isDesktopApp()) {
+    try {
+      const saved = await saveFileNative(fileName, csv, [{ name: 'CSV', extensions: ['csv'] }])
+      if (saved) store.notify(`已导出 ${fileName}`, 'info')
+      return
+    } catch (e) {
+      store.notify(`原生保存失败，改用浏览器下载：${e instanceof Error ? e.message : String(e)}`, 'warning')
+    }
+  }
+
+  downloadCsv(fileName, csv)
+  store.notify(`已导出 ${fileName}`, 'info')
 }
 </script>
 
@@ -170,7 +200,7 @@ function exportPins() {
         @configure="store.selectPin"
         @assign="focusPin"
       />
-      <PinTable v-else :filter="filter" :pin-states="pinStates" />
+      <PinTable v-else :filter="filter" :pin-states="pinStates" @configure="focusPin" />
 
       <div v-if="showDetail" class="detail-col">
         <PinConfigPanel />

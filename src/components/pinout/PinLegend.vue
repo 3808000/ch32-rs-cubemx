@@ -3,29 +3,26 @@
 // 色块与封装图/表格状态点/悬停浮卡共用 pinFilter 的 pinStateColors。
 import { computed, ref, watch } from 'vue'
 import { PIN_STATE_META, pinStateColors, type PinStateId } from '@/model/pins/pinFilter'
+import { getPreference, setPreference } from '@/services/uiPreferences'
 
 const props = defineProps<{
   counts: Record<PinStateId, number>
 }>()
 
-const STORAGE_KEY = 'ch32.pinout.legend.collapsed'
-
+// 迁移：优先读新偏好 key；兼容旧 localStorage key（ch32.pinout.legend.collapsed）。
+const LEGACY_KEY = 'ch32.pinout.legend.collapsed'
 function readCollapsed(): boolean {
   try {
-    return localStorage.getItem(STORAGE_KEY) === '1'
+    const legacy = localStorage.getItem(LEGACY_KEY)
+    if (legacy === '1' || legacy === '0') return legacy === '1'
   } catch {
-    return false
+    /* ignore */
   }
+  return getPreference('pinout.legendCollapsed')
 }
 
 const collapsed = ref(readCollapsed())
-watch(collapsed, (v) => {
-  try {
-    localStorage.setItem(STORAGE_KEY, v ? '1' : '0')
-  } catch {
-    // 无 localStorage（隐私模式/测试环境）时忽略持久化
-  }
-})
+watch(collapsed, (v) => setPreference('pinout.legendCollapsed', v))
 
 const total = computed(() => PIN_STATE_META.reduce((sum, m) => sum + (props.counts[m.id] ?? 0), 0))
 
