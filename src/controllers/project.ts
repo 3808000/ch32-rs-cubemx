@@ -3,6 +3,8 @@ import { defineStore } from 'pinia'
 import type {
   ClockConfig,
   Conflict,
+  DmaConfig,
+  InterruptConfig,
   PeripheralState,
   PinAssignment,
   PinGroup,
@@ -26,6 +28,8 @@ interface ProjectState {
   prefix: string
   clock: ClockConfig | null // null = 芯片默认档
   peripherals: Record<string, PeripheralState>
+  interrupts: InterruptConfig[] // M3 NVIC/PFIC
+  dma: DmaConfig[] // M3 DMA 通道分配
   features: { embassy: boolean; debugPrint: boolean }
   halRev: string
   selectedPin: string | null
@@ -48,6 +52,8 @@ export const useProjectStore = defineStore('project', {
     prefix: '',
     clock: null,
     peripherals: {},
+    interrupts: [],
+    dma: [],
     features: { embassy: false, debugPrint: true },
     halRev: HAL_REV,
     selectedPin: null,
@@ -75,6 +81,8 @@ export const useProjectStore = defineStore('project', {
         naming: { prefix: this.prefix },
         clock: this.clockConfig,
         peripherals: this.peripherals,
+        interrupts: this.interrupts,
+        dma: this.dma,
         features: this.features,
         hal: { rev: this.halRev },
         unlockedPins: [...this.unlocked],
@@ -169,6 +177,8 @@ export const useProjectStore = defineStore('project', {
       this.assignments = []
       this.groups = []
       this.peripherals = {}
+      this.interrupts = []
+      this.dma = []
       this.unlocked = []
       this.selectedPin = null
       this.activePeripheralId = null
@@ -198,6 +208,40 @@ export const useProjectStore = defineStore('project', {
     setPeripheralEnabled(id: string, enabled: boolean) {
       const cur = this.peripherals[id] ?? { enabled: false, params: {} }
       this.peripherals[id] = { ...cur, enabled }
+      this.markDirty()
+    },
+
+    /** 设置/更新一条中断配置（M3 NVIC）。priority 夹取 0..15。 */
+    setInterrupt(irq: string, cfg: Partial<Omit<InterruptConfig, 'irq'>>) {
+      const i = this.interrupts.findIndex((x) => x.irq === irq)
+      const priority = Math.max(0, Math.min(15, cfg.priority ?? (i >= 0 ? this.interrupts[i].priority : 0)))
+      const next: InterruptConfig = {
+        irq,
+        enabled: cfg.enabled ?? (i >= 0 ? this.interrupts[i].enabled : true),
+        priority,
+      }
+      if (i >= 0) this.interrupts[i] = next
+      else this.interrupts.push(next)
+      this.markDirty()
+    },
+
+    removeInterrupt(irq: string) {
+      const i = this.interrupts.findIndex((x) => x.irq === irq)
+      if (i >= 0) this.interrupts.splice(i, 1)
+      this.markDirty()
+    },
+
+    /** 设置/更新一条 DMA 分配（M3）。 */
+    setDma(entry: DmaConfig) {
+      const i = this.dma.findIndex((x) => x.peripheral === entry.peripheral)
+      if (i >= 0) this.dma[i] = entry
+      else this.dma.push(entry)
+      this.markDirty()
+    },
+
+    removeDma(peripheral: string) {
+      const i = this.dma.findIndex((x) => x.peripheral === peripheral)
+      if (i >= 0) this.dma.splice(i, 1)
       this.markDirty()
     },
 
@@ -245,6 +289,8 @@ export const useProjectStore = defineStore('project', {
       this.prefix = cfg.naming?.prefix ?? ''
       this.clock = cfg.clock ?? null
       this.peripherals = cfg.peripherals ?? {}
+      this.interrupts = Array.isArray(cfg.interrupts) ? cfg.interrupts : []
+      this.dma = Array.isArray(cfg.dma) ? cfg.dma : []
       this.features = { embassy: false, debugPrint: true, ...(cfg.features ?? {}) }
       this.halRev = cfg.hal?.rev ?? HAL_REV
       // 旧工程缺 unlockedPins 时置空；运行时数据可能被手改，过滤掉非字符串
@@ -263,6 +309,8 @@ export const useProjectStore = defineStore('project', {
       this.assignments = []
       this.groups = []
       this.peripherals = {}
+      this.interrupts = []
+      this.dma = []
       this.clock = null
       this.unlocked = []
       this.selectedPin = null
