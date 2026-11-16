@@ -13,6 +13,7 @@
   "nightly": false,
   "remapModel": "afio_v1",
   "source": "CH32V203DS0 V3.0 表 3-1-1 LQFP48 列 + 第 3 章引脚图（file.wch.cn id=414）；交叉核对 openwch/arduino_core_ch32 variants/CH32V20x/CH32V203C8（37 GPIO：PA0-15/PB0-15/PC13-15/PD0-1）与 ch32-data CH32V203C8T6.yaml（V4B/LQFP48/0x20310500/64K+20K）；ft 列取自表 3-1-1 FT 电平；ADC 通道取自 ch32-data FV2x_V3x_ADC1/2.yaml（IN10-15 在 PC0-PC5，LQFP48 未引出故不录入）；NRST/BOOT0 为专用非 GPIO 引脚（表 3-1-1 类型 I），按 POWER 建模不可配置；PD0/PD1 为 HSE 晶振引脚（rcc/v3.rs HSE 经 OSC_IN/OSC_OUT）",
+  "docUrl": "https://www.wch.cn/products/CH32V203.html",
   "pins": [
     { "number": 1, "name": "VBAT", "type": "POWER", "side": "left", "aliases": ["VBAT"], "special": null, "ft": false, "adc": [] },
     { "number": 2, "name": "PC13", "type": "IO", "side": "left", "aliases": ["PC13", "TAMPER-RTC"], "special": null, "ft": false, "adc": [] },

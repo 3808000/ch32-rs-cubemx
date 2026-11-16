@@ -13,6 +13,7 @@
   "nightly": true,
   "remapModel": "afio_v1",
   "source": "CH32V003 数据手册 Rev1.6 表 2-1 引脚定义；交叉核对 Tengo10/pinout-overview ch32v003f4p6.svg 与 ch32-data CH32V003F4P6.yaml",
+  "docUrl": "https://www.wch.cn/products/CH32V003.html",
   "pins": [
     { "number": 1, "name": "PD4", "type": "IO", "side": "left", "aliases": ["PD4"], "special": null, "ft": false, "adc": ["ADC_IN7"] },
     { "number": 2, "name": "PD5", "type": "IO", "side": "left", "aliases": ["PD5"], "special": null, "ft": false, "adc": ["ADC_IN5"] },

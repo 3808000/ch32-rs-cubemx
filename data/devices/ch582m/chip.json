@@ -14,6 +14,7 @@
   "nightly": false,
   "remapModel": "afio_v1",
   "source": "WCH《CH583/CH582 数据手册》CH583DS1.PDF V1.9（2025-04-11，官网 file id 353，覆盖 CH582M/CH582F/CH583M）表 1.2 引脚描述与图 1-1 引脚排列；交叉核对 ch58x-hal（commit 611954e）src/uart.rs、src/spi.rs、src/i2c.rs、src/adc.rs 的 pin_trait_impl/impl_pin/impl_adc_pin，以及 ch32-data CH582.yaml（device_id 0x82000000、448K flash、32K SRAM、QingKe V4A）。注意：①QFN48 实际每边引脚分布为 底10/右14/顶10/左14（引脚号 0 为 GND 芯片底板散热焊盘，未计入 48 脚），本表按工具 quad 每边 12 的展示约定近似划分为 底1-12/右13-24/顶25-36/左37-48（逆时针自底左角起，与物理起始角和绕向一致，每边含 10 个物理同侧脚）；引脚 number/name 为数据手册物理引脚号，权威无近似。②X32MO/X32MI（32MHz HSE 晶振）与 ANT（射频）受 type 枚举（IO/POWER/NC）限制记为 IO。③PB14/PB14 为 5VT 容忍引脚（ft=true），两线仿真调试接口 TCK=PB15/TIO=PB14（special=swd）。④CH582 无 SPI1（数据手册注明 SPI1 仅 CH583 有，ch58x-hal 中 SPI1 引脚绑定被注释），故 PA0/PA1/PA2 不含 SPI1 功能。⑤32K DataFlash 与 24K InfoFlash 未计入 flash 字段（沿用 ch32-data 口径 448K 程序 Flash）。",
+  "docUrl": "https://www.wch.cn/products/CH583.html",
   "pins": [
     { "number": 1, "name": "VDCID", "type": "POWER", "side": "bottom", "aliases": ["VDCID"], "special": null, "ft": false, "adc": [] },
     { "number": 2, "name": "VSW", "type": "POWER", "side": "bottom", "aliases": ["VSW"], "special": null, "ft": false, "adc": [] },

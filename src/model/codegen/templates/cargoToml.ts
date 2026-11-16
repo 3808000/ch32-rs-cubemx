@@ -1,5 +1,7 @@
 // 单核工程 Cargo.toml（HAL 依赖/embassy 可选/profile 优化参数）
-export const CARGO_TOML_TPL = `# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+// 整个文件包在生成标记区内：重新导出只替换区内内容，区外用户依赖/profile 保留。
+export const CARGO_TOML_TPL = `# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "<%- packageName %>"
 version = "0.1.0"
@@ -39,4 +41,5 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 `

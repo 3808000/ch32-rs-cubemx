@@ -57,6 +57,8 @@ export interface ChipData {
   /** 该芯片 target 不支持的特性（如 embassy），数据驱动拦截 */
   unsupportedFeatures?: string[]
   source: string
+  /** WCH 产品页（数据手册/文档入口）；缺省时 UI 回退到 https://www.wch.cn/ */
+  docUrl?: string
   pins: ChipPin[]
 }
 

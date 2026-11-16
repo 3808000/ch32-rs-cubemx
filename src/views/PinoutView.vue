@@ -35,6 +35,8 @@ const typeFilterCount = computed(() => {
   return typeFilter.value === 'All' ? pins.length : pins.filter((p) => p.type === typeFilter.value).length
 })
 const configuredCount = computed(() => store.assignments.length)
+/** 页头文档链接：优先芯片数据里的 docUrl，缺省回退 WCH 官网首页 */
+const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.cn/')
 
 function resetPinout() {
   store.resetPinout()
@@ -73,7 +75,7 @@ const filteredAssignments = computed(() => {
         <h1 class="page-title">Pinout</h1>
         <div class="page-sub">{{ store.deviceData.chip.chip }} {{ store.deviceData.chip.package }}</div>
       </div>
-      <a class="doc-link" href="https://www.wch.cn/products/CH32V003.html" target="_blank" rel="noopener">
+      <a class="doc-link" :href="docUrl" target="_blank" rel="noopener">
         <el-icon :size="13"><Document /></el-icon> Open documentation
       </a>
     </div>

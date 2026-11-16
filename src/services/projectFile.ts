@@ -83,6 +83,10 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
         debugPrint: features.debugPrint !== false,
       },
       hal: { rev: asString(hal.rev).trim() || HAL_REV },
+      // 旧工程无该字段时为空数组；非数组/混入非字符串时忽略非法项（宽容导入，不报错）
+      unlockedPins: (Array.isArray(raw.unlockedPins) ? raw.unlockedPins : []).filter(
+        (p): p is string => typeof p === 'string',
+      ),
     },
   }
 }

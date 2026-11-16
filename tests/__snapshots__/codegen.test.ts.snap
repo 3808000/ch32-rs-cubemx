@@ -15,7 +15,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "gitdep"
 version = "0.1.0"
@@ -46,6 +47,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# GitDep 项目!
 
@@ -227,7 +229,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -258,6 +261,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -440,7 +444,8 @@ xtask = "run --package xtask --release --"
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [workspace]
 members = ["v3f", "v5f", "xtask"]
 resolver = "2"
@@ -461,6 +466,7 @@ incremental = false
 lto = "fat"
 opt-level = "s"
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# h417-demo（CH32H417QEU6 双核工程）
 
@@ -637,7 +643,8 @@ json-target-spec = true
 [target."riscv32imafc-unknown-none-elf"]
 runner = "wlink -v flash"
 ",
-  "v3f/Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "v3f/Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "h417-demo-v3f"
 version = "0.1.0"
@@ -654,6 +661,7 @@ qingke-rt = { version = "0.8.4", features = ["highcode"] }
 qingke = { version = "0.8.4", features = ["unsafe-trust-wch-atomics", "dual-core"] }
 embedded-hal = "1.0.0"
 panic-halt = "1.0.0"
+# <<< ch32-cubemx generated <<<
 ",
   "v3f/build.rs": "// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
 // 启动核（V3F）：随 crate 提供 memory.x 与 link.x。
@@ -977,7 +985,8 @@ json-target-spec = true
 [target."riscv32imafbc-unknown-none-elf"]
 runner = "wlink -v flash"
 ",
-  "v5f/Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "v5f/Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "h417-demo-v5f"
 version = "0.1.0"
@@ -993,6 +1002,7 @@ ch32-hal = { workspace = true, features = ["ch32h417qeu6-v5f", "rt", "memory-x"]
 qingke-rt = { version = "0.8.4", features = ["v5f"] }
 qingke = { version = "0.8.4", features = ["v5f", "dual-core", "unsafe-trust-wch-atomics"] }
 panic-halt = "1.0.0"
+# <<< ch32-cubemx generated <<<
 ",
   "v5f/build.rs": "// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
 // 从核（V5F）：只提供自己的 memory.x（FLASH/DTCM/共享 SRAM 分区）。
@@ -1096,12 +1106,14 @@ fn main() -> ! {
     }
 }
 ",
-  "xtask/Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "xtask/Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "xtask"
 version = "0.0.0"
 edition = "2021"
 publish = false
+# <<< ch32-cubemx generated <<<
 ",
   "xtask/src/main.rs": "//! 双核工程构建 / 烧录 / 合并驱动（由 ch32-rs-CubeMX 生成）。
 //!
@@ -1426,7 +1438,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -1457,6 +1470,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -1693,7 +1707,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "gpio-demo"
 version = "0.1.0"
@@ -1724,6 +1739,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# Gpio Demo
 
@@ -1958,7 +1974,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -1989,6 +2006,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -2177,7 +2195,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -2208,6 +2227,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -2439,7 +2459,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -2470,6 +2491,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -2692,7 +2714,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -2723,6 +2746,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -2954,7 +2978,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -2985,6 +3010,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -3216,7 +3242,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -3249,6 +3276,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -3531,7 +3559,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -3562,6 +3591,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 
@@ -3757,7 +3787,8 @@ json-target-spec = true
 ",
   ".gitignore": "target/
 ",
-  "Cargo.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
 [package]
 name = "demo-app"
 version = "0.1.0"
@@ -3788,6 +3819,7 @@ incremental = false
 lto = 'fat'
 opt-level = 's'
 overflow-checks = false
+# <<< ch32-cubemx generated <<<
 ",
   "README.md": "# demo-app
 

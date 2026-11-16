@@ -44,6 +44,7 @@ function validConfig(): ProjectConfig {
     peripherals: { USART1: { enabled: false, params: { baudrate: 115200 } } },
     features: { embassy: false, debugPrint: true },
     hal: { rev: HAL_REV },
+    unlockedPins: ['PD7', 'PD1'],
   }
 }
 
@@ -115,5 +116,37 @@ describe('parseProjectFile 容错与错误', () => {
       }),
     )
     expect(config.pins[0].params).toEqual({})
+  })
+})
+
+describe('parseProjectFile unlockedPins 校验', () => {
+  it('合法字符串数组原样保留', () => {
+    const config = expectConfig(
+      JSON.stringify({ version: 1, chip: 'CH32V003F4P6', unlockedPins: ['PD7', 'PD1', 'PA1'] }),
+    )
+    expect(config.unlockedPins).toEqual(['PD7', 'PD1', 'PA1'])
+  })
+
+  it('旧工程缺 unlockedPins 时为空数组', () => {
+    const config = expectConfig(JSON.stringify({ version: 1, chip: 'CH32V003F4P6' }))
+    expect(config.unlockedPins).toEqual([])
+  })
+
+  it('非数组值忽略为空数组', () => {
+    const config = expectConfig(
+      JSON.stringify({ version: 1, chip: 'CH32V003F4P6', unlockedPins: 'PD7' }),
+    )
+    expect(config.unlockedPins).toEqual([])
+  })
+
+  it('数组中的非字符串项被过滤', () => {
+    const config = expectConfig(
+      JSON.stringify({
+        version: 1,
+        chip: 'CH32V003F4P6',
+        unlockedPins: ['PD7', 42, null, { pin: 'PD1' }, 'PA1'],
+      }),
+    )
+    expect(config.unlockedPins).toEqual(['PD7', 'PA1'])
   })
 })

@@ -20,6 +20,8 @@ const selectedId = ref<string | null>(null)
 const showQuickMenu = ref(false)
 const showCode = ref(false)
 const rightTab = ref('usage')
+/** 页头文档链接：优先芯片数据里的 docUrl，缺省回退 WCH 官网首页 */
+const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.cn/')
 
 // 折叠状态（Collapse all / Expand all 跨卡片控制，键 `${id}:params` / `${id}:pins`）
 const openMap = reactive<Record<string, boolean>>({})
@@ -70,7 +72,7 @@ function selectAndScroll(id: string) {
         <h1 class="page-title">Peripherals</h1>
         <div class="page-sub">{{ store.deviceData.chip.chip }} {{ store.deviceData.chip.package }}</div>
       </div>
-      <a class="doc-link" href="https://www.wch.cn/products/CH32V003.html" target="_blank" rel="noopener">
+      <a class="doc-link" :href="docUrl" target="_blank" rel="noopener">
         <el-icon :size="13"><Document /></el-icon> Open documentation
       </a>
     </div>

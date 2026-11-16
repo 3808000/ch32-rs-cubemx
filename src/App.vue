@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 应用外壳：标题栏 + 标签页条 + 图标栏 + 工作区 + 状态栏
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppShell from './components/AppShell.vue'
 import TabStrip from './components/TabStrip.vue'
@@ -19,6 +19,8 @@ const showNotifications = ref(false)
 const showAbout = ref(false)
 const showShortcuts = ref(false)
 const draggingFile = ref(false)
+/** 当前芯片的文档链接（chip.json.docUrl），缺省回退 WCH 官网首页 */
+const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.cn/')
 
 /** 只有拖入真实文件时才接管事件，避免干扰 Monaco/画布内的文本或元素拖动。 */
 function hasFiles(e: DragEvent): boolean {
@@ -132,6 +134,10 @@ function onKeydown(e: KeyboardEvent) {
     <el-dialog v-model="showAbout" title="关于 ch32-rs-CubeMX" width="480px">
       <p>纯本地 CH32 RISC-V 引脚/时钟/外设配置器，一键生成可编译的 <code>ch32-hal</code> Rust 工程。</p>
       <p class="muted">HAL 锁定 rev：<code>{{ HAL_REV.slice(0, 12) }}</code></p>
+      <p class="muted">
+        当前芯片：<code>{{ store.deviceData.chip.chip }}</code>
+        <a class="about-link" :href="docUrl" target="_blank" rel="noopener">Open documentation</a>
+      </p>
       <p class="muted">技术栈：Vue 3 + Pinia + Element Plus + Monaco + EJS + JSZip</p>
     </el-dialog>
 
@@ -236,6 +242,14 @@ function onKeydown(e: KeyboardEvent) {
 .muted {
   color: var(--mx-text-muted);
   font-size: 12px;
+}
+.about-link {
+  margin-left: 8px;
+  color: var(--mx-accent);
+  text-decoration: none;
+}
+.about-link:hover {
+  text-decoration: underline;
 }
 .shortcut-table {
   width: 100%;

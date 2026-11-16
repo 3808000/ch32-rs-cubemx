@@ -31,6 +31,7 @@
     }
   ],
   "source": "CH32H417DS0 V1.9 表 2-1-1（H417QEU6 列）+ 第 2.1.1 节 QFN128 引脚排列图（file.wch.cn id=529）；引脚编号 1..32 底边、33..64 右边、65..96 顶边、97..128 左边（逆时针；数据手册的 0 号脚为 EXPAD VSS，未计入）；交叉核对 ch32-data CH32H417QEU6.yaml（QFN128/0x4170050D/960K CodeFlash + 896K SRAM = 128K ITCM + 256K DTCM + 512K 共享）、CH32H4.yaml 的 GPIOA..GPIOF（PA0-15/PB0-15/PC0-15/PD0-15/PE0-15/PF0-14 共 95 个 GPIO）；FT 列取自表 2-1-1 特性列；ADC_IN0..15 取自 CH32H4.yaml ADC1/ADC2 的 pins 字段（PA0-PA7/PB0-PB1/PC0-PC5）；XI/XO 为 HSE 晶振专用脚（表 2-1-1 I/A、O/A），NRST 为专用复位脚，PB8/PB9 复用 SWCLK/SWDIO；H4 无 BOOT0 引脚（启动模式由选项字节控制）；PF8/PF9/PF10 的 HSADC_IN4..6 未建模（HAL HSADC 驱动未接入）",
+  "docUrl": "https://www.wch.cn/products/CH32H417.html",
   "pins": [
     {
       "number": 1,

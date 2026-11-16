@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import type { CodegenResult, DeviceData, PinAssignment, PinMode, ProjectConfig } from '@/model/types'
 import { getDeviceData } from '@/model/device'
 import { generateProject } from '@/model/codegen'
+import { GENERATED_END_MARKER, GENERATED_START_MARKER } from '@/services/tomlMerge'
 
 const HAL_REV = 'a0863ebcc1082f64e508b73d3b944f119b0db77b'
 
@@ -222,6 +223,9 @@ describe('generateProject 依赖模式', () => {
     const r = generateProject(baseConfig(), data)
     const cargo = r.files.find((f) => f.path === 'Cargo.toml')!.content
     expect(cargo).toContain('ch32-hal = { path = "vendor/ch32-hal", default-features = false, features = ["ch32v003f4p6", "rt", "exti", "memory-x"] }')
+    // 生成内容整体包在标记区内（重新导出只替换区内）
+    expect(cargo.startsWith(`${GENERATED_START_MARKER}\n`)).toBe(true)
+    expect(cargo.endsWith(`${GENERATED_END_MARKER}\n`)).toBe(true)
     expect(fileMap(r)).toMatchSnapshot()
   })
 })
@@ -307,6 +311,12 @@ describe('generateProject 双核（CH32H417QEU6）', () => {
     expect(m['Cargo.toml']).toContain('ch32-hal = { path = "vendor/ch32-hal", default-features = false }')
     expect(m['rust-toolchain.toml']).toContain('channel = "nightly"')
     expect(m['.cargo/config.toml']).toContain('xtask = "run --package xtask --release --"')
+
+    // 每个 Cargo.toml（workspace 根 / 两核 / xtask）都带生成标记区
+    for (const path of ['Cargo.toml', 'v3f/Cargo.toml', 'v5f/Cargo.toml', 'xtask/Cargo.toml']) {
+      expect(m[path]).toContain(GENERATED_START_MARKER)
+      expect(m[path]).toContain(GENERATED_END_MARKER)
+    }
 
     // 两个核各自 target / memory map / main
     expect(m['v3f/Cargo.toml']).toContain('"ch32h417qeu6-v3f"')

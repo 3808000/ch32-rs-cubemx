@@ -74,6 +74,7 @@ export const useProjectStore = defineStore('project', {
         peripherals: this.peripherals,
         features: this.features,
         hal: { rev: this.halRev },
+        unlockedPins: [...this.unlocked],
       }
     },
     conflicts(): Conflict[] {
@@ -231,7 +232,10 @@ export const useProjectStore = defineStore('project', {
       this.peripherals = cfg.peripherals ?? {}
       this.features = { embassy: false, debugPrint: true, ...(cfg.features ?? {}) }
       this.halRev = cfg.hal?.rev ?? HAL_REV
-      this.unlocked = []
+      // 旧工程缺 unlockedPins 时置空；运行时数据可能被手改，过滤掉非字符串
+      this.unlocked = Array.isArray(cfg.unlockedPins)
+        ? cfg.unlockedPins.filter((p): p is string => typeof p === 'string')
+        : []
       this.selectedPin = null
       this.dirty = false
       this.lastSavedAt = Date.now()
