@@ -15,9 +15,19 @@ import { renderCubeFile } from './cubefile'
 import { renderReadme } from './readme'
 import { generateDualCoreProject } from './workspace'
 import { render } from './render'
+import { withFileGroups } from './fileGroup'
 import * as T from './templates'
 
 export { sanitizePackageName } from './util'
+export { classifyFileGroup, withFileGroups } from './fileGroup'
+export {
+  MANIFEST_PATH,
+  hashContent,
+  configHash,
+  buildManifest,
+  serializeManifest,
+  parseManifest,
+} from './manifest'
 export type { CodegenResult, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
 
 export function generateProject(
@@ -96,5 +106,5 @@ export function generateProject(
   // ---------- README ----------
   if (sel.readme) files.push(renderReadme(config, data, sel, embassy, files))
 
-  return { files, errors: [] }
+  return { files: withFileGroups(files), errors: [] }
 }

@@ -5,6 +5,7 @@ import type { PeripheralUsage } from '@/model/peripherals'
 import { HAL_GIT, HAL_REV } from './halRev'
 import { render } from './render'
 import { sanitizePackageName } from './util'
+import { withFileGroups } from './fileGroup'
 import { renderClock } from './clock'
 import { renderCoreGenerated } from './core'
 import { renderCubeFile } from './cubefile'
@@ -217,5 +218,5 @@ export function generateDualCoreProject(
     })
   }
 
-  return { files, errors: [] }
+  return { files: withFileGroups(files), errors: [] }
 }
