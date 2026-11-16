@@ -1,13 +1,20 @@
 <script setup lang="ts">
-// 代码生成导出对话框：子项选择 + ZIP / 目录导出 + main.rs 保护 + diff 快照。
+// 代码生成导出对话框（视图层）：子项选择 + 触发导出。
+// 生成/打包/落盘编排全部在 services/projectExport.ts；本组件只管理选项与提示。
 import { computed, reactive, ref } from 'vue'
-import JSZip from 'jszip'
 import { Download, FolderOpened } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
-import { generateProject } from '@/model/codegen'
 import { downloadProjectFile } from '@/services/projectFile'
-import { isDesktopApp, pickFolderNative, saveFileNative, writeFolderNative } from '@/services/desktop'
-import { DEFAULT_SELECTION, type CodegenSelection, type GeneratedFile } from '@/model/types'
+import {
+  ExportBlockedError,
+  exportAsZip,
+  folderExportHint,
+  isAbortError,
+  pickExportFolder,
+  prepareExport,
+  supportsFolderExport,
+} from '@/services/projectExport'
+import { DEFAULT_SELECTION, type CodegenSelection } from '@/model/types'
 
 const store = useProjectStore()
 const visible = defineModel<boolean>({ default: false })
@@ -18,34 +25,8 @@ const projectName = ref(store.projectName)
 const generating = ref(false)
 const writingFolder = ref(false)
 
-// ---------- File System Access API 最小类型（TS 5.6 DOM lib 尚不完整） ----------
-
-interface FsWritableLike {
-  write(data: string | Uint8Array): Promise<void>
-  close(): Promise<void>
-}
-
-interface FsFileHandleLike {
-  createWritable(): Promise<FsWritableLike>
-}
-
-interface FsDirectoryHandleLike {
-  readonly name: string
-  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<FsDirectoryHandleLike>
-  getFileHandle(name: string, options?: { create?: boolean }): Promise<FsFileHandleLike>
-}
-
-type ShowDirectoryPicker = (options?: { mode?: 'read' | 'readwrite' }) => Promise<FsDirectoryHandleLike>
-
-/** 目录写入能力：Chromium 系（安全上下文）或 Tauri 桌面端（原生对话框 + Rust 写盘）。 */
-const desktop = isDesktopApp()
-const supportsDirectoryPicker = 'showDirectoryPicker' in window
-const canWriteFolder = (supportsDirectoryPicker && window.isSecureContext) || desktop
-const folderHint = canWriteFolder
-  ? ''
-  : !supportsDirectoryPicker
-    ? '当前浏览器不支持目录写入，请使用 ZIP 导出'
-    : '当前页面不是安全上下文（需 HTTPS 或 localhost），请使用 ZIP 导出'
+const canWriteFolder = supportsFolderExport()
+const folderHint = folderExportHint()
 
 const items: { key: keyof CodegenSelection; label: string; desc: string }[] = [
   { key: 'projectSkeleton', label: '工程骨架', desc: 'Cargo.toml / rust-toolchain / .cargo / build.rs / target json' },
@@ -72,135 +53,47 @@ async function exportConfigOnly() {
   }
 }
 
-/** 目录选择必须在用户点击手势内直接调用（中间不能先 await 其它操作）。 */
-async function pickDirectory(): Promise<FsDirectoryHandleLike> {
-  const picker = (window as unknown as { showDirectoryPicker?: ShowDirectoryPicker }).showDirectoryPicker
-  if (!picker) throw new Error('当前浏览器不支持目录写入')
-  return picker.call(window, { mode: 'readwrite' })
-}
-
-/** 按 'a/b/c.rs' 逐级建目录并写入内容（File System Access API）。 */
-async function writeFileAt(root: FsDirectoryHandleLike, path: string, data: string | Uint8Array): Promise<void> {
-  const segments = path.split('/').filter(Boolean)
-  const fileName = segments.pop()
-  if (!fileName) return
-  let dir = root
-  for (const seg of segments) dir = await dir.getDirectoryHandle(seg, { create: true })
-  const file = await dir.getFileHandle(fileName, { create: true })
-  const writable = await file.createWritable()
-  await writable.write(data)
-  await writable.close()
-}
-
-function isAbortError(e: unknown): boolean {
-  return typeof e === 'object' && e !== null && (e as { name?: string }).name === 'AbortError'
-}
-
-interface PreparedExport {
-  files: GeneratedFile[]
-  vendorEntries: { path: string; data: Uint8Array }[]
-  snapshot: Record<string, string>
-}
-
-/** ZIP 与目录导出共用同一份生成结果（含 vendor 源码解包）。 */
-async function prepareExport(): Promise<PreparedExport | null> {
-  store.setProjectName(projectName.value || 'ch32-project')
-  const result = generateProject(store.config, store.deviceData, { ...selection })
-  if (result.errors.length > 0) {
-    store.notify(`导出被阻止：${result.errors[0].message}`, 'error')
-    return null
-  }
-  // 单核为 src/main.rs，双核 workspace 为 <核>/src/main.rs：都算用户区
-  const files = result.files.filter((f) => !/(^|\/)src\/main\.rs$/.test(f.path) || includeMain.value)
-  const snapshot: Record<string, string> = {}
-  for (const f of files) snapshot[f.path] = f.content
-
-  const vendorEntries: { path: string; data: Uint8Array }[] = []
-  if (selection.vendorHal) {
-    const resp = await fetch(`${import.meta.env.BASE_URL}vendor/ch32-hal.zip`)
-    if (!resp.ok) throw new Error(`HAL 源码包加载失败：${resp.status}（先运行 npm run vendor:hal）`)
-    const halZip = await JSZip.loadAsync(await resp.arrayBuffer())
-    // zip 内路径已含 ch32-hal/ 前缀 → 统一写为 vendor/ch32-hal/...
-    for (const e of Object.values(halZip.files).filter((x) => !x.dir)) {
-      vendorEntries.push({ path: `vendor/${e.name}`, data: await e.async('uint8array') })
-    }
-  }
-  return { files, vendorEntries, snapshot }
-}
-
+/** 生成并导出 ZIP。 */
 async function doExportZip() {
   if (generating.value || writingFolder.value) return
   generating.value = true
   try {
-    const prepared = await prepareExport()
-    if (!prepared) return
-    const zip = new JSZip()
-    const folder = zip.folder(store.config.projectName)!
-    for (const f of prepared.files) folder.file(f.path, f.content)
-    for (const v of prepared.vendorEntries) folder.file(v.path, v.data)
-    const blob = await zip.generateAsync({ type: 'blob' })
-    if (desktop) {
-      // WebKitGTK 不处理 <a download>：走原生保存对话框
-      const bytes = new Uint8Array(await blob.arrayBuffer())
-      const saved = await saveFileNative(`${store.config.projectName}.zip`, bytes, [
-        { name: 'ZIP 压缩包', extensions: ['zip'] },
-      ])
-      if (!saved) return
-    } else {
-      const url = URL.createObjectURL(blob)
-      const el = document.createElement('a')
-      el.href = url
-      el.download = `${store.config.projectName}.zip`
-      el.click()
-      URL.revokeObjectURL(url)
-    }
+    store.setProjectName(projectName.value || 'ch32-project')
+    const prepared = await prepareExport(store.config, store.deviceData, { ...selection }, includeMain.value)
+    const count = await exportAsZip(prepared, store.config.projectName)
+    if (count === null) return // 用户在保存对话框中取消
     store.setExportSnapshot(prepared.snapshot)
-    store.notify(`已导出 ${prepared.files.length} 个文件${selection.vendorHal ? ' + 完整 HAL 源码' : ''}（${store.config.projectName}.zip）`, 'info')
+    store.notify(`已导出 ${count} 个文件${selection.vendorHal ? '（含完整 HAL 源码）' : ''}（${store.config.projectName}.zip）`, 'info')
     visible.value = false
   } catch (e) {
+    if (e instanceof ExportBlockedError) {
+      store.notify(`导出被阻止：${e.message}`, 'error')
+      return
+    }
     store.notify(`导出失败：${e instanceof Error ? e.message : String(e)}`, 'error')
   } finally {
     generating.value = false
   }
 }
 
+/** 生成并写入目录（桌面端原生对话框 / 浏览器 File System Access API）。 */
 async function doExportFolder() {
   if (writingFolder.value || generating.value || !canWriteFolder) return
   writingFolder.value = true
   try {
-    if (desktop) {
-      // 桌面端：原生目录选择 + Rust 写盘（WebKitGTK 无 File System Access API）
-      const dir = await pickFolderNative('选择工程导出目录')
-      if (!dir) return
-      const prepared = await prepareExport()
-      if (!prepared) return
-      const entries = [
-        ...prepared.files.map((f) => ({ path: f.path, data: f.content })),
-        ...prepared.vendorEntries.map((v) => ({ path: v.path, data: v.data })),
-      ]
-      const written = await writeFolderNative(dir, entries)
-      store.setExportSnapshot(prepared.snapshot)
-      store.notify(`已写入 ${written} 个文件到 ${dir}`, 'info')
-      visible.value = false
-      return
-    }
-    // 浏览器：先请求目录（必须直接处于用户点击手势内）
-    const dir = await pickDirectory()
-    const prepared = await prepareExport()
-    if (!prepared) return
-    let written = 0
-    for (const f of prepared.files) {
-      await writeFileAt(dir, f.path, f.content)
-      written++
-    }
-    for (const v of prepared.vendorEntries) {
-      await writeFileAt(dir, v.path, v.data)
-      written++
-    }
+    // 目录选择必须在用户点击手势内直接调用：先选目录，再生成内容
+    const target = await pickExportFolder()
+    if (!target) return // 用户取消
+    const prepared = await prepareExport(store.config, store.deviceData, { ...selection }, includeMain.value)
+    const result = await target.write(prepared)
     store.setExportSnapshot(prepared.snapshot)
-    store.notify(`已写入 ${written} 个文件到 ${dir.name}/`, 'info')
+    store.notify(`已写入 ${result.written} 个文件到 ${result.root}`, 'info')
     visible.value = false
   } catch (e) {
+    if (e instanceof ExportBlockedError) {
+      store.notify(`导出被阻止：${e.message}`, 'error')
+      return
+    }
     // 用户取消目录选择：静默返回
     if (isAbortError(e)) return
     store.notify(`写入目录失败：${e instanceof Error ? e.message : String(e)}`, 'error')
@@ -209,6 +102,7 @@ async function doExportFolder() {
   }
 }
 </script>
+
 
 <template>
   <el-dialog v-model="visible" title="生成 Rust 工程" width="640px">

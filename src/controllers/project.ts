@@ -14,8 +14,7 @@ import { getDeviceData } from '@/model/device'
 import { mergeClockConfig } from '@/model/clock'
 import { checkConflicts } from '@/model/conflicts'
 import { HAL_REV } from '@/model/codegen/halRev'
-
-const STORAGE_KEY = 'ch32-rs-cubemx:project'
+import { loadProject, saveProject } from '@/services/projectStorage'
 
 export type ViewId = 'home' | 'pinout' | 'clock' | 'peripherals'
 
@@ -241,10 +240,10 @@ export const useProjectStore = defineStore('project', {
       this.markDirty()
     },
 
-    /** 保存到 localStorage。 */
+    /** 保存到 localStorage（IO 经 projectStorage 服务）。 */
     save() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.config))
+        saveProject(this.config)
         this.dirty = false
         this.lastSavedAt = Date.now()
       } catch (e) {
@@ -254,14 +253,10 @@ export const useProjectStore = defineStore('project', {
 
     /** 从 localStorage 恢复。返回是否恢复成功。 */
     restore(): boolean {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY)
-        if (!raw) return false
-        this.loadConfig(JSON.parse(raw))
-        return true
-      } catch {
-        return false
-      }
+      const cfg = loadProject()
+      if (!cfg) return false
+      this.loadConfig(cfg)
+      return true
     },
 
     setExportSnapshot(files: Record<string, string>) {

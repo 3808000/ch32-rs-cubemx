@@ -1,0 +1,21 @@
+// 双核 V5F 自定义 target json（+m+a+f+c+b+xwchc）
+export const TARGET_RISCV32IMAFCB_TPL = `{
+  "abi": "ilp32f",
+  "arch": "riscv32",
+  "atomic-cas": true,
+  "cpu": "generic-rv32",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:e-p:32:32-i64:64-n32-S128",
+  "eh-frame-header": false,
+  "emit-debug-gdb-scripts": false,
+  "features": "+m,+a,+f,+c,+b,+xwchc",
+  "linker": "rust-lld",
+  "linker-flavor": "gnu-lld",
+  "llvm-abiname": "ilp32f",
+  "llvm-target": "riscv32",
+  "max-atomic-width": 32,
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-pointer-width": 32
+}
+`
