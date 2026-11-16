@@ -44,11 +44,13 @@ export function derivePeriCategories(data: DeviceData): PeriCategory[] {
 
 <script setup lang="ts">
 // 外设列表（左 320px）：搜索 + Filter by Category + Show All + 手风琴分类 + 计数徽标
+// 过滤区拆到 components/peripherals/PeripheralListFilters.vue，本组件保留分类推导与手风琴树。
 import { computed, reactive, ref } from 'vue'
-import { Search, Box } from '@element-plus/icons-vue'
+import { Box } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { derivePeripheralUsage } from '@/model/peripherals'
-import EmptyState from './common/EmptyState.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import PeripheralListFilters from '@/components/peripherals/PeripheralListFilters.vue'
 
 const props = defineProps<{ selectedId?: string | null }>()
 const emit = defineEmits<{ select: [id: string] }>()
@@ -104,23 +106,13 @@ function onClickItem(id: string) {
 <template>
   <div class="peripheral-list">
     <!-- 过滤行 -->
-    <div class="pl-filters">
-      <el-input v-model="search" placeholder="搜索外设" :prefix-icon="Search" size="small" clearable />
-      <div class="pl-filter-row">
-        <span class="pl-filter-label">Filter by Category</span>
-        <el-select v-model="categoryFilter" size="small" style="width: 130px">
-          <el-option v-for="o in categoryOptions" :key="o.value" :label="o.label" :value="o.value" />
-        </el-select>
-      </div>
-      <div class="pl-filter-row">
-        <span class="pl-filter-label">Show</span>
-        <el-select :model-value="showAll ? 'all' : 'enabled'" size="small" style="width: 130px" @change="(v: string) => (showAll = v === 'all')">
-          <el-option label="All" value="all" />
-          <el-option label="已启用" value="enabled" />
-        </el-select>
-        <span class="pl-count">{{ totalCount }}</span>
-      </div>
-    </div>
+    <PeripheralListFilters
+      v-model:search="search"
+      v-model:category-filter="categoryFilter"
+      v-model:show-all="showAll"
+      :category-options="categoryOptions"
+      :total-count="totalCount"
+    />
 
     <!-- 手风琴分类 -->
     <div class="pl-tree">
@@ -164,29 +156,6 @@ function onClickItem(id: string) {
   display: flex;
   flex-direction: column;
   min-height: 0;
-}
-.pl-filters {
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-bottom: 1px solid var(--mx-border);
-}
-.pl-filter-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.pl-filter-label {
-  font-size: var(--mx-fz-label);
-  color: var(--mx-text-secondary);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-.pl-count {
-  font-size: var(--mx-fz-label);
-  color: var(--mx-text-muted);
-  margin-left: auto;
 }
 .pl-tree {
   flex: 1;

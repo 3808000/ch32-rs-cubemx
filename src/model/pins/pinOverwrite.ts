@@ -1,7 +1,25 @@
 // 引脚覆盖确认 + 撤回。所有覆盖已有配置的操作必须走这里。
+// 注意：本模块属于 model 层，不得反向依赖 controllers（Pinia store）。
+// 所需的“读当前配置 / 写回配置 / 清除配置”能力由调用方以参数注入（见 PinOverwriteDeps）。
 import { ElMessageBox, ElMessage } from 'element-plus'
-import type { PinAssignment } from '@/model/types'
-import { useProjectStore } from '@/controllers/project'
+import type { PinAssignment, PinMode, PinParams } from '@/model/types'
+
+/**
+ * 覆盖确认与撤回所需的最小宿主接口。
+ * 调用方（views/components）传入自己的 store；model 只依赖这个纯接口，不知道 Pinia 存在。
+ */
+export interface PinOverwriteDeps {
+  /** 查询某个引脚当前配置（用于覆盖确认文案与撤回占位）。 */
+  assignmentOf: (pin: string) => PinAssignment | undefined
+  /** 写入/覆盖一条引脚配置（撤回旧配置时使用）。 */
+  setPinAssignment: (
+    pin: string,
+    mode: PinMode,
+    opts?: { label?: string; function?: string; remap?: number; params?: PinParams },
+  ) => void
+  /** 清除引脚配置（撤回“本次新增”的配置时使用）。 */
+  clearPin: (pin: string) => void
+}
 
 interface UndoEntry {
   pin: string
@@ -15,12 +33,14 @@ export function clearUndo(): void {
   undoStack.length = 0
 }
 
-export function usePinOverwrite() {
-  const store = useProjectStore()
-
+/**
+ * 创建引脚覆盖处理器。
+ * @param deps 状态读写能力（通常直接传 Pinia store），由调用方负责注入。
+ */
+export function usePinOverwrite(deps: PinOverwriteDeps) {
   /** 请求覆盖引脚配置：已有配置时弹确认；执行后压入撤回栈。 */
   async function requestOverwrite(pin: string, apply: () => void, actionText = '覆盖'): Promise<boolean> {
-    const existing = store.assignmentOf(pin)
+    const existing = deps.assignmentOf(pin)
     if (existing) {
       try {
         await ElMessageBox.confirm(
@@ -46,14 +66,14 @@ export function usePinOverwrite() {
       return false
     }
     if (entry.prev) {
-      store.setPinAssignment(entry.pin, entry.prev.mode, {
+      deps.setPinAssignment(entry.pin, entry.prev.mode, {
         label: entry.prev.label,
         function: entry.prev.function,
         remap: entry.prev.remap,
         params: entry.prev.params,
       })
     } else {
-      store.clearPin(entry.pin)
+      deps.clearPin(entry.pin)
     }
     ElMessage.success(`已撤回 ${entry.pin} 的配置变更`)
     return true

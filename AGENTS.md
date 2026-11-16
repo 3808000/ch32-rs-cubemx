@@ -2,6 +2,18 @@
 
 > 修改代码前先读 `docs/PROJECT_MEMORY.md` 与 `docs/HAL_API_NOTES.md`。
 
+## 架构（先读）
+
+分层为 `views/components → controllers → services → model`，依赖只能向下：
+
+- `model/` 纯领域逻辑（引脚/时钟/外设/冲突/生成），禁止 import `controllers`/`services`/`views`/`components`；需要状态时用**参数注入**。
+- `services/` 宿主能力（文件/桌面/Monaco），禁止 import `controllers`/`views`/`components`。
+- `controllers/` 唯一 Pinia store，禁止 import `views`/`components`。
+- `views/`、`components/` 可用任意下层。
+
+**新增代码放哪、依赖规则、与 CubeMX 概念映射、违规修法 → 见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)。**
+分层边界由 `eslint.config.js` 的 `no-restricted-imports` 强制，`npx eslint .` 0 error 是门禁。
+
 ## 项目定位
 
 纯本地 Web 应用（无后端/无云），对标 STM32CubeMX2 的 GUI，代码生成后端是 **Rust + ch32-hal**（WCH CH32 RISC-V）。

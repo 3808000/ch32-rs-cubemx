@@ -1,0 +1,202 @@
+<script setup lang="ts">
+// 单个时钟树节点：上限标签 / 输入-输出两栏频率 / 标题 / 内嵌控件行（或只读 hint）。
+// 节点整体点击向父级抛 focus；控件行点击抛 control-open（附控件元素视口矩形，供弹层定位）。
+import type { ClockNodeControl, ClockTreeNode } from '@/model/clock/tree'
+import { formatMhz } from '@/model/clock/tree'
+import { computed } from 'vue'
+
+const props = withDefaults(defineProps<{ node: ClockTreeNode; selected?: boolean; dimmed?: boolean; pulse?: boolean }>(), {
+  selected: false,
+  dimmed: false,
+  pulse: false,
+})
+
+const emit = defineEmits<{
+  (e: 'focus', nodeId: string): void
+  (e: 'control-open', node: ClockTreeNode, rect: DOMRect): void
+}>()
+
+/** 控件行在节点内的矩形（SVG 坐标）：节点底部留 10px 内边距，高 28px */
+const ctrlRect = computed(() => ({ x: props.node.x + 10, y: props.node.y + props.node.h - 38, w: props.node.w - 20, h: 28 }))
+
+function ctrlText(c: ClockNodeControl): string {
+  if (c.kind === 'number') return `${c.value} ${c.unit ?? ''}`.trim()
+  const opt = c.options?.find((o) => String(o.value) === String(c.value))
+  return opt?.label ?? String(c.value)
+}
+
+const controlText = computed(() => (props.node.control ? ctrlText(props.node.control) : ''))
+
+function onControlClick(e: MouseEvent) {
+  e.stopPropagation()
+  const c = props.node.control
+  if (!c || c.fixed) return
+  // 用被点击控件元素的视口矩形定位 fixed 弹层（不受画布滚动/裁剪影响）
+  const el = e.currentTarget instanceof Element ? e.currentTarget : null
+  if (!el) return
+  emit('control-open', props.node, el.getBoundingClientRect())
+}
+</script>
+
+<template>
+  <g class="node" :class="{ selected, dimmed, inactive: !node.active, pulse }" @click="emit('focus', node.id)">
+    <rect
+      :x="node.x"
+      :y="node.y"
+      :width="node.w"
+      :height="node.h"
+      rx="8"
+      class="node-box"
+      :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }"
+    />
+    <!-- 顶部上限小标签 -->
+    <text v-if="node.maxMhz !== null" :x="node.x + 8" :y="node.y + 15" class="node-max">
+      上限 {{ formatMhz(node.maxMhz) }}
+    </text>
+    <!-- 主体两栏：输入 | 输出 -->
+    <template v-if="node.inMhz !== null">
+      <text
+        :x="node.x + node.w * 0.25"
+        :y="node.y + 38"
+        text-anchor="middle"
+        class="freq"
+        :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }"
+      >
+        {{ formatMhz(node.inMhz) }}
+      </text>
+      <line :x1="node.x + node.w / 2" :y1="node.y + 26" :x2="node.x + node.w / 2" :y2="node.y + 48" class="freq-divider" />
+      <text
+        :x="node.x + node.w * 0.75"
+        :y="node.y + 38"
+        text-anchor="middle"
+        class="freq"
+        :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }"
+      >
+        {{ formatMhz(node.outMhz) }}
+      </text>
+    </template>
+    <text
+      v-else
+      :x="node.x + node.w / 2"
+      :y="node.y + 38"
+      text-anchor="middle"
+      class="freq"
+      :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }"
+    >
+      {{ formatMhz(node.outMhz) }}
+    </text>
+    <!-- 节点标题 -->
+    <text :x="node.x + 8" :y="node.y + 64" class="node-title">{{ node.label }}</text>
+    <!-- 内嵌控件行 -->
+    <g v-if="node.control" class="ctrl" :class="{ fixed: node.control.fixed }" @click="onControlClick">
+      <rect :x="ctrlRect.x" :y="ctrlRect.y" :width="ctrlRect.w" :height="ctrlRect.h" rx="4" class="ctrl-box" />
+      <text :x="ctrlRect.x + 8" :y="ctrlRect.y + 19" class="ctrl-text">{{ controlText }}</text>
+      <path
+        v-if="node.control.kind === 'select'"
+        :d="`M ${ctrlRect.x + ctrlRect.w - 16} ${ctrlRect.y + 11} l 5 6 l 5 -6 z`"
+        class="ctrl-caret"
+      />
+    </g>
+    <text v-else-if="node.hint" :x="node.x + 10" :y="ctrlRect.y + 19" class="node-hint">{{ node.hint }}</text>
+  </g>
+</template>
+
+<style scoped>
+.node {
+  cursor: pointer;
+}
+.node.dimmed {
+  opacity: 0.3;
+}
+.node-box {
+  fill: #fff;
+  stroke: var(--mx-border);
+  stroke-width: 1;
+  transition:
+    stroke var(--mx-dur-node) linear,
+    fill var(--mx-dur-node) linear;
+}
+.node-box.error {
+  stroke: var(--mx-error);
+}
+.node-box.warning {
+  stroke: var(--mx-warning);
+}
+.node.selected .node-box {
+  stroke: var(--mx-accent);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(42, 98, 183, 0.45));
+}
+/* 预设应用/配置变化：目标节点一次 240ms 高亮脉冲（描边光晕淡入淡出） */
+.node.pulse .node-box {
+  animation: node-pulse var(--mx-dur-pulse) var(--mx-ease-out);
+}
+@keyframes node-pulse {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(42, 98, 183, 0));
+  }
+  35% {
+    filter: drop-shadow(0 0 8px rgba(42, 98, 183, 0.65));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(42, 98, 183, 0));
+  }
+}
+.node.inactive .freq,
+.node.inactive .node-title {
+  fill: var(--mx-text-muted);
+}
+.node-max {
+  font-size: 10px;
+  fill: var(--mx-text-muted);
+}
+.freq {
+  font-size: 13px;
+  font-weight: 600;
+  fill: var(--mx-text);
+  transition: fill var(--mx-dur-node) linear;
+}
+.freq.error {
+  fill: var(--mx-error);
+}
+.freq.warning {
+  fill: var(--mx-warning);
+}
+.freq-divider {
+  stroke: var(--mx-border);
+  stroke-width: 1;
+}
+.node-title {
+  font-size: 12px;
+  font-weight: 600;
+  fill: var(--mx-text-secondary);
+}
+.node-hint {
+  font-size: 11px;
+  fill: var(--mx-text-muted);
+}
+
+/* 内嵌控件 */
+.ctrl .ctrl-box {
+  fill: #f7f8fa;
+  stroke: #d0d5dd;
+  stroke-width: 1;
+  cursor: pointer;
+}
+.ctrl.fixed .ctrl-box {
+  cursor: default;
+}
+.ctrl:hover:not(.fixed) .ctrl-box {
+  stroke: var(--mx-accent);
+}
+.ctrl.fixed {
+  opacity: 0.55;
+}
+.ctrl-text {
+  font-size: 11px;
+  fill: var(--mx-text);
+}
+.ctrl-caret {
+  fill: var(--mx-text-muted);
+}
+</style>

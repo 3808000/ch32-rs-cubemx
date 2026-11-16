@@ -8,7 +8,7 @@ import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import type { PinMode } from '@/model/types'
 
 const store = useProjectStore()
-const { requestOverwrite } = usePinOverwrite()
+const { requestOverwrite } = usePinOverwrite(store)
 
 const pin = computed(() => {
   if (!store.selectedPin) return null

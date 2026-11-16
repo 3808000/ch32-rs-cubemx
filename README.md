@@ -97,11 +97,26 @@ cargo run --release    # 编译并经 WCH-Link 烧录，--enable-sdi-print 查�
 - `src/main.rs`：用户代码区，生成器永不覆盖。
 - `cube.json`：配置回读，可拖回本工具继续编辑。
 
+## 架构（MVC 分层）
+
+```
+src/
+├── model/        # 领域层：纯函数，零 UI/Pinia 依赖（类型、器件、时钟、冲突、引脚、封装、代码生成）
+├── services/     # 应用服务层：IO 与平台能力（导出、持久化、cube.json、Tauri 桥、Monaco）
+├── controllers/  # 状态层：Pinia store（组装 ProjectConfig、跑冲突检查）
+├── views/        # 视图：Home / Pinout / Clock / Peripherals
+└── components/   # 展示组件（按域分子目录）
+```
+
+依赖方向单向向下（eslint 强制，model 层禁止 import 任何上层）；新增代码的放置决策见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 ## 文档
 
 - [AGENTS.md](AGENTS.md)：项目约定
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：分层架构与依赖规则
 - [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md)：架构地图 + 决策记录
 - [docs/HAL_API_NOTES.md](docs/HAL_API_NOTES.md)：核对过的 ch32-hal API（含锁定 rev）
+- [docs/ANIMATION.md](docs/ANIMATION.md)：动效规范（45° 倾斜、文字可读性补偿）
 
 ## 技术栈
 

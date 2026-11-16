@@ -1,18 +1,21 @@
 <script setup lang="ts">
 // Pinout 视图：页头 + 工具栏 + 分段控件 + 封装图/表格 + Detail view + Code preview
+// 工具栏与分段控件拆到 components/pinout/，本视图保留页头、工作区与数据动作。
 import { computed, ref } from 'vue'
-import { Document, RefreshLeft, Search, Download } from '@element-plus/icons-vue'
+import { Document } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
-import PackageCanvas from '../components/PackageCanvas.vue'
-import PinTable from '../components/PinTable.vue'
-import PinConfigPanel from '../components/PinConfigPanel.vue'
-import ConflictsPanel from '../components/ConflictsPanel.vue'
-import CodePreviewPanel from '../components/CodePreviewPanel.vue'
-import CodegenDialog from '../components/CodegenDialog.vue'
+import PackageCanvas from '@/components/PackageCanvas.vue'
+import PinTable from '@/components/PinTable.vue'
+import PinConfigPanel from '@/components/PinConfigPanel.vue'
+import ConflictsPanel from '@/components/ConflictsPanel.vue'
+import CodePreviewPanel from '@/components/CodePreviewPanel.vue'
+import CodegenDialog from '@/components/CodegenDialog.vue'
+import PinoutToolbar from '@/components/pinout/PinoutToolbar.vue'
+import PinoutViewBar from '@/components/pinout/PinoutViewBar.vue'
 import { usePinOverwrite, clearUndo } from '@/model/pins/pinOverwrite'
 
 const store = useProjectStore()
-const { undo } = usePinOverwrite()
+const { undo } = usePinOverwrite(store)
 const showExport = ref(false)
 
 const viewMode = ref<'graphic' | 'table'>('graphic')
@@ -76,50 +79,29 @@ const filteredAssignments = computed(() => {
     </div>
 
     <!-- 工具栏 -->
-    <div class="toolbar">
-      <el-input v-model="search" placeholder="搜索" :prefix-icon="Search" size="small" style="width: 180px" clearable />
-      <div class="filter-item">
-        <span class="filter-label">Show</span>
-        <el-select v-model="showFilter" size="small" style="width: 80px">
-          <el-option label="All" value="All" />
-          <el-option label="IO" value="IO" />
-          <el-option label="POWER" value="POWER" />
-        </el-select>
-        <span class="filter-count">{{ ioCount }}</span>
-      </div>
-      <div class="filter-item">
-        <span class="filter-label">Type</span>
-        <el-select v-model="typeFilter" size="small" style="width: 90px">
-          <el-option label="All" value="All" />
-          <el-option label="IO" value="IO" />
-          <el-option label="POWER" value="POWER" />
-          <el-option label="NC" value="NC" />
-        </el-select>
-        <span class="filter-count">{{ typeFilterCount }}</span>
-      </div>
-      <div class="filter-item">
-        <span class="filter-label">已配置</span>
-        <span class="filter-count">{{ configuredCount }}</span>
-      </div>
-      <div class="toolbar-fill"></div>
-      <el-button size="small" @click="undo">撤回</el-button>
-      <el-button size="small" @click="exportPins">Export pin…</el-button>
-      <el-button size="small" type="primary" :icon="Download" @click="showExport = true">导出工程</el-button>
-      <el-button size="small" type="primary" :icon="RefreshLeft" @click="resetPinout">Reset pinout</el-button>
-    </div>
+    <PinoutToolbar
+      v-model:search="search"
+      v-model:show-filter="showFilter"
+      v-model:type-filter="typeFilter"
+      :io-count="ioCount"
+      :type-filter-count="typeFilterCount"
+      :configured-count="configuredCount"
+      @undo="undo"
+      @export-pins="exportPins"
+      @export-project="showExport = true"
+      @reset="resetPinout"
+    />
 
     <CodegenDialog v-model="showExport" />
 
     <!-- 分段控件 + 右侧面板开关 -->
-    <div class="view-controls">
-      <div class="segmented">
-        <button class="seg-btn" :class="{ active: viewMode === 'graphic' }" @click="viewMode = 'graphic'">Graphic view</button>
-        <button class="seg-btn" :class="{ active: viewMode === 'table' }" @click="viewMode = 'table'">Table view</button>
-      </div>
-      <div class="toolbar-fill"></div>
-      <el-button size="small" :type="showCode ? 'primary' : 'default'" @click="showCode = !showCode">&lt;/&gt; Code preview</el-button>
-      <el-button size="small" :type="showDetail ? 'primary' : 'default'" @click="showDetail = !showDetail">Detail view</el-button>
-    </div>
+    <PinoutViewBar
+      v-model:view-mode="viewMode"
+      :show-code="showCode"
+      :show-detail="showDetail"
+      @toggle-code="showCode = !showCode"
+      @toggle-detail="showDetail = !showDetail"
+    />
 
     <!-- 工作区 -->
     <div class="work-area">
@@ -181,62 +163,6 @@ const filteredAssignments = computed(() => {
 }
 .doc-link:hover {
   text-decoration: underline;
-}
-.toolbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 20px;
-}
-.filter-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.filter-label {
-  font-size: 12px;
-  color: var(--mx-text-secondary);
-}
-.filter-count {
-  font-size: 12px;
-  color: var(--mx-text-muted);
-}
-.toolbar-fill {
-  flex: 1;
-}
-.view-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 20px 10px;
-}
-.segmented {
-  display: flex;
-  background: transparent;
-  border-radius: 0;
-  padding: 0;
-}
-.seg-btn {
-  border: none;
-  background: transparent;
-  padding: 5px 14px;
-  font-size: 12px;
-  color: var(--mx-text-secondary);
-  cursor: pointer;
-  border-radius: 0;
-  border-bottom: 2px solid transparent;
-  position: relative;
-  /* 分段切换：颜色/下划线 140ms 过渡（与视图切换节奏一致） */
-  transition:
-    color var(--mx-dur-view) var(--mx-ease-out),
-    background-color var(--mx-dur-view) var(--mx-ease-out),
-    border-color var(--mx-dur-view) var(--mx-ease-out);
-}
-.seg-btn.active {
-  background: var(--mx-surface);
-  color: var(--mx-accent);
-  font-weight: 600;
-  border-bottom: 2px solid var(--mx-accent);
 }
 .work-area {
   flex: 1;

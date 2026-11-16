@@ -44,14 +44,21 @@ export function planActivationPins(kind: PeriKind, id: string, roles: Record<str
 // 外设配置卡片（§8.6）：分类小标题 + 名称 + 状态徽标 + Activate/Deactivate 链接；
 // Parameter Settings 按数据层 params spec 渲染；remap 下拉切换时重分配 AF 引脚（走覆盖确认）；
 // 引脚分配状态行缺失标黄；启用但缺引脚时显示 store.conflicts 中该外设的警告。
+// 参数表单 / remap 与引脚状态 / ADC 通道 / 仅展示表格 / 冲突列表拆分到 components/peripherals/ 子组件，
+// 本组件仅负责实例查找、启用状态、remap 切换与卡片公共骨架。
 import { computed, inject } from 'vue'
 import type { AdcChannel, ParamSpec } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
 import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import { derivePeripheralUsage } from '@/model/peripherals'
-import Card from './common/Card.vue'
-import CollapsiblePanel from './common/CollapsiblePanel.vue'
-import StatusBadge from './common/StatusBadge.vue'
+import Card from '@/components/common/Card.vue'
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import ParamSettings from '@/components/peripherals/ParamSettings.vue'
+import PinRemapPanel from '@/components/peripherals/PinRemapPanel.vue'
+import AdcParams from '@/components/peripherals/AdcParams.vue'
+import DisplaySignals from '@/components/peripherals/DisplaySignals.vue'
+import ConflictList from '@/components/peripherals/ConflictList.vue'
+import type { AdcChannelRow, DisplaySignalRow, PinStatusRow, RemapOption } from '@/components/peripherals/types'
 
 interface RoleMap {
   remap: number
@@ -77,7 +84,7 @@ const KIND_CATEGORY_LABEL: Record<PeriKind, string> = {
 const props = defineProps<{ id: string }>()
 
 const store = useProjectStore()
-const { requestOverwrite } = usePinOverwrite()
+const { requestOverwrite } = usePinOverwrite(store)
 
 // ---- 实例查找（数据驱动） ----
 const ROLE_KEYS: Record<PeriKind, string[]> = {
@@ -112,7 +119,7 @@ const instance = computed<InstanceInfo | null>(() => {
 const usage = computed(() => derivePeripheralUsage(store.config, store.deviceData).find((u) => u.id === props.id))
 
 // ---- remap 选项（摘要形如 `remap 0: TX=PD5 RX=PD6`） ----
-const remapOptions = computed(() => {
+const remapOptions = computed<RemapOption[]>(() => {
   const inst = instance.value
   if (!inst || inst.kind === 'adc') return []
   return inst.remaps.map((r) => {
@@ -124,12 +131,6 @@ const remapOptions = computed(() => {
 })
 
 // ---- 引脚分配状态行（缺失标黄） ----
-interface PinStatusRow {
-  label: string
-  pin: string | null
-  ok: boolean
-}
-
 const pinStatus = computed<PinStatusRow[]>(() => {
   const inst = instance.value
   const u = usage.value
@@ -147,7 +148,7 @@ const pinStatus = computed<PinStatusRow[]>(() => {
 })
 
 // ---- ADC 通道分配状态 ----
-const adcStatus = computed(() => {
+const adcStatus = computed<AdcChannelRow[]>(() => {
   const inst = instance.value
   if (!inst || inst.kind !== 'adc') return []
   return inst.channels.map((ch) => {
@@ -160,7 +161,7 @@ const adcStatus = computed(() => {
 const peripheralConflicts = computed(() => store.conflicts.filter((c) => c.peripheral === props.id))
 
 // ---- 仅展示模式（定时器等，从 remap 数据推导信号映射） ----
-const displaySignals = computed(() => {
+const displaySignals = computed<DisplaySignalRow[]>(() => {
   if (instance.value) return []
   const prefix = `${props.id}_`
   const map = new Map<string, { pin: string; remap: number }[]>()
@@ -300,104 +301,29 @@ async function switchRemap(target: number) {
 
       <div class="pc-body" :class="{ disabled: !usage.enabled }">
         <!-- Parameter Settings -->
-        <CollapsiblePanel v-model:open="paramsOpen" title="Parameter Settings">
-          <div class="pc-form">
-            <div v-for="[key, spec] in paramEntries" :key="key" class="pc-form-row">
-              <label class="pc-form-label" :title="key">{{ spec.label ?? key }}</label>
-              <el-select
-                v-if="spec.kind === 'select'"
-                :model-value="String(usage.params[key])"
-                size="small"
-                class="pc-control"
-                :disabled="!usage.enabled"
-                @change="(v: string) => setParam(key, v)"
-              >
-                <el-option v-for="o in spec.options ?? []" :key="String(o)" :label="String(o)" :value="String(o)" />
-              </el-select>
-              <el-input-number
-                v-else-if="spec.kind === 'number'"
-                :model-value="Number(usage.params[key])"
-                :min="spec.min"
-                :max="spec.max"
-                size="small"
-                class="pc-control"
-                :disabled="!usage.enabled"
-                @change="(v: number | undefined) => v !== undefined && v !== null && setParam(key, v)"
-              />
-              <el-switch
-                v-else
-                :model-value="Boolean(usage.params[key])"
-                size="small"
-                :disabled="!usage.enabled"
-                @change="(v: boolean) => setParam(key, v)"
-              />
-            </div>
-            <div v-if="paramEntries.length === 0" class="pc-empty-note">该实例在数据层没有参数定义。</div>
-          </div>
-        </CollapsiblePanel>
+        <ParamSettings v-model:open="paramsOpen" :entries="paramEntries" :params="usage.params" :disabled="!usage.enabled" @change="setParam" />
 
-        <!-- Remap / 引脚分配 -->
-        <CollapsiblePanel v-if="instance.kind !== 'adc'" v-model:open="pinsOpen" title="引脚与 Remap">
-          <div class="pc-form">
-            <div class="pc-form-row">
-              <label class="pc-form-label">Remap 档位</label>
-              <el-select
-                :model-value="usage.remap"
-                size="small"
-                class="pc-control pc-remap-select"
-                :disabled="!usage.enabled"
-                @change="(v: number) => switchRemap(v)"
-              >
-                <el-option v-for="o in remapOptions" :key="o.value" :label="o.label" :value="o.value" />
-              </el-select>
-            </div>
-          </div>
-          <div class="pc-pin-status">
-            <div v-for="row in pinStatus" :key="row.label" class="pc-pin-row" :class="{ missing: !row.ok }">
-              <span class="pc-pin-role">{{ row.label }}</span>
-              <span class="pc-pin-val">{{ row.pin ?? '未分配' }}</span>
-            </div>
-            <div v-if="pinStatus.length === 0" class="pc-empty-note">切换 Remap 档位即可自动分配核心引脚。</div>
-          </div>
-        </CollapsiblePanel>
+        <!-- Remap / 引脚分配（Connectivity） -->
+        <PinRemapPanel
+          v-if="instance.kind !== 'adc'"
+          v-model:open="pinsOpen"
+          :options="remapOptions"
+          :remap="usage.remap"
+          :rows="pinStatus"
+          :disabled="!usage.enabled"
+          @remap-change="switchRemap"
+        />
 
         <!-- ADC 通道状态 -->
-        <CollapsiblePanel v-else v-model:open="pinsOpen" title="通道分配">
-          <div class="pc-pin-status">
-            <div v-for="row in adcStatus" :key="row.channel" class="pc-pin-row" :class="{ missing: !row.assignedPin }">
-              <span class="pc-pin-role">{{ row.channel }}</span>
-              <span class="pc-pin-val">{{ row.assignedPin ?? row.pin }}</span>
-              <span class="pc-pin-note">{{ row.assignedPin ? '已分配' : '未分配' }}</span>
-            </div>
-            <div class="pc-empty-note">在右侧「ADC 通道」面板中分配或清除通道。</div>
-          </div>
-        </CollapsiblePanel>
+        <AdcParams v-else v-model:open="pinsOpen" :rows="adcStatus" />
       </div>
 
       <!-- 启用但缺引脚等冲突警告 -->
-      <div v-if="usage.enabled && peripheralConflicts.length" class="pc-conflicts">
-        <div v-for="(c, i) in peripheralConflicts" :key="i" class="pc-conflict" :class="c.level">
-          <span class="pc-conflict-code">{{ c.code }}</span>
-          <span>{{ c.message }}</span>
-        </div>
-      </div>
+      <ConflictList v-if="usage.enabled && peripheralConflicts.length" :conflicts="peripheralConflicts" />
     </template>
 
     <!-- 仅展示（定时器等）：remap 数据推导的信号映射表 -->
-    <template v-else>
-      <div class="pc-display-note">该实例当前版本仅展示信号映射（来自 remap 数据），不支持参数配置。</div>
-      <table v-if="displaySignals.length" class="pc-display-table">
-        <thead>
-          <tr><th>信号</th><th>引脚（remap）</th></tr>
-        </thead>
-        <tbody>
-          <tr v-for="row in displaySignals" :key="row.signal">
-            <td class="pc-signal">{{ row.signal }}</td>
-            <td>{{ row.list.map((x) => `${x.pin} (${x.remap})`).join('、') }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </template>
+    <DisplaySignals v-else :rows="displaySignals" />
   </Card>
 </template>
 
@@ -447,115 +373,5 @@ async function switchRemap(target: number) {
 .pc-body.disabled {
   opacity: 0.55;
   pointer-events: none;
-}
-.pc-form-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 38px;
-}
-.pc-form-label {
-  font-size: var(--mx-fz-body);
-  color: var(--mx-text-secondary);
-  flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.pc-control {
-  width: 200px;
-}
-.pc-remap-select {
-  width: 300px;
-}
-.pc-remap-select :deep(.el-select__wrapper) {
-  min-height: 28px;
-}
-.pc-pin-status {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 0 2px;
-}
-.pc-pin-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--mx-fz-label);
-  border-radius: 6px;
-  padding: 3px 8px;
-  background: var(--mx-accent-soft);
-  color: var(--mx-accent);
-}
-.pc-pin-row .pc-pin-role {
-  font-weight: 600;
-}
-.pc-pin-row.missing {
-  background: #fff4e0;
-  color: var(--mx-warning);
-}
-.pc-pin-note {
-  font-size: 11px;
-  color: var(--mx-text-muted);
-}
-.pc-empty-note {
-  font-size: var(--mx-fz-label);
-  color: var(--mx-text-muted);
-  padding: 4px 0;
-}
-.pc-conflicts {
-  padding: 0 16px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.pc-conflict {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  font-size: var(--mx-fz-label);
-  border-radius: 6px;
-  padding: 5px 10px;
-}
-.pc-conflict.warning {
-  background: #fff4e0;
-  color: var(--mx-warning);
-}
-.pc-conflict.error {
-  background: #fde7e7;
-  color: var(--mx-error);
-}
-.pc-conflict-code {
-  font-family: var(--mx-font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.pc-display-note {
-  padding: 0 16px 8px;
-  font-size: var(--mx-fz-label);
-  color: var(--mx-text-muted);
-}
-.pc-display-table {
-  width: calc(100% - 32px);
-  margin: 0 16px 14px;
-  border-collapse: collapse;
-  font-size: var(--mx-fz-label);
-}
-.pc-display-table th {
-  text-align: left;
-  color: var(--mx-text-muted);
-  font-weight: 600;
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--mx-border);
-}
-.pc-display-table td {
-  padding: 4px 8px;
-  border-bottom: 1px solid var(--mx-border);
-  color: var(--mx-text-secondary);
-}
-.pc-signal {
-  font-family: var(--mx-font-mono);
 }
 </style>

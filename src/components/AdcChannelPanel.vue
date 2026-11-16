@@ -9,7 +9,7 @@ import StatusBadge from './common/StatusBadge.vue'
 import EmptyState from './common/EmptyState.vue'
 
 const store = useProjectStore()
-const { requestOverwrite } = usePinOverwrite()
+const { requestOverwrite } = usePinOverwrite(store)
 
 interface AdcRow {
   channel: string

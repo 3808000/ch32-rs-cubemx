@@ -39,7 +39,7 @@ async function onFileChange(e: Event) {
   await importProjectFile(file)
 }
 
-/** 导入 cube.json：解析 → 切换芯片并载入配置 → 跳到 Pinout。 */
+/** 导入 cube.json：解析 → openConfig（切芯片+载入+跳转，与拖拽导入共用）。 */
 async function importProjectFile(file: File) {
   if (importing.value) return
   importing.value = true
@@ -49,13 +49,8 @@ async function importProjectFile(file: File) {
       ElMessage.error(result.error)
       return
     }
-    // 先 switchDevice 清理旧芯片状态，再 loadConfig 写入文件内容
-    store.switchDevice(result.config.chip)
-    store.loadConfig(result.config)
-    store.setView('pinout')
-    const text = `已导入 ${result.config.projectName}（${result.config.chip}）`
-    store.notify(text, 'info')
-    ElMessage.success(text)
+    store.openConfig(result.config)
+    ElMessage.success(`已导入 ${result.config.projectName}（${result.config.chip}）`)
   } catch (err) {
     ElMessage.error(`读取工程配置失败：${err instanceof Error ? err.message : String(err)}`)
   } finally {

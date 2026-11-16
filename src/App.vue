@@ -58,12 +58,8 @@ async function onDrop(e: DragEvent) {
       ElMessage.error(result.error)
       return
     }
-    store.switchDevice(result.config.chip)
-    store.loadConfig(result.config)
-    store.setView('pinout')
-    const text = `已导入 ${result.config.projectName}（${result.config.chip}）`
-    store.notify(text, 'info')
-    ElMessage.success(text)
+    store.openConfig(result.config)
+    ElMessage.success(`已导入 ${result.config.projectName}（${result.config.chip}）`)
   } catch (err) {
     ElMessage.error(`读取工程配置失败：${err instanceof Error ? err.message : String(err)}`)
   }

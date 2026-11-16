@@ -211,6 +211,15 @@ export const useProjectStore = defineStore('project', {
       this.markDirty()
     },
 
+    /** 导入已解析的工程配置：切芯片 → 载入 → 跳到 Pinout（文件导入/拖拽共用）。 */
+    openConfig(cfg: ProjectConfig) {
+      // 先 switchDevice 清理旧芯片状态，再 loadConfig 写入文件内容
+      this.switchDevice(cfg.chip)
+      this.loadConfig(cfg)
+      this.setView('pinout')
+      this.notify(`已导入 ${cfg.projectName}（${cfg.chip}）`, 'info')
+    },
+
     /** 导入工程配置（兼容缺省字段）。 */
     loadConfig(cfg: Partial<ProjectConfig>) {
       if (cfg.chip) this.chip = cfg.chip

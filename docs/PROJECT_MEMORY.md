@@ -8,20 +8,29 @@
 技术栈：Vite + Vue3 + TS + Pinia + Element Plus + 原生 SVG + EJS(client:true) + JSZip + Vitest + Monaco。
 首颗芯片：CH32V003F4P6（TSSOP20，QingKe V2A RV32EC，16K Flash / 2K SRAM）。
 
-## 2. 架构地图
+## 2. 架构地图（MVC 分层，2026-11-16 重构）
 
-- `src/types.ts`：ProjectConfig / 数据层 schema / Conflict / CodegenSelection 全部类型。
-- `src/data/device.ts`：器件注册表 + Lookup（remapsOfPin/pinsOfSignal/remapValuesFor/extiOfPin…）。新增芯片在此 register。
-- `src/stores/project.ts`：Pinia。assignments/groups/clock/peripherals/features/unlocked/selectedPin/activeView/dirty/lastExportSnapshot；config getter 组装 ProjectConfig；conflicts getter 跑 checkConflicts；save/restore 走 localStorage。
-- `src/lib/clock/index.ts`：computeClock/validateClock/solvePll/defaultClock/mergeClockConfig/matchPreset/nearestPreset。完全数据驱动。
-- `src/lib/clock/tree.ts`：时钟树 SVG 布局（Phase 2）。
-- `src/lib/conflicts/index.ts`：checkConflicts(config,data,unlocked?) 20 条规则 + labelToIdent。
-- `src/lib/packageSvg.ts`：computePackageGeometry(chip,rotation) dual/quad + pinColors。
-- `src/lib/peripherals/index.ts`：derivePeripheralUsage(config,data) → 外设实例启用/remap/引脚/参数归并。
-- `src/lib/codegen/`：index.ts（generateProject）+ templates.ts（EJS）+ halRev.ts（锁定 rev）。
-- `src/lib/{allocation,usage,groups,pinOverwrite}.ts`：分配枚举 / 使用归并 / 分组单归属 / 覆盖确认撤回。
-- `src/components/`：AppShell/TabStrip/IconRail/StatusBar（骨架）、PackageCanvas/PinTable/PinConfigPanel/ConflictsPanel（Pinout）、ClockCanvas/ClockDetail（Clock）、PeripheralList/PeripheralConfigCard/QuickMenu + 分配面板（Peripherals）、CodePreviewPanel（Monaco 只读+diff）、CodegenDialog（导出）。
-- `data/devices/ch32v003f4p6/`：chip/remap/exti/clock/peripherals/interrupts/dma 七份 JSON。
+分层规则（详见 docs/ARCHITECTURE.md，eslint 强制）：**model 不依赖任何上层；services 只依赖 model；controllers 依赖 model+services；views/components 可用全部**。import 一律走 `@/` 别名。
+
+- **model/**（领域层，纯函数、无 UI/Vue/Pinia 依赖）
+  - `types/`：ProjectConfig / 数据层 schema / Conflict / CodegenSelection 全部类型。
+  - `device.ts`：器件注册表 + Lookup（remapsOfPin/pinsOfSignal/remapValuesFor/extiOfPin…）。新增芯片在此 register。
+  - `clock/`：`index.ts`（computeClock/validateClock/solvePll/mergeClockConfig/matchPreset…）+ `tree/`（节点模型 + SVG 布局）。
+  - `conflicts/`：checkConflicts + 规则模块（pin/clock/peripheral/exti 分族）。
+  - `pins/`：allocation（分配枚举）/ usage（使用归并）/ groups（分组单归属）/ pinOverwrite（覆盖确认，纯函数）。
+  - `package.ts`：computePackageGeometry(chip,rotation) dual/quad + pinColors。
+  - `peripherals/`：derivePeripheralUsage(config,data) → 外设实例启用/remap/引脚/参数归并。
+  - `codegen/`：`index.ts`（generateProject 编排 + 各生成物模块）+ `templates/`（EJS 模板目录，34 文件）+ halRev.ts（锁定 rev）。
+- **services/**（应用服务层，IO/平台能力）
+  - `projectExport.ts`：生成→内嵌 vendor HAL→ZIP/目录落盘的完整编排（桌面/浏览器自动分流；两段式目录导出保证用户手势内选目录）。
+  - `projectStorage.ts`：localStorage 持久化。
+  - `projectFile.ts`：cube.json 解析/序列化/下载（桌面走原生另存为）。
+  - `desktop.ts`：Tauri 桥（isDesktopApp/saveFileNative/pickFolderNative/writeFolderNative）。
+  - `monaco.ts`：Monaco 异步加载 + 语言映射。
+- **controllers/**：`project.ts`（Pinia）assignments/groups/clock/peripherals/features/unlocked/selectedPin/activeView/dirty/lastExportSnapshot；config getter 组装 ProjectConfig；conflicts getter 跑 checkConflicts；save/restore 委托 projectStorage。
+- **views/**：HomeView / PinoutView / ClockView / PeripheralsView。
+- **components/**：骨架（AppShell/TabStrip/IconRail/StatusBar）、Pinout（PackageCanvas/PinTable/PinConfigPanel/ConflictsPanel）、Clock（ClockCanvas + 子组件 / ClockDetail）、Peripherals（PeripheralList/PeripheralConfigCard + 参数子组件 + 分配面板）、CodePreviewPanel（Monaco 只读+diff）、CodegenDialog（导出，纯视图）。
+- `data/devices/<chip>/`：chip/remap/exti/clock/peripherals/interrupts/dma 七份 JSON。
 - `scripts/`：import-ch32data.mjs（ch32-data → remap/interrupts/dma/索引）、validate-device-data.mjs（CI 门禁，vite ssrLoadModule 复用时钟库）、verify-build.mjs + verify-build-entry.ts（vite-node 同源代码生成 → cargo build）。
 
 ## 3. 关键决策记录

@@ -11,7 +11,7 @@ import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import EmptyState from './common/EmptyState.vue'
 
 const store = useProjectStore()
-const { requestOverwrite } = usePinOverwrite()
+const { requestOverwrite } = usePinOverwrite(store)
 
 const lines = computed(() => extiLines(store.deviceData))
 
