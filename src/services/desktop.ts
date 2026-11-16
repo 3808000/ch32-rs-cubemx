@@ -29,6 +29,13 @@ function encodeEntry(data: string | Uint8Array): string {
   return typeof data === 'string' ? encodeTextBase64(data) : bytesToBase64(data)
 }
 
+function base64ToBytes(text: string): Uint8Array {
+  const binary = atob(text)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
 async function invoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
   const { invoke: call } = await import('@tauri-apps/api/core')
   return call<T>(cmd, args)
@@ -60,4 +67,16 @@ export async function writeFolderNative(root: string, files: NativeFileEntry[]):
     root,
     files: files.map((f) => ({ path: f.path, contents: encodeEntry(f.data) })),
   })
+}
+
+/** 递归读取目录现状（相对路径 + 内容）；Rust 端跳过 target/ 与 .git/。
+ *  返回 Uint8Array 便于直接做哈希比较，文本需要时由调用方解码。 */
+export async function readFolderNative(root: string): Promise<NativeFileEntry[]> {
+  const files = await invoke<{ path: string; contents: string }[]>('read_folder', { root })
+  return files.map((f) => ({ path: f.path, data: base64ToBytes(f.contents) }))
+}
+
+/** 删除工程内单个文件（仅用于清理不再生成的 generated 文件）；不存在视为成功。 */
+export async function removeFileNative(root: string, path: string): Promise<void> {
+  await invoke('remove_file', { root, path })
 }

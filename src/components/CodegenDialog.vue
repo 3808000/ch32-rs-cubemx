@@ -13,8 +13,14 @@ import {
   pickExportFolder,
   prepareExport,
   supportsFolderExport,
+  type ConflictResolutions,
+  type FolderExportInspection,
+  type FolderExportTarget,
+  type PreparedExport,
 } from '@/services/projectExport'
 import { DEFAULT_SELECTION, type CodegenSelection } from '@/model/types'
+import ExportPlanPreview from '@/components/codegen/ExportPlanPreview.vue'
+import ConflictRules from '@/components/codegen/ConflictRules.vue'
 
 const store = useProjectStore()
 const visible = defineModel<boolean>({ default: false })
@@ -24,6 +30,18 @@ const includeMain = ref(true)
 const projectName = ref(store.projectName)
 const generating = ref(false)
 const writingFolder = ref(false)
+
+// 目录导出两段式：inspect 预览 → （有冲突/删除时）用户决议 → 确认写入。
+interface PendingFolder {
+  target: FolderExportTarget
+  prepared: PreparedExport
+  inspection: FolderExportInspection
+}
+const pendingFolder = ref<PendingFolder | null>(null)
+const resolutions = ref<ConflictResolutions>({})
+const conflictEntries = computed(() =>
+  (pendingFolder.value?.inspection.plan ?? []).filter((e) => e.action === 'conflict'),
+)
 
 const canWriteFolder = supportsFolderExport()
 const folderHint = folderExportHint()
@@ -53,17 +71,17 @@ async function exportConfigOnly() {
   }
 }
 
-/** 生成并导出 ZIP。 */
+/** 生成并导出 ZIP（manifest 一并打包）。 */
 async function doExportZip() {
   if (generating.value || writingFolder.value) return
   generating.value = true
   try {
     store.setProjectName(projectName.value || 'ch32-project')
     const prepared = await prepareExport(store.config, store.deviceData, { ...selection }, includeMain.value)
-    const count = await exportAsZip(prepared, store.config.projectName)
-    if (count === null) return // 用户在保存对话框中取消
+    const result = await exportAsZip(prepared, store.config.projectName)
+    if (result === null) return // 用户在保存对话框中取消
     store.setExportSnapshot(prepared.snapshot)
-    store.notify(`已导出 ${count} 个文件${selection.vendorHal ? '（含完整 HAL 源码）' : ''}（${store.config.projectName}.zip）`, 'info')
+    store.notify(`已导出 ${result.written} 个文件${selection.vendorHal ? '（含完整 HAL 源码）' : ''}（${store.config.projectName}.zip）`, 'info')
     visible.value = false
   } catch (e) {
     if (e instanceof ExportBlockedError) {
@@ -76,54 +94,119 @@ async function doExportZip() {
   }
 }
 
-/** 生成并写入目录（桌面端原生对话框 / 浏览器 File System Access API）。 */
+/** 实际写盘并收尾（预览确认后 / 无冲突时直接调用）。 */
+async function writeFolder(
+  target: FolderExportTarget,
+  prepared: PreparedExport,
+  inspection: FolderExportInspection,
+  userResolutions?: ConflictResolutions,
+) {
+  const result = await target.write(prepared, {
+    plan: inspection.plan,
+    disk: inspection.disk,
+    manifest: inspection.manifest,
+    readable: inspection.readable,
+    resolutions: userResolutions,
+  })
+  store.setExportSnapshot(prepared.snapshot)
+  const parts = [
+    `写入 ${result.written}`,
+    result.deleted > 0 ? `删除 ${result.deleted}` : '',
+    result.skipped > 0 ? `保留 ${result.skipped}` : '',
+    result.backedUp > 0 ? `备份 ${result.backedUp}` : '',
+  ].filter(Boolean)
+  store.notify(`已导出到 ${result.root}（${parts.join('，')}）`, 'info')
+  pendingFolder.value = null
+  resolutions.value = {}
+  visible.value = false
+}
+
+/** 生成并写入目录：先选目录（用户手势内）→ inspect 预览；有冲突/删除时进入决议步骤。 */
 async function doExportFolder() {
   if (writingFolder.value || generating.value || !canWriteFolder) return
   writingFolder.value = true
   try {
-    // 目录选择必须在用户点击手势内直接调用：先选目录，再生成内容
     const target = await pickExportFolder()
     if (!target) return // 用户取消
     const prepared = await prepareExport(store.config, store.deviceData, { ...selection }, includeMain.value)
-    const result = await target.write(prepared)
-    store.setExportSnapshot(prepared.snapshot)
-    store.notify(`已写入 ${result.written} 个文件到 ${result.root}`, 'info')
-    visible.value = false
+    const inspection = await target.inspect(prepared)
+    const needsReview = inspection.summary.conflict > 0 || inspection.summary.delete > 0
+    if (needsReview) {
+      // 进入预览/决议步骤：默认 resolution 取自 plan，用户可逐个改
+      pendingFolder.value = { target, prepared, inspection }
+      resolutions.value = {}
+      return
+    }
+    await writeFolder(target, prepared, inspection)
   } catch (e) {
     if (e instanceof ExportBlockedError) {
       store.notify(`导出被阻止：${e.message}`, 'error')
       return
     }
-    // 用户取消目录选择：静默返回
-    if (isAbortError(e)) return
+    if (isAbortError(e)) return // 用户取消目录选择
     store.notify(`写入目录失败：${e instanceof Error ? e.message : String(e)}`, 'error')
   } finally {
     writingFolder.value = false
   }
+}
+
+/** 预览步骤：用户确认决议后写盘。 */
+async function confirmFolderWrite() {
+  const pending = pendingFolder.value
+  if (!pending || writingFolder.value) return
+  writingFolder.value = true
+  try {
+    await writeFolder(pending.target, pending.prepared, pending.inspection, resolutions.value)
+  } catch (e) {
+    store.notify(`写入目录失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+  } finally {
+    writingFolder.value = false
+  }
+}
+
+/** 预览步骤：返回选项页（放弃本次目录导出）。 */
+function cancelFolderPreview() {
+  pendingFolder.value = null
+  resolutions.value = {}
 }
 </script>
 
 
 <template>
   <el-dialog v-model="visible" title="生成 Rust 工程" width="640px">
-    <el-alert v-if="errorCount > 0" type="error" :closable="false" class="export-alert"
-      :title="`存在 ${errorCount} 个错误级冲突，导出将被阻止。请先在冲突面板修复。`" />
-    <div class="form-row">
-      <label>工程名</label>
-      <el-input v-model="projectName" size="small" style="width: 240px" placeholder="ch32-project" />
-    </div>
-    <div class="selection-grid">
-      <el-checkbox v-for="it in items" :key="it.key" v-model="selection[it.key]">
-        <span class="sel-label">{{ it.label }}</span>
-        <span class="sel-desc">{{ it.desc }}</span>
+    <!-- 选项页 -->
+    <template v-if="!pendingFolder">
+      <el-alert v-if="errorCount > 0" type="error" :closable="false" class="export-alert"
+        :title="`存在 ${errorCount} 个错误级冲突，导出将被阻止。请先在冲突面板修复。`" />
+      <div class="form-row">
+        <label>工程名</label>
+        <el-input v-model="projectName" size="small" style="width: 240px" placeholder="ch32-project" />
+      </div>
+      <div class="selection-grid">
+        <el-checkbox v-for="it in items" :key="it.key" v-model="selection[it.key]">
+          <span class="sel-label">{{ it.label }}</span>
+          <span class="sel-desc">{{ it.desc }}</span>
+        </el-checkbox>
+      </div>
+      <el-checkbox v-model="includeMain" class="main-check">
+        包含 src/main.rs 骨架（双核为各核 src/main.rs；已有自己的 main.rs 时取消勾选，生成器永不覆盖用户文件）
       </el-checkbox>
-    </div>
-    <el-checkbox v-model="includeMain" class="main-check">
-      包含 src/main.rs 骨架（双核为各核 src/main.rs；已有自己的 main.rs 时取消勾选，生成器永不覆盖用户文件）
-    </el-checkbox>
-    <p class="hint">cube.json（配置回读）与 generated/mod.rs 始终生成。导出后可直接 <code>cargo build --release</code>。</p>
+      <p class="hint">cube.json（配置回读）与 generated/mod.rs 始终生成。导出后可直接 <code>cargo build --release</code>。</p>
+    </template>
+
+    <!-- 目录导出预览/冲突决议页 -->
+    <template v-else>
+      <ExportPlanPreview
+        :plan="pendingFolder.inspection.plan"
+        :summary="pendingFolder.inspection.summary"
+        :readable="pendingFolder.inspection.readable"
+        :manifest-found="pendingFolder.inspection.manifestFound"
+      />
+      <ConflictRules v-if="conflictEntries.length > 0" :conflicts="conflictEntries" v-model="resolutions" />
+    </template>
+
     <template #footer>
-      <div class="dialog-footer">
+      <div v-if="!pendingFolder" class="dialog-footer">
         <el-button plain @click="exportConfigOnly">仅导出配置 (cube.json)</el-button>
         <el-button @click="visible = false">取消</el-button>
         <el-button plain :icon="Download" :loading="generating" :disabled="errorCount > 0 || writingFolder" @click="doExportZip">
@@ -138,10 +221,16 @@ async function doExportFolder() {
               :disabled="errorCount > 0 || generating || !canWriteFolder"
               @click="doExportFolder"
             >
-              {{ writingFolder ? '正在写入…' : '导出到文件夹' }}
+              {{ writingFolder ? '正在准备…' : '导出到文件夹' }}
             </el-button>
           </span>
         </el-tooltip>
+      </div>
+      <div v-else class="dialog-footer">
+        <el-button :disabled="writingFolder" @click="cancelFolderPreview">返回</el-button>
+        <el-button type="primary" :icon="FolderOpened" :loading="writingFolder" @click="confirmFolderWrite">
+          {{ writingFolder ? '正在写入…' : '确认写入' }}
+        </el-button>
       </div>
     </template>
   </el-dialog>
