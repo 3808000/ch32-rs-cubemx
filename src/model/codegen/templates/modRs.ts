@@ -29,6 +29,9 @@ pub fn init(p: hal::Peripherals) -> Generated {
 <% if (inits.length === 0) { -%>
     let _ = p;
 <% } -%>
+<% calls.forEach(function(c){ -%>
+    <%- c %>;
+<% }) -%>
     Generated {
 <% inits.forEach(function(c){ -%>
         <%- c.field %>: <%- c.call %>,

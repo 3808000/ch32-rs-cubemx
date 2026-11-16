@@ -64,6 +64,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     },
@@ -116,6 +121,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     },
@@ -168,6 +178,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     },
@@ -220,6 +235,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     },
@@ -271,6 +291,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     },
@@ -329,6 +354,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     },
@@ -387,6 +417,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     },
@@ -447,6 +482,11 @@
             "ParityOdd"
           ],
           "default": "ParityNone"
+        },
+        "detectPreviousOverrun": {
+          "kind": "boolean",
+          "label": "检测先前溢出",
+          "default": false
         }
       }
     }
@@ -473,7 +513,7 @@
       "params": {
         "mode": {
           "kind": "select",
-          "label": "模式",
+          "label": "CPOL/CPHA 模式",
           "options": [
             "MODE_0",
             "MODE_1",
@@ -514,7 +554,7 @@
       "params": {
         "mode": {
           "kind": "select",
-          "label": "模式",
+          "label": "CPOL/CPHA 模式",
           "options": [
             "MODE_0",
             "MODE_1",
@@ -555,7 +595,7 @@
       "params": {
         "mode": {
           "kind": "select",
-          "label": "模式",
+          "label": "CPOL/CPHA 模式",
           "options": [
             "MODE_0",
             "MODE_1",
@@ -596,7 +636,7 @@
       "params": {
         "mode": {
           "kind": "select",
-          "label": "模式",
+          "label": "CPOL/CPHA 模式",
           "options": [
             "MODE_0",
             "MODE_1",
@@ -636,11 +676,13 @@
       ],
       "params": {
         "speed": {
-          "kind": "number",
-          "label": "速率 (Hz)",
-          "default": 100000,
-          "min": 10000,
-          "max": 400000
+          "kind": "select",
+          "label": "速率模式 (100k/400k)",
+          "options": [
+            100000,
+            400000
+          ],
+          "default": 100000
         },
         "duty": {
           "kind": "select",
@@ -669,11 +711,13 @@
       ],
       "params": {
         "speed": {
-          "kind": "number",
-          "label": "速率 (Hz)",
-          "default": 100000,
-          "min": 10000,
-          "max": 400000
+          "kind": "select",
+          "label": "速率模式 (100k/400k)",
+          "options": [
+            100000,
+            400000
+          ],
+          "default": 100000
         },
         "duty": {
           "kind": "select",
@@ -702,11 +746,13 @@
       ],
       "params": {
         "speed": {
-          "kind": "number",
-          "label": "速率 (Hz)",
-          "default": 100000,
-          "min": 10000,
-          "max": 400000
+          "kind": "select",
+          "label": "速率模式 (100k/400k)",
+          "options": [
+            100000,
+            400000
+          ],
+          "default": 100000
         },
         "duty": {
           "kind": "select",
@@ -740,11 +786,13 @@
       ],
       "params": {
         "speed": {
-          "kind": "number",
-          "label": "速率 (Hz)",
-          "default": 100000,
-          "min": 10000,
-          "max": 400000
+          "kind": "select",
+          "label": "速率模式 (100k/400k)",
+          "options": [
+            100000,
+            400000
+          ],
+          "default": 100000
         },
         "duty": {
           "kind": "select",
@@ -940,5 +988,5 @@
       }
     }
   ],
-  "notes": "实例与 remap 表由 CH32H4 family + H4_USART8/H4_SPI4 的 pins 合并生成；H4 的 remap 字段是每引脚 AF 号（不是 PCFR 分组），每个 AF 档位给出一组可用引脚组合（同档位内 TX/RX/CK/CTS/RTS 可自由换用该 AF 下的其它引脚）。USART1..8、SPI1..4、I2C1..4 全部有 ch32-hal 驱动（src/usart/mod.rs、src/spi.rs、src/i2c.rs；H4 上构造函数无 REMAP const 泛型，AF 由引脚 trait 的 af_num() 写入 AFIO.GPIO_AFR）。参数枚举逐字核对 HAL：usart DataBits8/DataBits9、StopBits::STOP1/STOP0P5/STOP2/STOP1P5、ParityNone/ParityEven/ParityOdd；spi MODE_0..MODE_3 + BitOrder::MsbFirst/LsbFirst（src/spi.rs 非 spi_v0 分支）；i2c Duty2_1/Duty16_9（src/i2c.rs），频率经 new 的 freq 参数传入（≤400k）；ADC 为 adc/v4x7.rs：Adc::new 返回 Result、读通道用 blocking_read，SampleTime 变体为 S1_5..S239_5（与 V003/V203 的 CYCLESn 不同），故加 adcApi=v4x7 让生成器选择正确 API 形态。CAN/USBSS/USBPD/HSADC 未建模：HAL 的 H4 CAN/USBSS/USBPD 驱动尚不完整（Cargo.toml 注释），HSADC 无 HAL 驱动。SPI 频率上限暂按 50MHz（PCLK2/2，100MHz PCLK2；以 HAL 分频器实际档位为准，UI 侧只做提示）。"
+  "notes": "实例与 remap 表由 CH32H4 family + H4_USART8/H4_SPI4 的 pins 合并生成；H4 的 remap 字段是每引脚 AF 号（不是 PCFR 分组），每个 AF 档位给出一组可用引脚组合（同档位内 TX/RX/CK/CTS/RTS 可自由换用该 AF 下的其它引脚）。USART1..8、SPI1..4、I2C1..4 全部有 ch32-hal 驱动（src/usart/mod.rs、src/spi.rs、src/i2c.rs；H4 上构造函数无 REMAP const 泛型，AF 由引脚 trait 的 af_num() 写入 AFIO.GPIO_AFR）。参数枚举逐字核对 HAL：usart DataBits8/DataBits9、StopBits::STOP1/STOP0P5/STOP2/STOP1P5、ParityNone/ParityEven/ParityOdd；spi MODE_0..MODE_3 + BitOrder::MsbFirst/LsbFirst（src/spi.rs 非 spi_v0 分支）；i2c Duty2_1/Duty16_9（src/i2c.rs），频率经 new 的 freq 参数传入（≤400k）；ADC 为 adc/v4x7.rs：Adc::new 返回 Result、读通道用 blocking_read，SampleTime 变体为 S1_5..S239_5（与 V003/V203 的 CYCLESn 不同），故加 adcApi=v4x7 让生成器选择正确 API 形态。CAN/USBSS/USBPD/HSADC 未建模：HAL 的 H4 CAN/USBSS/USBPD 驱动尚不完整（Cargo.toml 注释），HSADC 无 HAL 驱动。SPI 频率上限暂按 50MHz（PCLK2/2，100MHz PCLK2；以 HAL 分频器实际档位为准，UI 侧只做提示）。M3.3 参数核对（ch32-hal a0863eb）：USART 增补 detectPreviousOverrun（src/usart/mod.rs 公共字段），wordLength/stopBits/parity 逐字对应 DataBits*/StopBits*/Parity*（STOP0P5/STOP1P5 变体存在，硬件支持范围以手册为准）；SPI 的 mode 即 CPOL/CPHA（embedded-hal MODE_n），Config 仅 mode/bit_order/frequency，位宽与软件 NSS 无 HAL 配置 API（待核实）；I2C 无 Speed 枚举，构造只收 Hertz 且断言 ≤400kHz，speed 用 100k(Standard)/400k(Fast) 两档；ADC 分辨率由硬件固定（12 位）、连续转换无公开配置 API（v4x7 仅 read_dma 内部启用，待核实），采样时间变体 S1_5..S239_5 逐字取自 adc/v4x7.rs。"
 }

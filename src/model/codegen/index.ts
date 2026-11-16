@@ -1,7 +1,7 @@
 // 代码生成入口：generateProject(config, data, selection?) → CodegenResult。
 // 契约：有 error 级冲突或生成期错误时返回 { files: [], errors }，阻止导出。
-// 本文件只做编排；渲染细节见同目录 clock/pins/exti/usart/spi/i2c/adc（生成区）、
-// cargo/readme（单核骨架）、core（mod.rs 聚合）、workspace（双核）、cubefile（配置回读）。
+// 本文件只做编排；渲染细节见同目录 clock/pins/exti/usart/spi/i2c/adc/irq（生成区）、
+// cargo/readme（单核骨架）、core（mod.rs 聚合 + irq::init 调用）、workspace（双核）、cubefile（配置回读）。
 // 所有 HAL 签名均核对过 docs/HAL_API_NOTES.md 与 reference/ch32-hal 源码（rev a0863eb…）。
 import type { CodegenResult, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
 import { DEFAULT_SELECTION } from '@/model/types'

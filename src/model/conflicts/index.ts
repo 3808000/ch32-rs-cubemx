@@ -8,17 +8,19 @@ import { runExtiRules } from './rules/extiRules'
 import { runClockRules } from './rules/clockRules'
 import { runPeripheralRules } from './rules/peripheralRules'
 import { runDmaRules } from './rules/dmaRules'
+import { runInterruptRules } from './rules/interruptRules'
 import { runDeviceRules } from './rules/deviceRules'
 
 export { labelToIdent }
 
-/** 规则注册表：按固定顺序执行，保证冲突输出顺序稳定（引脚 → EXTI → 时钟 → 外设 → DMA → 芯片）。 */
+/** 规则注册表：按固定顺序执行，保证冲突输出顺序稳定（引脚 → EXTI → 时钟 → 外设 → DMA → 中断 → 芯片）。 */
 const RULES: ConflictRule[] = [
   runPinRules,
   runExtiRules,
   runClockRules,
   runPeripheralRules,
   runDmaRules,
+  runInterruptRules,
   runDeviceRules,
 ]
 

@@ -1,4 +1,4 @@
-// 单核生成区：src/generated/**（clock/pins/exti/usart/spi/i2c/adc + mod.rs 聚合）。
+// 单核生成区：src/generated/**（clock/pins/exti/usart/spi/i2c/adc/irq + mod.rs 聚合）。
 // base 为目录前缀（单核 ''，双核 'v3f/'）；单核输出与历史逐字节一致。
 import type { CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
 import type { PeripheralUsage } from '@/model/peripherals'
@@ -12,10 +12,11 @@ import { renderUsart } from './usart'
 import { renderSpi } from './spi'
 import { renderI2c } from './i2c'
 import { renderAdc } from './adc'
+import { renderIrq } from './irq'
 import * as T from './templates'
 
 /**
- * 生成一个核的 src/generated/**（clock/pins/exti/usart/spi/i2c/adc + mod.rs）。
+ * 生成一个核的 src/generated/**（clock/pins/exti/usart/spi/i2c/adc/irq + mod.rs）。
  * base 为目录前缀（单核 ''，双核 'v3f/'）。单核输出与历史逐字节一致。
  */
 export function renderCoreGenerated(
@@ -61,6 +62,15 @@ export function renderCoreGenerated(
   if (sel.i2c) addPeri(renderI2c(config, usages, embassy, data, base))
   if (sel.adc) addPeri(renderAdc(usages, data, base))
 
+  // NVIC/PFIC：有启用中断时才生成 irq.rs，并在 mod.rs 的 init 中调用
+  const irqFile = renderIrq(config, data, base)
+  const initCalls: string[] = []
+  if (irqFile) {
+    files.push(irqFile)
+    modules.push('irq')
+    initCalls.push('irq::init()')
+  }
+
   // mod.rs 聚合
   const hasGpio = pinsFile !== null && gpioCount(config, data) > 0
   const modFields: { name: string; type: string }[] = []
@@ -84,6 +94,7 @@ export function renderCoreGenerated(
       irqs,
       fields: modFields,
       inits: modInits,
+      calls: initCalls,
     }),
   })
   return files

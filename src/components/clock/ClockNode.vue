@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 单个时钟树节点：上限标签 / 输入-输出两栏频率 / 标题 / 内嵌控件行（或只读 hint）。
 // 节点整体点击向父级抛 focus；控件行点击抛 control-open（附控件元素视口矩形，供弹层定位）。
+// 可锁定节点右上角显示锁图标，点击或右键切换锁定（锁定后控件置灰）。
 import type { ClockNodeControl, ClockTreeNode } from '@/model/clock/tree'
 import { formatMhz } from '@/model/clock/tree'
 import { computed } from 'vue'
@@ -14,6 +15,7 @@ const props = withDefaults(defineProps<{ node: ClockTreeNode; selected?: boolean
 const emit = defineEmits<{
   (e: 'focus', nodeId: string): void
   (e: 'control-open', node: ClockTreeNode, rect: DOMRect): void
+  (e: 'toggle-lock', nodeId: string): void
 }>()
 
 /** 控件行在节点内的矩形（SVG 坐标）：节点底部留 10px 内边距，高 28px */
@@ -36,10 +38,27 @@ function onControlClick(e: MouseEvent) {
   if (!el) return
   emit('control-open', props.node, el.getBoundingClientRect())
 }
+
+/** 节点右键：可锁定节点直接切换锁定（不可锁定节点保持浏览器默认行为）。 */
+function onContextMenu(e: MouseEvent) {
+  if (!props.node.lockable) return
+  e.preventDefault()
+  emit('toggle-lock', props.node.id)
+}
+
+function onToggleLock(e: MouseEvent) {
+  e.stopPropagation()
+  emit('toggle-lock', props.node.id)
+}
 </script>
 
 <template>
-  <g class="node" :class="{ selected, dimmed, inactive: !node.active, pulse }" @click="emit('focus', node.id)">
+  <g
+    class="node"
+    :class="{ selected, dimmed, inactive: !node.active, pulse, locked: node.locked }"
+    @click="emit('focus', node.id)"
+    @contextmenu="onContextMenu"
+  >
     <rect
       :x="node.x"
       :y="node.y"
@@ -49,6 +68,25 @@ function onControlClick(e: MouseEvent) {
       class="node-box"
       :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }"
     />
+    <!-- 锁定开关：右上角锁图标（点击/右键切换；锁定后控件置灰） -->
+    <g
+      v-if="node.lockable"
+      class="lock-btn"
+      :class="{ on: node.locked }"
+      role="button"
+      @click="onToggleLock"
+      @contextmenu.stop.prevent="onToggleLock"
+    >
+      <title>{{ node.locked ? '解锁该节点（预设/自动修复可再次修改）' : '锁定该节点（预设/自动修复保留当前值）' }}</title>
+      <rect :x="node.x + node.w - 28" :y="node.y + 4" width="20" height="20" rx="5" class="lock-hit" />
+      <path
+        :d="`M ${node.x + node.w - 22} ${node.y + 15} v-2 a 4 4 0 0 1 8 0 v2`"
+        class="lock-shackle"
+        fill="none"
+        stroke-linecap="round"
+      />
+      <rect :x="node.x + node.w - 23" :y="node.y + 15" width="10" height="7" rx="1.5" class="lock-body" />
+    </g>
     <!-- 顶部上限小标签 -->
     <text v-if="node.maxMhz !== null" :x="node.x + 8" :y="node.y + 15" class="node-max">
       上限 {{ formatMhz(node.maxMhz) }}
@@ -174,6 +212,33 @@ function onControlClick(e: MouseEvent) {
 .node-hint {
   font-size: 11px;
   fill: var(--mx-text-muted);
+}
+
+/* 锁定开关图标：默认低透明度，悬停/锁定后高亮 */
+.lock-btn {
+  opacity: 0.35;
+  transition: opacity var(--mx-dur-node) linear;
+}
+.node:hover .lock-btn,
+.lock-btn.on {
+  opacity: 1;
+}
+.lock-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+.lock-shackle {
+  stroke: var(--mx-text-muted);
+  stroke-width: 1.5;
+}
+.lock-body {
+  fill: var(--mx-text-muted);
+}
+.lock-btn.on .lock-shackle {
+  stroke: var(--mx-accent);
+}
+.lock-btn.on .lock-body {
+  fill: var(--mx-accent);
 }
 
 /* 内嵌控件 */

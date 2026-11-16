@@ -1,5 +1,24 @@
 {
   "chip": "CH32H417QEU6",
+  "model": "dmamux",
+  "channels": [
+    { "number": 1, "name": "DMA1_CH1" },
+    { "number": 2, "name": "DMA1_CH2" },
+    { "number": 3, "name": "DMA1_CH3" },
+    { "number": 4, "name": "DMA1_CH4" },
+    { "number": 5, "name": "DMA1_CH5" },
+    { "number": 6, "name": "DMA1_CH6" },
+    { "number": 7, "name": "DMA1_CH7" },
+    { "number": 8, "name": "DMA1_CH8" },
+    { "number": 9, "name": "DMA2_CH1" },
+    { "number": 10, "name": "DMA2_CH2" },
+    { "number": 11, "name": "DMA2_CH3" },
+    { "number": 12, "name": "DMA2_CH4" },
+    { "number": 13, "name": "DMA2_CH5" },
+    { "number": 14, "name": "DMA2_CH6" },
+    { "number": 15, "name": "DMA2_CH7" },
+    { "number": 16, "name": "DMA2_CH8" }
+  ],
   "requests": [
     {
       "request": "TIM1_CH1",
@@ -406,5 +425,5 @@
       "channel": 123
     }
   ],
-  "notes": "由 import-ch32data.mjs 从 ch32-data 的 DMA/DMAMUX YAML 生成；channel 字段是 DMAMUX 请求号（不是固定 DMA 通道），H4 有 16 个 DMA 通道，任一通道可经 DMAMUX 路由到这些请求。当前代码生成的 embassy/DMA 路径按固定通道建模，故此类芯片标记 unsupportedFeatures=[embassy]；阻塞模式不使用本表。"
+  "notes": "由 import-ch32data.mjs 从 ch32-data 的 DMA/DMAMUX YAML 生成。model=dmamux：requests[].channel 是 DMAMUX 请求号（不是固定 DMA 通道）；channels[] 是 16 个物理通道 DMA1_CH1..8 / DMA2_CH1..8（ch32-metapac DMA_CHANNELS；ch32-hal 在 ch32h4 下为全部 16 通道 blanket 实现 TxDma/RxDma，Request=u8）。代码生成按「请求→物理通道」建模：config.dma 指定通道时优先使用，未指定时自动占用最低空闲通道；HAL 从通道类型的 request() 取 DMAMUX 请求号。芯片仍标记 unsupportedFeatures=[embassy]（双核异步路径待端到端验证）；阻塞模式不使用本表。"
 }

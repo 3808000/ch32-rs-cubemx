@@ -18,6 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'focus', nodeId: string): void
   (e: 'control-change', control: ClockNodeControl, value: string | number): void
+  (e: 'toggle-lock', nodeId: string): void
 }>()
 
 // ---------- 缩放（用户缩放 × 容器自适应比例） ----------
@@ -181,6 +182,7 @@ function onNodeClick(nodeId: string) {
             :pulse="pulseIds.has(n.id)"
             @focus="onNodeClick"
             @control-open="openControl"
+            @toggle-lock="(id: string) => emit('toggle-lock', id)"
           />
         </svg>
       </div>

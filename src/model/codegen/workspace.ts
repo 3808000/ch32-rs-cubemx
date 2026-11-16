@@ -65,13 +65,9 @@ export function generateDualCoreProject(
   const cores = data.chip.cores ?? []
   const errors: Conflict[] = []
 
-  if (embassy) {
-    errors.push({
-      code: 'TARGET_FEATURE_UNSUPPORTED',
-      level: 'error',
-      message: '双核 embassy 代码生成待完成：当前 DMA 模型按固定通道建模，H4/DMAMUX 需要按通道 + 请求号生成',
-    })
-  }
+  // DMA 建模已按 dma.json 的 model 区分：H4 为 dmamux（请求号 → 任一物理通道，
+  // 见 derive.buildDmaPlan），不再需要在此拦截 embassy。芯片级 embassy 支持仍由
+  // chip.json 的 unsupportedFeatures 决定（冲突规则先于本函数执行）。
   if (cores.length !== 2) {
     errors.push({
       code: 'TARGET_FEATURE_UNSUPPORTED',

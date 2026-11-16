@@ -4,6 +4,7 @@
 // - 单独下载时使用 <projectName>.cube.json，便于与普通 JSON 区分。
 import type {
   ClockConfig,
+  InterruptConfig,
   PeripheralState,
   PinAssignment,
   PinGroup,
@@ -65,30 +66,50 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
 
   const groups = (Array.isArray(raw.groups) ? raw.groups : []).filter(isRecord) as unknown as PinGroup[]
 
-  return {
-    config: {
-      version: 1,
-      chip,
-      projectName: asString(raw.projectName).trim() || 'ch32-project',
-      pins,
-      groups,
-      naming: { prefix: asString(naming.prefix) },
-      clock: isRecord(raw.clock) ? (raw.clock as unknown as ClockConfig) : undefined,
-      peripherals: isRecord(raw.peripherals)
-        ? (raw.peripherals as Record<string, PeripheralState>)
-        : {},
-      features: {
-        embassy: features.embassy === true,
-        // 与 store.loadConfig 一致：debugPrint 缺省为 true
-        debugPrint: features.debugPrint !== false,
-      },
-      hal: { rev: asString(hal.rev).trim() || HAL_REV },
-      // 旧工程无该字段时为空数组；非数组/混入非字符串时忽略非法项（宽容导入，不报错）
-      unlockedPins: (Array.isArray(raw.unlockedPins) ? raw.unlockedPins : []).filter(
-        (p): p is string => typeof p === 'string',
-      ),
-    },
+  // 中断配置：仅接受 { irq: 非空字符串, enabled: boolean, priority: 0..15 整数 }；
+  // 非数组/非法项静默过滤（宽容导入）；旧工程无该字段时不添加属性，保持向后兼容。
+  const interrupts: InterruptConfig[] = []
+  if (Array.isArray(raw.interrupts)) {
+    for (const item of raw.interrupts) {
+      if (!isRecord(item)) continue
+      if (typeof item.irq !== 'string' || item.irq.trim() === '') continue
+      if (typeof item.enabled !== 'boolean') continue
+      if (
+        typeof item.priority !== 'number' ||
+        !Number.isInteger(item.priority) ||
+        item.priority < 0 ||
+        item.priority > 15
+      ) {
+        continue
+      }
+      interrupts.push({ irq: item.irq.trim(), enabled: item.enabled, priority: item.priority })
+    }
   }
+
+  const config: ProjectConfig = {
+    version: 1,
+    chip,
+    projectName: asString(raw.projectName).trim() || 'ch32-project',
+    pins,
+    groups,
+    naming: { prefix: asString(naming.prefix) },
+    clock: isRecord(raw.clock) ? (raw.clock as unknown as ClockConfig) : undefined,
+    peripherals: isRecord(raw.peripherals)
+      ? (raw.peripherals as Record<string, PeripheralState>)
+      : {},
+    features: {
+      embassy: features.embassy === true,
+      // 与 store.loadConfig 一致：debugPrint 缺省为 true
+      debugPrint: features.debugPrint !== false,
+    },
+    hal: { rev: asString(hal.rev).trim() || HAL_REV },
+    // 旧工程无该字段时为空数组；非数组/混入非字符串时忽略非法项（宽容导入，不报错）
+    unlockedPins: (Array.isArray(raw.unlockedPins) ? raw.unlockedPins : []).filter(
+      (p): p is string => typeof p === 'string',
+    ),
+  }
+  if (Array.isArray(raw.interrupts)) config.interrupts = interrupts
+  return { config }
 }
 
 /** 配置 → 格式化 JSON（2 空格缩进，与导出的 cube.json 一致）。 */

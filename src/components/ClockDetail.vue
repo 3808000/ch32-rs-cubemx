@@ -1,9 +1,17 @@
 <script setup lang="ts">
 // 时钟详情面板（右侧 360px）：选中节点参数控件 + 问题列表 + 预设快捷 + 目标频率解算。
-// 修改即 store.setClock(mergeClockConfig(spec, {...cfg, ...patch}))。
+// 修改即 store.setClock(mergeClockConfig(spec, {...cfg, ...patch}))；锁定节点的控件禁用且不会被预设/解算覆盖。
 import { computed, ref } from 'vue'
 import { useProjectStore } from '@/controllers/project'
-import { matchPreset, mergeClockConfig, solvePll, validateClock } from '@/model/clock'
+import {
+  applyClockPreset,
+  isClockNodeLockable,
+  isClockNodeLocked,
+  matchPreset,
+  mergeClockConfig,
+  solvePll,
+  validateClock,
+} from '@/model/clock'
 import type { PllCandidate } from '@/model/clock'
 import type { ClockConfig, ClockPreset } from '@/model/types'
 
@@ -58,6 +66,17 @@ const nodeLabel = computed(() => {
   return s ? s.label : (NODE_LABELS[props.nodeId] ?? props.nodeId)
 })
 
+// ---------- 锁定 ----------
+const lockable = computed(() => (props.nodeId ? isClockNodeLockable(spec.value, props.nodeId) : false))
+const locked = computed(() => (props.nodeId ? isClockNodeLocked(cfg.value, props.nodeId) : false))
+function toggleLock() {
+  if (!props.nodeId) return
+  const next = new Set(cfg.value.locked ?? [])
+  if (next.has(props.nodeId)) next.delete(props.nodeId)
+  else next.add(props.nodeId)
+  store.setClock({ ...cfg.value, locked: [...next] })
+}
+
 const hse = computed(() => spec.value.sources.find((s) => s.id === 'HSE'))
 const showHxtal = computed(() => props.nodeId === 'HSE' && !!hse.value?.hxtal)
 const showPll = computed(() => props.nodeId === 'PLL')
@@ -89,33 +108,35 @@ function setPllParam(key: string, v: number | undefined) {
 const issues = computed(() => validateClock(spec.value, cfg.value))
 
 // ---------- 预设 ----------
-const currentPreset = computed(() => matchPreset(spec.value, cfg.value))
+// UI 高亮：锁定字段视为通配；生成代码仍走 matchPreset 的严格模式
+const currentPreset = computed(() => matchPreset(spec.value, cfg.value, { skipLocked: true }))
 function applyPreset(p: ClockPreset) {
-  const m = p.match
-  update({
-    source: m.source,
-    pllSource: m.pllSource,
-    hxtalMhz: m.hxtalMhz,
-    pll: m.mul !== undefined ? { ...cfg.value.pll, mul: m.mul } : cfg.value.pll,
-    ahb: m.ahb,
-    apb1: m.apb1,
-    apb2: m.apb2,
-  })
+  // 预设应用跳过锁定节点（保留锁定节点当前值）
+  store.setClock(applyClockPreset(spec.value, cfg.value, p))
 }
 
 // ---------- 目标频率解算 ----------
 const targetMhz = ref(48)
 const candidates = ref<PllCandidate[] | null>(null)
+/** SYSCLK 锁定在非 PLL 源：解算无候选，给出明确提示 */
+const sysclkLockedToNonPll = computed(
+  () => isClockNodeLocked(cfg.value, 'SYSCLK') && cfg.value.source !== 'PLL',
+)
 function solve() {
-  candidates.value = solvePll(spec.value, targetMhz.value)
+  candidates.value = solvePll(spec.value, targetMhz.value, undefined, {
+    locked: cfg.value.locked,
+    current: cfg.value,
+  })
 }
 function applyCandidate(c: PllCandidate) {
-  update({
-    source: 'PLL',
-    pllSource: c.source,
-    hxtalMhz: c.hxtalMhz ?? cfg.value.hxtalMhz,
-    pll: { ...cfg.value.pll, ...c.params },
-  })
+  const next: ClockConfig = { ...cfg.value, pll: { ...(cfg.value.pll ?? {}) } }
+  if (!isClockNodeLocked(cfg.value, 'SYSCLK')) next.source = 'PLL'
+  if (!isClockNodeLocked(cfg.value, 'PLL')) {
+    next.pllSource = c.source
+    next.pll = { ...(cfg.value.pll ?? {}), ...c.params }
+  }
+  if (!isClockNodeLocked(cfg.value, 'HSE') && c.hxtalMhz !== undefined) next.hxtalMhz = c.hxtalMhz
+  store.setClock(next)
 }
 function sourceLabel(id: string): string {
   return spec.value.sources.find((s) => s.id === id)?.label ?? id
@@ -128,6 +149,19 @@ function sourceLabel(id: string): string {
     <div class="section">
       <div class="section-title">{{ nodeLabel ?? '未选择节点' }}</div>
       <template v-if="nodeLabel">
+        <!-- 节点锁定：锁定后预设/解算/自动修复保留该节点值 -->
+        <div v-if="lockable" class="form-row lock-row">
+          <span class="form-label">节点锁定</span>
+          <el-switch :model-value="locked" size="small" @update:model-value="toggleLock" />
+          <div class="form-hint">
+            {{ locked ? '已锁定：预设、解算与自动修复将保留当前值' : '锁定后预设/解算/自动修复不会修改该节点' }}
+          </div>
+        </div>
+        <div v-else class="form-row">
+          <span class="form-label">节点锁定</span>
+          <span class="lock-na">该节点不可锁定</span>
+        </div>
+
         <!-- HSE 晶振频率 -->
         <div v-if="showHxtal" class="form-row">
           <span class="form-label">晶振频率 (MHz)</span>
@@ -137,6 +171,7 @@ function sourceLabel(id: string): string {
             :max="hse?.hxtal?.max"
             size="small"
             :step="1"
+            :disabled="locked"
             @update:model-value="setHxtal"
           />
           <div v-if="hse?.hxtal" class="form-hint">范围 {{ hse.hxtal.min }}~{{ hse.hxtal.max }} MHz</div>
@@ -146,7 +181,13 @@ function sourceLabel(id: string): string {
         <template v-if="showPll">
           <div class="form-row">
             <span class="form-label">PLL 源</span>
-            <el-select :model-value="cfg.pllSource" size="small" style="width: 160px" @update:model-value="setPllSource">
+            <el-select
+              :model-value="cfg.pllSource"
+              size="small"
+              :disabled="locked"
+              style="width: 160px"
+              @update:model-value="setPllSource"
+            >
               <el-option v-for="o in pllSourceOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
           </div>
@@ -155,7 +196,7 @@ function sourceLabel(id: string): string {
             <el-select
               :model-value="cfg.pll?.[p.key] ?? p.default"
               size="small"
-              :disabled="p.fixed || p.options.length <= 1"
+              :disabled="p.fixed || p.options.length <= 1 || locked"
               style="width: 160px"
               @update:model-value="(v: number) => setPllParam(p.key, v)"
             >
@@ -168,7 +209,13 @@ function sourceLabel(id: string): string {
         <!-- SYSCLK 源选择 -->
         <div v-if="showSysSource" class="form-row">
           <span class="form-label">时钟源</span>
-          <el-select :model-value="cfg.source" size="small" style="width: 160px" @update:model-value="setSource">
+          <el-select
+            :model-value="cfg.source"
+            size="small"
+            :disabled="locked"
+            style="width: 160px"
+            @update:model-value="setSource"
+          >
             <el-option v-for="o in sourceOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
         </div>
@@ -179,7 +226,7 @@ function sourceLabel(id: string): string {
           <el-select
             :model-value="cfg[busKey]"
             size="small"
-            :disabled="busSpec.options.length <= 1"
+            :disabled="busSpec.options.length <= 1 || locked"
             style="width: 160px"
             @update:model-value="setBusDivider"
           >
@@ -194,7 +241,7 @@ function sourceLabel(id: string): string {
           <el-select
             :model-value="cfg.adc ?? spec.adc.default"
             size="small"
-            :disabled="spec.adc.options.length <= 1"
+            :disabled="spec.adc.options.length <= 1 || locked"
             style="width: 160px"
             @update:model-value="setAdcSource"
           >
@@ -238,7 +285,10 @@ function sourceLabel(id: string): string {
         <span class="solve-unit">MHz</span>
         <el-button size="small" type="primary" plain @click="solve">解算</el-button>
       </div>
-      <div v-if="candidates !== null && candidates.length === 0" class="solve-empty">无可行 PLL 组合命中该频率</div>
+      <div v-if="sysclkLockedToNonPll" class="solve-empty">
+          SYSCLK 已锁定在 {{ cfg.source }}，解算需要切换到 PLL（请先解锁 SYSCLK）
+        </div>
+        <div v-else-if="candidates !== null && candidates.length === 0" class="solve-empty">无可行 PLL 组合命中该频率</div>
       <div v-for="(c, i) in candidates" :key="i" class="cand" @click="applyCandidate(c)">
         <span class="cand-freq">{{ c.outMhz }} MHz</span>
         <span class="cand-src">源 {{ sourceLabel(c.source) }}<template v-if="c.hxtalMhz"> · 晶振 {{ c.hxtalMhz }} MHz</template></span>
@@ -293,6 +343,15 @@ function sourceLabel(id: string): string {
   font-size: 11px;
   color: var(--mx-text-muted);
   padding-left: 128px;
+}
+.lock-row {
+  padding-bottom: 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px dashed var(--mx-border);
+}
+.lock-na {
+  font-size: 12px;
+  color: var(--mx-text-muted);
 }
 .tim-info {
   font-size: 12px;

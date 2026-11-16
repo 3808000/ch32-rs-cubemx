@@ -2,10 +2,10 @@
 import type { DeviceData, ProjectConfig } from '@/model/types'
 import type { PeripheralUsage } from '@/model/peripherals'
 import { enabledUsage } from '@/model/peripherals'
-import { instanceCallArgs } from './derive'
+import { dmaPeripheralOf, instanceCallArgs } from './derive'
 import type { PeriModule } from './derive'
 import { render } from './render'
-import { dmaChannelPeriph, periType, typeNameOf } from './util'
+import { periType, typeNameOf } from './util'
 import * as T from './templates'
 
 /** usart 参数键 → cfg 赋值行（参数值来自数据层，逐字拼接 HAL 枚举变体名） */
@@ -15,14 +15,18 @@ function usartCfgLines(params: Record<string, string | number | boolean>): strin
   if (params.wordLength !== undefined) lines.push(`cfg.data_bits = hal::usart::DataBits::${params.wordLength};`)
   if (params.stopBits !== undefined) lines.push(`cfg.stop_bits = hal::usart::StopBits::${params.stopBits};`)
   if (params.parity !== undefined) lines.push(`cfg.parity = hal::usart::Parity::${params.parity};`)
+  // HAL Config.detect_previous_overrun（src/usart/mod.rs，公共字段）
+  if (params.detectPreviousOverrun !== undefined) {
+    lines.push(`cfg.detect_previous_overrun = ${params.detectPreviousOverrun ? 'true' : 'false'};`)
+  }
   return lines
 }
 
-/** "115200 8N1" 风格参数描述 */
+/** "115200 8N1" 风格参数描述（STOP0P5/STOP1P5 按实际停止位数显示） */
 function usartParamDesc(params: Record<string, string | number | boolean>): string {
   const bits = params.wordLength === 'DataBits9' ? '9' : '8'
   const par = params.parity === 'ParityEven' ? 'E' : params.parity === 'ParityOdd' ? 'O' : 'N'
-  const stop = params.stopBits === 'STOP2' ? '2' : '1'
+  const stop = params.stopBits === 'STOP2' ? '2' : params.stopBits === 'STOP0P5' ? '0.5' : params.stopBits === 'STOP1P5' ? '1.5' : '1'
   return `${params.baudrate ?? 115200} ${bits}${par}${stop}`
 }
 
@@ -43,8 +47,9 @@ export function renderUsart(config: ProjectConfig, usages: PeripheralUsage[], em
     const callArgs: string[] = [`p.${u.id}`, `p.${rx}`, `p.${tx}`]
     if (embassy) {
       params.push('irqs: super::Irqs')
-      const txDma = dmaChannelPeriph(data, `${u.id}_TX`)!
-      const rxDma = dmaChannelPeriph(data, `${u.id}_RX`)!
+      // DMA 通道取自工程配置（config.dma）；未配置时按数据层固定/自动分配
+      const txDma = dmaPeripheralOf(config, data, usages, `${u.id}_TX`)
+      const rxDma = dmaPeripheralOf(config, data, usages, `${u.id}_RX`)
       params.push(`tx_dma: ${periType(txDma)}`, `rx_dma: ${periType(rxDma)}`)
       callArgs.push('Irqs', `p.${txDma}`, `p.${rxDma}`)
     }
@@ -74,7 +79,7 @@ export function renderUsart(config: ProjectConfig, usages: PeripheralUsage[], em
     fields: instances.map((i) => ({
       name: i.id.toLowerCase(),
       type: `usart::${i.typeName}`,
-      call: `usart::${i.initFn}(${instanceCallArgs(i.id, 'usart', usages, embassy, data)})`,
+      call: `usart::${i.initFn}(${instanceCallArgs(config, i.id, 'usart', usages, embassy, data)})`,
     })),
     // 中断名与向量表核对（ Embassy Binding：USART 单中断）
     irqs: embassy

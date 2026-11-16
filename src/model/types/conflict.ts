@@ -23,6 +23,9 @@ export type ConflictCode =
   | 'TARGET_FEATURE_UNSUPPORTED'
   | 'SRAM_BUDGET_EXCEEDED'
   | 'DMA_CHANNEL_CONFLICT'
+  | 'IRQ_UNKNOWN'
+  | 'IRQ_PRIORITY_DUPLICATE'
+  | 'IRQ_EMBASSY_NOT_ENABLED'
 
 export interface Conflict {
   code: ConflictCode

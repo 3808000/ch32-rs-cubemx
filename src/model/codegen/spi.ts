@@ -2,20 +2,34 @@
 import type { DeviceData, ProjectConfig } from '@/model/types'
 import type { PeripheralUsage } from '@/model/peripherals'
 import { enabledUsage } from '@/model/peripherals'
-import { instanceCallArgs } from './derive'
+import { dmaPeripheralOf, instanceCallArgs } from './derive'
 import type { PeriModule } from './derive'
 import { render } from './render'
-import { dmaChannelPeriph, fmtHz, periType, typeNameOf } from './util'
+import { fmtHz, periType, typeNameOf } from './util'
 import * as T from './templates'
 
 function spiCfgLines(params: Record<string, string | number | boolean>): string[] {
   const lines: string[] = []
   // ch32-hal 的 src/spi.rs 只私用 `embedded_hal::spi::{Mode, MODE_0}`，未 re-export；
   // 生成代码必须走 embedded-hal 的公开路径，否则 `hal::spi::MODE_0` 是私有符号（E0603）。
+  // 已核对 src/spi.rs Config：只有 mode/bit_order/frequency 三个字段；
+  // 数据位宽与软件 NSS 无 HAL 配置 API，数据层不提供（待核实）。
   if (params.mode !== undefined) lines.push(`cfg.mode = embedded_hal::spi::${params.mode};`)
   if (params.bitOrder !== undefined) lines.push(`cfg.bit_order = hal::spi::BitOrder::${params.bitOrder};`)
   if (typeof params.frequency === 'number') lines.push(`cfg.frequency = hal::time::Hertz::hz(${fmtHz(params.frequency)});`)
   return lines
+}
+
+/** MODE_n → CPOL/CPHA 说明（embedded-hal 的 Mode 由这两位组合而来） */
+function spiModeDesc(mode: string | undefined): string {
+  const table: Record<string, string> = {
+    MODE_0: 'CPOL=0 CPHA=0',
+    MODE_1: 'CPOL=0 CPHA=1',
+    MODE_2: 'CPOL=1 CPHA=0',
+    MODE_3: 'CPOL=1 CPHA=1',
+  }
+  const m = mode ?? 'MODE_0'
+  return `${m}（${table[m] ?? '待核实'}）`
 }
 
 export function renderSpi(config: ProjectConfig, usages: PeripheralUsage[], embassy: boolean, data: DeviceData, base = ''): PeriModule | null {
@@ -33,8 +47,8 @@ export function renderSpi(config: ProjectConfig, usages: PeripheralUsage[], emba
     const initFn = `init_${u.id.toLowerCase()}`
     const params: string[] = [`peri: ${periType(u.id)}`, `sck: ${periType(sck)}`, `mosi: ${periType(mosi)}`, `miso: ${periType(miso)}`]
     if (embassy) {
-      const txDma = dmaChannelPeriph(data, `${u.id}_TX`)!
-      const rxDma = dmaChannelPeriph(data, `${u.id}_RX`)!
+      const txDma = dmaPeripheralOf(config, data, usages, `${u.id}_TX`)
+      const rxDma = dmaPeripheralOf(config, data, usages, `${u.id}_RX`)
       params.push(`tx_dma: ${periType(txDma)}`, `rx_dma: ${periType(rxDma)}`)
     }
     return {
@@ -51,7 +65,7 @@ export function renderSpi(config: ProjectConfig, usages: PeripheralUsage[], emba
       initFn,
       params: params.join(', '),
       cfgLines: spiCfgLines(u.params),
-      paramDesc: `模式 ${u.params.mode ?? 'MODE_0'}，位序 ${u.params.bitOrder ?? 'MsbFirst'}，${fmtHz(Number(u.params.frequency ?? 1_000_000))}Hz`,
+      paramDesc: `模式 ${spiModeDesc(typeof u.params.mode === 'string' ? u.params.mode : undefined)}，位序 ${u.params.bitOrder ?? 'MsbFirst'}，${fmtHz(Number(u.params.frequency ?? 1_000_000))}Hz`,
       modeType: embassy ? 'Async' : 'Blocking',
       asyncMode: embassy,
     }
@@ -64,7 +78,7 @@ export function renderSpi(config: ProjectConfig, usages: PeripheralUsage[], emba
     fields: instances.map((i) => ({
       name: i.id.toLowerCase(),
       type: `spi::${i.typeName}`,
-      call: `spi::${i.initFn}(${instanceCallArgs(i.id, 'spi', usages, embassy, data)})`,
+      call: `spi::${i.initFn}(${instanceCallArgs(config, i.id, 'spi', usages, embassy, data)})`,
     })),
     irqs: [],
   }

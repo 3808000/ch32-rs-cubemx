@@ -19,8 +19,10 @@ import {
   type PreparedExport,
 } from '@/services/projectExport'
 import { DEFAULT_SELECTION, type CodegenSelection } from '@/model/types'
+import { preflight, type PreflightReport } from '@/model/preflight'
 import ExportPlanPreview from '@/components/codegen/ExportPlanPreview.vue'
 import ConflictRules from '@/components/codegen/ConflictRules.vue'
+import CheckDialog from '@/components/codegen/CheckDialog.vue'
 
 const store = useProjectStore()
 const visible = defineModel<boolean>({ default: false })
@@ -59,7 +61,39 @@ const items: { key: keyof CodegenSelection; label: string; desc: string }[] = [
   { key: 'readme', label: 'README', desc: '说明文档' },
 ]
 
-const errorCount = computed(() => store.errorCount)
+// ---------- 生成前 Check（M3.7） ----------
+/** 导出前检查摘要：用于提示数量；真正阻断/确认在 gateExport 中弹 CheckDialog。 */
+const checkSummary = computed(() => preflight(store.config, store.deviceData))
+const errorCount = computed(() => checkSummary.value.errors.length)
+const warningCount = computed(() => checkSummary.value.warnings.length)
+
+const showCheck = ref(false)
+const checkReport = ref<PreflightReport>({ errors: [], warnings: [] })
+/** 通过 CheckDialog 继续后要执行的导出动作 */
+const pendingExport = ref<'zip' | 'folder' | null>(null)
+
+/** 导出前 preflight：无问题直接放行；有 error/warning 弹 CheckDialog（error 必须修复）。 */
+function gateExport(action: 'zip' | 'folder'): boolean {
+  checkReport.value = preflight(store.config, store.deviceData)
+  if (checkReport.value.errors.length === 0 && checkReport.value.warnings.length === 0) return true
+  pendingExport.value = action
+  showCheck.value = true
+  return false
+}
+
+/** CheckDialog「我已知晓，继续」：执行被暂缓的导出。 */
+function proceedAfterCheck() {
+  const action = pendingExport.value
+  pendingExport.value = null
+  if (action === 'zip') void runExportZip()
+  else if (action === 'folder') void runExportFolder()
+}
+
+/** CheckDialog 条目定位：关闭生成本身，露出被定位的视图。 */
+function onCheckLocate() {
+  pendingExport.value = null
+  visible.value = false
+}
 
 async function exportConfigOnly() {
   store.setProjectName(projectName.value || 'ch32-project')
@@ -71,8 +105,14 @@ async function exportConfigOnly() {
   }
 }
 
-/** 生成并导出 ZIP（manifest 一并打包）。 */
+/** 生成并导出 ZIP（manifest 一并打包）；先经过 preflight 门禁。 */
 async function doExportZip() {
+  if (generating.value || writingFolder.value) return
+  if (!gateExport('zip')) return
+  await runExportZip()
+}
+
+async function runExportZip() {
   if (generating.value || writingFolder.value) return
   generating.value = true
   try {
@@ -121,8 +161,14 @@ async function writeFolder(
   visible.value = false
 }
 
-/** 生成并写入目录：先选目录（用户手势内）→ inspect 预览；有冲突/删除时进入决议步骤。 */
+/** 生成并写入目录：先经过 preflight 门禁，再选目录（用户手势内）→ inspect 预览。 */
 async function doExportFolder() {
+  if (writingFolder.value || generating.value || !canWriteFolder) return
+  if (!gateExport('folder')) return
+  await runExportFolder()
+}
+
+async function runExportFolder() {
   if (writingFolder.value || generating.value || !canWriteFolder) return
   writingFolder.value = true
   try {
@@ -177,7 +223,9 @@ function cancelFolderPreview() {
     <!-- 选项页 -->
     <template v-if="!pendingFolder">
       <el-alert v-if="errorCount > 0" type="error" :closable="false" class="export-alert"
-        :title="`存在 ${errorCount} 个错误级冲突，导出将被阻止。请先在冲突面板修复。`" />
+        :title="`生成前检查发现 ${errorCount} 个错误，导出将被阻止。点击导出可查看报告并定位。`" />
+      <el-alert v-else-if="warningCount > 0" type="warning" :closable="false" class="export-alert"
+        :title="`生成前检查发现 ${warningCount} 个警告，导出前需确认。`" />
       <div class="form-row">
         <label>工程名</label>
         <el-input v-model="projectName" size="small" style="width: 240px" placeholder="ch32-project" />
@@ -209,7 +257,7 @@ function cancelFolderPreview() {
       <div v-if="!pendingFolder" class="dialog-footer">
         <el-button plain @click="exportConfigOnly">仅导出配置 (cube.json)</el-button>
         <el-button @click="visible = false">取消</el-button>
-        <el-button plain :icon="Download" :loading="generating" :disabled="errorCount > 0 || writingFolder" @click="doExportZip">
+        <el-button plain :icon="Download" :loading="generating" :disabled="writingFolder" @click="doExportZip">
           导出 ZIP
         </el-button>
         <el-tooltip :content="folderHint" :disabled="!folderHint" placement="top">
@@ -218,7 +266,7 @@ function cancelFolderPreview() {
               type="primary"
               :icon="FolderOpened"
               :loading="writingFolder"
-              :disabled="errorCount > 0 || generating || !canWriteFolder"
+              :disabled="generating || !canWriteFolder"
               @click="doExportFolder"
             >
               {{ writingFolder ? '正在准备…' : '导出到文件夹' }}
@@ -233,6 +281,9 @@ function cancelFolderPreview() {
         </el-button>
       </div>
     </template>
+
+    <!-- 生成前检查报告：error 阻止，warning 可“我已知晓，继续” -->
+    <CheckDialog v-model="showCheck" :report="checkReport" @continue="proceedAfterCheck" @locate="onCheckLocate" />
   </el-dialog>
 </template>
 

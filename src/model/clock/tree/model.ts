@@ -2,7 +2,7 @@
 // 输出节点 / 连线 / 分组容器的逻辑结构（不含画布坐标）。
 // 节点数量与取值全部来自 spec（源数量、PLL 参数、分频档位、ADC 选项、定时器域模式）。
 import type { ClockConfig, ClockData, ClockFrequencies, ClockIssue } from '@/model/types'
-import { pllOutMhz, sourceFreqMhz } from '@/model/clock'
+import { isClockNodeLockable, isClockNodeLocked, pllOutMhz, sourceFreqMhz } from '@/model/clock'
 
 export interface ClockNodeControlOption {
   value: string | number
@@ -42,6 +42,10 @@ export interface ClockNodeModel {
   overLimit: boolean
   /** 是否在当前有效链路上 */
   active: boolean
+  /** 节点是否被锁定（预设/解算/自动修复保留其值） */
+  locked: boolean
+  /** 节点是否支持锁定（有可编辑参数） */
+  lockable: boolean
   control: ClockNodeControl | null
   /** 控件行位置的只读说明（如 TIM 倍率） */
   hint?: string
@@ -103,6 +107,7 @@ function busNode(
   issues: ClockIssue[] | undefined,
 ): ClockNodeModel {
   const issueLevel = issueLevelOf(issues, id)
+  const locked = isClockNodeLocked(cfg, id)
   return {
     id,
     label,
@@ -112,13 +117,16 @@ function busNode(
     issueLevel,
     overLimit: issueLevel === 'error',
     active: true,
+    locked,
+    // 总线节点始终支持锁定（分频档位可能唯一，但锁语义仍有效）
+    lockable: true,
     control: {
       kind: 'select',
       field,
       label: '分频',
       value: cfg[field],
       options: div.options.map((o) => ({ value: o, label: `÷${o}` })),
-      fixed: div.options.length <= 1,
+      fixed: div.options.length <= 1 || locked,
     },
   }
 }
@@ -164,6 +172,7 @@ export function buildClockModel(
   for (const s of srcSpecs) {
     const out = s.hxtal ? (cfg.hxtalMhz ?? s.hxtal.default) : (s.freqMhz ?? null)
     const srcLevel = issueLevelOf(issues, s.id)
+    const locked = isClockNodeLocked(cfg, s.id)
     nodes.push({
       id: s.id,
       label: s.label,
@@ -173,6 +182,8 @@ export function buildClockModel(
       issueLevel: srcLevel,
       overLimit: srcLevel === 'error',
       active: srcActive(cfg, s.id),
+      locked,
+      lockable: isClockNodeLockable(spec, s.id),
       control: s.hxtal
         ? {
             kind: 'number',
@@ -182,6 +193,7 @@ export function buildClockModel(
             min: s.hxtal.min,
             max: s.hxtal.max,
             unit: 'MHz',
+            fixed: locked,
           }
         : null,
       hint: s.hxtal ? `范围 ${s.hxtal.min}~${s.hxtal.max} MHz` : undefined,
@@ -195,6 +207,7 @@ export function buildClockModel(
   const pllInShown = sourceFreqMhz(spec, pllSourceId, cfg)
   const pllOutShown = pllInShown === null ? null : pllOutMhz(spec, pllInShown, cfg.pll ?? {})
   const pllLevel = issueLevelOf(issues, 'PLL')
+  const pllLocked = isClockNodeLocked(cfg, 'PLL')
   nodes.push({
     id: 'PLL',
     label: pllLabel,
@@ -204,6 +217,8 @@ export function buildClockModel(
     issueLevel: pllLevel,
     overLimit: pllLevel === 'error',
     active: usePll,
+    locked: pllLocked,
+    lockable: isClockNodeLockable(spec, 'PLL'),
     control: firstParam
       ? {
           kind: 'select',
@@ -215,7 +230,7 @@ export function buildClockModel(
             value: o,
             label: spec.pll.fixedOutMhz !== undefined ? `÷${o}` : `×${o}`,
           })),
-          fixed: firstParam.fixed || firstParam.options.length <= 1,
+          fixed: firstParam.fixed || firstParam.options.length <= 1 || pllLocked,
         }
       : null,
     hint: usePll ? undefined : '未使用',
@@ -231,6 +246,7 @@ export function buildClockModel(
         : (directSrc.freqMhz ?? null)
       : null
   const sysLevel = issueLevelOf(issues, 'SYSCLK')
+  const sysLocked = isClockNodeLocked(cfg, 'SYSCLK')
   nodes.push({
     id: 'SYSCLK',
     label: 'SYSCLK',
@@ -240,12 +256,15 @@ export function buildClockModel(
     issueLevel: sysLevel,
     overLimit: sysLevel === 'error',
     active: true,
+    locked: sysLocked,
+    lockable: isClockNodeLockable(spec, 'SYSCLK'),
     control: {
       kind: 'select',
       field: 'source',
       label: '时钟源',
       value: cfg.source,
       options: spec.sources.map((s) => ({ value: s.id, label: s.label })),
+      fixed: sysLocked,
     },
   })
 
@@ -268,6 +287,8 @@ export function buildClockModel(
     issueLevel: tim1Level,
     overLimit: tim1Level === 'error',
     active: true,
+    locked: isClockNodeLocked(cfg, 'TIM1'),
+    lockable: isClockNodeLockable(spec, 'TIM1'),
     control: null,
     hint: timMode === 'sysclk' ? timHint : cfg.apb1 > 1 ? '×2' : '×1',
   })
@@ -281,6 +302,8 @@ export function buildClockModel(
     issueLevel: tim2Level,
     overLimit: tim2Level === 'error',
     active: true,
+    locked: isClockNodeLocked(cfg, 'TIM2'),
+    lockable: isClockNodeLockable(spec, 'TIM2'),
     control: null,
     hint: timMode === 'sysclk' ? timHint : cfg.apb2 > 1 ? '×2' : '×1',
   })
@@ -289,6 +312,7 @@ export function buildClockModel(
   const adcOpt = spec.adc.options.find((o) => o.id === (cfg.adc ?? spec.adc.default)) ?? spec.adc.options[0]!
   const adcBase = adcOpt.source === 'AHB' ? freqs.hclkMhz : adcOpt.source === 'APB1' ? freqs.pclk1Mhz : freqs.pclk2Mhz
   const adcLevel = issueLevelOf(issues, 'ADC')
+  const adcLocked = isClockNodeLocked(cfg, 'ADC')
   nodes.push({
     id: 'ADC',
     label: 'ADC',
@@ -298,13 +322,15 @@ export function buildClockModel(
     issueLevel: adcLevel,
     overLimit: adcLevel === 'error',
     active: true,
+    locked: adcLocked,
+    lockable: isClockNodeLockable(spec, 'ADC'),
     control: {
       kind: 'select',
       field: 'adc',
       label: '时钟源',
       value: cfg.adc ?? spec.adc.default,
       options: spec.adc.options.map((o) => ({ value: o.id, label: o.label })),
-      fixed: spec.adc.options.length <= 1,
+      fixed: spec.adc.options.length <= 1 || adcLocked,
     },
   })
 
@@ -352,8 +378,21 @@ export function buildClockModel(
   return { nodes, edges, groups }
 }
 
-/** 应用画布/详情控件修改，返回新的 ClockConfig（纯函数）。 */
+/** 控件字段 → 所属时钟树节点（锁定判断用）。 */
+const CONTROL_NODE: Record<ClockNodeControl['field'], string> = {
+  source: 'SYSCLK',
+  pllSource: 'PLL',
+  hxtalMhz: 'HSE',
+  adc: 'ADC',
+  ahb: 'AHB',
+  apb1: 'APB1',
+  apb2: 'APB2',
+  pll: 'PLL',
+}
+
+/** 应用画布/详情控件修改，返回新的 ClockConfig（纯函数；锁定节点忽略修改）。 */
 export function applyClockControl(cfg: ClockConfig, control: ClockNodeControl, value: string | number): ClockConfig {
+  if (isClockNodeLocked(cfg, CONTROL_NODE[control.field])) return cfg
   switch (control.field) {
     case 'source':
       return { ...cfg, source: String(value) }

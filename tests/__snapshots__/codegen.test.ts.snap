@@ -939,6 +939,7 @@ pub fn init_usart1(peri: hal::Peri<'static, hal::peripherals::USART1>, rx: hal::
     cfg.data_bits = hal::usart::DataBits::DataBits8;
     cfg.stop_bits = hal::usart::StopBits::STOP1;
     cfg.parity = hal::usart::Parity::ParityNone;
+    cfg.detect_previous_overrun = false;
     // 注意参数顺序：rx 在前、tx 在后；返回 Result，用 unwrap 解包
     hal::usart::Uart::new_blocking(peri, rx, tx, cfg).unwrap()
 }
@@ -2637,7 +2638,7 @@ use ch32_hal as hal;
 /// I2C1 驱动类型（remap 0：SCL=PC2 SDA=PC1）
 pub type I2c1 = hal::i2c::I2c<'static, hal::peripherals::I2C1, hal::mode::Blocking>;
 
-/// 初始化 I2C1（速率 100_000Hz，占空比 Duty2_1）
+/// 初始化 I2C1（速率 100_000Hz（Standard 模式），占空比 Duty2_1）
 pub fn init_i2c1(peri: hal::Peri<'static, hal::peripherals::I2C1>, scl: hal::Peri<'static, hal::peripherals::PC2>, sda: hal::Peri<'static, hal::peripherals::PC1>) -> I2c1 {
     let mut cfg = hal::i2c::Config::default();
     cfg.duty = hal::i2c::Duty::Duty2_1;
@@ -2928,7 +2929,7 @@ use ch32_hal as hal;
 /// SPI1 驱动类型（remap 0：SCK=PC5 MOSI=PC6 MISO=PC7）
 pub type Spi1 = hal::spi::Spi<'static, hal::peripherals::SPI1, hal::mode::Blocking>;
 
-/// 初始化 SPI1（模式 MODE_0，位序 MsbFirst，1_000_000Hz）
+/// 初始化 SPI1（模式 MODE_0（CPOL=0 CPHA=0），位序 MsbFirst，1_000_000Hz）
 pub fn init_spi1(peri: hal::Peri<'static, hal::peripherals::SPI1>, sck: hal::Peri<'static, hal::peripherals::PC5>, mosi: hal::Peri<'static, hal::peripherals::PC6>, miso: hal::Peri<'static, hal::peripherals::PC7>) -> Spi1 {
     let mut cfg = hal::spi::Config::default();
     cfg.mode = embedded_hal::spi::MODE_0;
@@ -3198,6 +3199,7 @@ pub fn init_usart1(peri: hal::Peri<'static, hal::peripherals::USART1>, rx: hal::
     cfg.data_bits = hal::usart::DataBits::DataBits8;
     cfg.stop_bits = hal::usart::StopBits::STOP1;
     cfg.parity = hal::usart::Parity::ParityNone;
+    cfg.detect_previous_overrun = false;
     // 注意参数顺序：rx 在前、tx 在后；返回 Result，用 unwrap 解包
     hal::usart::Uart::new_blocking::<0>(peri, rx, tx, cfg).unwrap()
 }
@@ -3451,7 +3453,7 @@ use ch32_hal as hal;
 /// I2C1 驱动类型（remap 0：SCL=PC2 SDA=PC1）
 pub type I2c1 = hal::i2c::I2c<'static, hal::peripherals::I2C1, hal::mode::Async>;
 
-/// 初始化 I2C1（速率 100_000Hz，占空比 Duty2_1）
+/// 初始化 I2C1（速率 100_000Hz（Standard 模式），占空比 Duty2_1）
 pub fn init_i2c1(peri: hal::Peri<'static, hal::peripherals::I2C1>, scl: hal::Peri<'static, hal::peripherals::PC2>, sda: hal::Peri<'static, hal::peripherals::PC1>, irqs: super::Irqs, tx_dma: hal::Peri<'static, hal::peripherals::DMA1_CH6>, rx_dma: hal::Peri<'static, hal::peripherals::DMA1_CH7>) -> I2c1 {
     let mut cfg = hal::i2c::Config::default();
     cfg.duty = hal::i2c::Duty::Duty2_1;
@@ -3514,6 +3516,7 @@ pub fn init_usart1(peri: hal::Peri<'static, hal::peripherals::USART1>, rx: hal::
     cfg.data_bits = hal::usart::DataBits::DataBits8;
     cfg.stop_bits = hal::usart::StopBits::STOP1;
     cfg.parity = hal::usart::Parity::ParityNone;
+    cfg.detect_previous_overrun = false;
     // rx 在前、tx 在后；异步需中断绑定（super::Irqs）与 TX/RX DMA 通道
     hal::usart::Uart::new::<0>(peri, rx, tx, irqs, tx_dma, rx_dma, cfg).unwrap()
 }

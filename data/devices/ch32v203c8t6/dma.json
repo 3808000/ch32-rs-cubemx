@@ -1,5 +1,16 @@
 {
   "chip": "CH32V203C8T6",
+  "model": "fixed",
+  "channels": [
+    { "number": 1, "name": "DMA1_CH1" },
+    { "number": 2, "name": "DMA1_CH2" },
+    { "number": 3, "name": "DMA1_CH3" },
+    { "number": 4, "name": "DMA1_CH4" },
+    { "number": 5, "name": "DMA1_CH5" },
+    { "number": 6, "name": "DMA1_CH6" },
+    { "number": 7, "name": "DMA1_CH7" },
+    { "number": 8, "name": "DMA1_CH8" }
+  ],
   "requests": [
     {
       "request": "ADC1",
@@ -153,5 +164,6 @@
       "request": "TIM4_UP",
       "channel": 7
     }
-  ]
+  ],
+  "notes": "model=fixed：requests[].channel 是硬件固定的 DMA 通道（ch32-data CH32V_V4B.yaml；ch32-hal 的 TxDma/RxDma 只为对应 DMA1_CHn 类型实现）；channels[] 取自 ch32-metapac 的 DMA_CHANNELS（DMA1_CH1..8，注意 CH8 无独立中断向量）。"
 }

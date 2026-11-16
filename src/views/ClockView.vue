@@ -1,15 +1,16 @@
 <script setup lang="ts">
 // Clock 视图：页头 + 工具栏（搜索 / Resolve clock issues / Reset clock）+ 分段 Graphic/Table
 // + 画布或表格 + 右侧 Detail view + Code preview。
-import { computed, ref } from 'vue'
-import { Search, RefreshLeft, WarningFilled } from '@element-plus/icons-vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Search, RefreshLeft, WarningFilled, CircleCheck } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
-import { computeClock, validateClock } from '@/model/clock'
+import { computeClock, resolveClockIssues, validateClock } from '@/model/clock'
 import { applyClockControl, buildClockTree, formatMhz } from '@/model/clock/tree'
 import type { ClockNodeControl, ClockTreeLayout } from '@/model/clock/tree'
 import ClockCanvas from '../components/ClockCanvas.vue'
 import ClockDetail from '../components/ClockDetail.vue'
 import CodePreviewPanel from '../components/CodePreviewPanel.vue'
+import { subscribeClockFocus, takeClockFocus } from '@/components/clock/clockFocus'
 
 const store = useProjectStore()
 const spec = computed(() => store.deviceData.clock)
@@ -49,6 +50,59 @@ function focusNode(nodeId: string) {
   selectedId.value = nodeId
 }
 
+/** 外部定位（CheckDialog / 生成前检查）：切回图形视图并聚焦节点 */
+function focusNodeFromOutside(nodeId: string) {
+  viewMode.value = 'graphic'
+  showDetail.value = true
+  focusNode(nodeId)
+}
+
+/** 锁定/解锁节点：写回 ClockConfig.locked（预设/解算/自动修复会跳过锁定节点） */
+function toggleLock(nodeId: string) {
+  const locked = new Set(cfg.value.locked ?? [])
+  if (locked.has(nodeId)) locked.delete(nodeId)
+  else locked.add(nodeId)
+  store.setClock({ ...cfg.value, locked: [...locked] })
+}
+
+/** Resolve clock issues：约束求解自动修复（尊重锁定节点）；无解时回退到问题列表 */
+const solving = ref(false)
+async function resolveIssues() {
+  if (!issues.value.length || solving.value) return
+  solving.value = true
+  try {
+    // 求解为同步纯函数；让按钮 loading 至少渲染一帧
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    const result = resolveClockIssues(spec.value, cfg.value)
+    if (!result) {
+      showIssues.value = true
+      store.notify('未找到满足锁定约束的合法时钟配置，已打开问题列表', 'warning')
+      return
+    }
+    store.setClock(result.config)
+    if (result.issues.length > 0) {
+      showIssues.value = true
+      store.notify(`已修复时钟错误，仍有 ${result.issues.length} 个警告需确认`, 'warning')
+    } else {
+      store.notify('时钟问题已自动修复', 'info')
+    }
+  } finally {
+    solving.value = false
+  }
+}
+
+// 跨视图定位：CheckDialog 先 setView('clock')，ClockView 挂载时消费 pending，或在已挂载时直接响应
+let unsubscribeClockFocus: (() => void) | null = null
+onMounted(() => {
+  const pending = takeClockFocus()
+  if (pending) focusNodeFromOutside(pending)
+  unsubscribeClockFocus = subscribeClockFocus(focusNodeFromOutside)
+})
+onBeforeUnmount(() => {
+  unsubscribeClockFocus?.()
+  unsubscribeClockFocus = null
+})
+
 function onRowClick(row: { id: string }) {
   focusNode(row.id)
 }
@@ -69,6 +123,8 @@ const tableRows = computed(() =>
     max: n.maxMhz !== null ? formatMhz(n.maxMhz) : '—',
     level: n.issueLevel,
     active: n.active,
+    locked: n.locked,
+    lockable: n.lockable,
   })),
 )
 const filteredRows = computed(() => {
@@ -92,8 +148,20 @@ const filteredRows = computed(() => {
     <div class="toolbar">
       <el-input v-model="search" placeholder="搜索节点" :prefix-icon="Search" size="small" style="width: 180px" clearable />
       <div class="toolbar-fill"></div>
-      <el-button size="small" :type="issues.length ? 'warning' : 'default'" :icon="WarningFilled" @click="showIssues = true">
-        Resolve clock issues<template v-if="issues.length"> ({{ issues.length }})</template>
+      <el-button
+        size="small"
+        :type="!issues.length ? 'success' : issues.some((i) => i.level === 'error') ? 'danger' : 'warning'"
+        :icon="issues.length ? WarningFilled : CircleCheck"
+        :loading="solving"
+        :disabled="!issues.length"
+        @click="resolveIssues"
+      >
+        <template v-if="solving">求解中…</template>
+        <template v-else-if="issues.length">Resolve clock issues ({{ issues.length }})</template>
+        <template v-else>No clock issues</template>
+      </el-button>
+      <el-button size="small" :type="issues.length ? 'warning' : 'default'" @click="showIssues = true">
+        问题列表<template v-if="issues.length"> ({{ issues.length }})</template>
       </el-button>
       <el-button size="small" type="primary" :icon="RefreshLeft" @click="resetClock">Reset clock</el-button>
     </div>
@@ -125,6 +193,7 @@ const filteredRows = computed(() => {
         :search="search"
         @focus="focusNode"
         @control-change="onControlChange"
+        @toggle-lock="toggleLock"
       />
       <div v-else class="table-wrap">
         <el-table :data="filteredRows" size="small" highlight-current-row @row-click="onRowClick">
@@ -133,6 +202,19 @@ const filteredRows = computed(() => {
           <el-table-column prop="input" label="输入频率" width="110" />
           <el-table-column prop="output" label="输出频率" width="110" />
           <el-table-column prop="max" label="上限" width="100" />
+          <el-table-column label="锁定" width="78">
+            <template #default="{ row }">
+              <el-button
+                link
+                size="small"
+                :type="row.locked ? 'primary' : 'default'"
+                :disabled="!row.lockable"
+                @click.stop="toggleLock(row.id)"
+              >
+                {{ row.locked ? '已锁定' : row.lockable ? '锁定' : '—' }}
+              </el-button>
+            </template>
+          </el-table-column>
           <el-table-column label="状态" width="90">
             <template #default="{ row }">
               <el-tag v-if="row.level === 'error'" type="danger" size="small">越界</el-tag>

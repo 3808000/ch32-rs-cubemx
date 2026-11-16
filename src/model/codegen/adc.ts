@@ -1,4 +1,8 @@
 // adc.rs 渲染：ADC 初始化（通道 = 引脚字段，convert/blocking_read 两代 API）。
+// 已核对 ch32-hal src/adc.rs：公开配置项只有采样时间（configure_channel/convert 的
+// SampleTime 参数，逐字使用数据层变体名）。分辨率由芯片固定（ADC_MAX：V003 10 位、
+// 其余 12 位），无运行时分辨率 API；连续转换只在 adc/v4x7 的 read_dma 内部启用，
+// 没有公开配置接口。数据层不提供 resolution/continuous 参数（标「待核实」，不臆造）。
 import type { DeviceData } from '@/model/types'
 import type { PeripheralUsage } from '@/model/peripherals'
 import { enabledUsage } from '@/model/peripherals'

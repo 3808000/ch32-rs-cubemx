@@ -2,11 +2,20 @@
 import type { DeviceData, ProjectConfig } from '@/model/types'
 import type { PeripheralUsage } from '@/model/peripherals'
 import { enabledUsage } from '@/model/peripherals'
-import { instanceCallArgs } from './derive'
+import { dmaPeripheralOf, instanceCallArgs } from './derive'
 import type { IrqBinding, PeriModule } from './derive'
 import { render } from './render'
-import { dmaChannelPeriph, fmtHz, periType, typeNameOf } from './util'
+import { fmtHz, periType, typeNameOf } from './util'
 import * as T from './templates'
+
+/**
+ * I2C 速率模式说明：ch32-hal 没有 Speed 枚举，I2C 构造只收 Hertz（src/i2c.rs
+ * 的 timing() 断言 0 < freq ≤ 400kHz）。数据层用 100k（Standard）/400k（Fast）两档，
+ * 映射为 Hertz 后生成，不臆造 HAL 枚举。
+ */
+function i2cSpeedDesc(hz: number): string {
+  return hz > 100_000 ? 'Fast' : 'Standard'
+}
 
 export function renderI2c(config: ProjectConfig, usages: PeripheralUsage[], embassy: boolean, data: DeviceData, base = ''): PeriModule | null {
   const insts = enabledUsage(usages, 'i2c')
@@ -23,8 +32,8 @@ export function renderI2c(config: ProjectConfig, usages: PeripheralUsage[], emba
     const params: string[] = [`peri: ${periType(u.id)}`, `scl: ${periType(scl)}`, `sda: ${periType(sda)}`]
     if (embassy) {
       params.push('irqs: super::Irqs')
-      const txDma = dmaChannelPeriph(data, `${u.id}_TX`)!
-      const rxDma = dmaChannelPeriph(data, `${u.id}_RX`)!
+      const txDma = dmaPeripheralOf(config, data, usages, `${u.id}_TX`)
+      const rxDma = dmaPeripheralOf(config, data, usages, `${u.id}_RX`)
       params.push(`tx_dma: ${periType(txDma)}`, `rx_dma: ${periType(rxDma)}`)
     }
     const cfgLines: string[] = []
@@ -43,7 +52,7 @@ export function renderI2c(config: ProjectConfig, usages: PeripheralUsage[], emba
       initFn,
       params: params.join(', '),
       cfgLines,
-      paramDesc: `速率 ${freqHz}Hz，占空比 ${u.params.duty ?? 'Duty2_1'}`,
+      paramDesc: `速率 ${freqHz}Hz（${i2cSpeedDesc(Number(u.params.speed ?? 100_000))} 模式），占空比 ${u.params.duty ?? 'Duty2_1'}`,
       modeType: embassy ? 'Async' : 'Blocking',
       asyncMode: embassy,
       freq: freqHz,
@@ -67,7 +76,7 @@ export function renderI2c(config: ProjectConfig, usages: PeripheralUsage[], emba
     fields: instances.map((i) => ({
       name: i.id.toLowerCase(),
       type: `i2c::${i.typeName}`,
-      call: `i2c::${i.initFn}(${instanceCallArgs(i.id, 'i2c', usages, embassy, data)})`,
+      call: `i2c::${i.initFn}(${instanceCallArgs(config, i.id, 'i2c', usages, embassy, data)})`,
     })),
     irqs,
   }
