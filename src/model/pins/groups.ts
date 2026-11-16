@@ -1,5 +1,5 @@
 // 引脚分组：单归属约束（一个引脚只能属于一个组）。
-import type { PinGroup } from '../types'
+import type { PinGroup } from '@/model/types'
 
 export const GROUP_COLORS = ['#2A62B7', '#1D8136', '#B26A00', '#C00000', '#7B4FBF', '#0E7C86']
 

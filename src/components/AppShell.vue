@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 标题栏：应用标识 + 工程/视图/帮助菜单 + 工程名·芯片/封装 + 窗口控制（Web 形态仅装饰）
 import { computed } from 'vue'
-import { useProjectStore } from '../stores/project'
+import { useProjectStore } from '@/controllers/project'
 import { Monitor, QuestionFilled, Setting } from '@element-plus/icons-vue'
 
 const store = useProjectStore()

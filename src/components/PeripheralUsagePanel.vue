@@ -2,8 +2,8 @@
 // 外设使用汇总（右面板 tab）：pinUsageSummary → 引脚 / 占用驱动表。
 import { computed } from 'vue'
 import { Odometer } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { pinUsageSummary } from '../lib/usage'
+import { useProjectStore } from '@/controllers/project'
+import { pinUsageSummary } from '@/model/pins/usage'
 import EmptyState from './common/EmptyState.vue'
 
 const store = useProjectStore()

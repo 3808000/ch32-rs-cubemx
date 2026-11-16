@@ -2,8 +2,8 @@
 // 外设分类推导（PeripheralList / QuickMenu / PeripheralsView 共用）：
 // 可配置实例来自 peripherals.json（USART/SPI/I2C/ADC），
 // 定时器等其余实例从 remap 信号推导（数据驱动，禁止芯片名分支）。
-import type { DeviceData } from '../types'
-import { categoryOfPeripheral, peripheralOfSignal } from '../data/device'
+import type { DeviceData } from '@/model/types'
+import { categoryOfPeripheral, peripheralOfSignal } from '@/model/device'
 
 export interface PeriCategory {
   key: string
@@ -46,8 +46,8 @@ export function derivePeriCategories(data: DeviceData): PeriCategory[] {
 // 外设列表（左 320px）：搜索 + Filter by Category + Show All + 手风琴分类 + 计数徽标
 import { computed, reactive, ref } from 'vue'
 import { Search, Box } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { derivePeripheralUsage } from '../lib/peripherals'
+import { useProjectStore } from '@/controllers/project'
+import { derivePeripheralUsage } from '@/model/peripherals'
 import EmptyState from './common/EmptyState.vue'
 
 const props = defineProps<{ selectedId?: string | null }>()

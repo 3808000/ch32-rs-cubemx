@@ -1,6 +1,6 @@
 // 封装图几何：dual（两边）/ quad（四边）布局 + 90° 步进旋转。
 // 纯函数，输出 SVG 坐标；文字始终水平（旋转只变换位置）。
-import type { ChipData, ChipPin, PinSide } from '../types'
+import type { ChipData, ChipPin, PinSide } from '@/model/types'
 
 export interface PinLayout {
   pin: ChipPin

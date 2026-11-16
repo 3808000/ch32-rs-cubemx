@@ -1,7 +1,7 @@
 // ADC 通道 / EXTI 线分配枚举单元测试（真实 CH32V003F4P6）。
 import { describe, it, expect } from 'vitest'
-import { adcChannels, extiLines, extiIrqOf } from '../src/lib/allocation'
-import { getDeviceData } from '../src/data/device'
+import { adcChannels, extiLines, extiIrqOf } from '@/model/pins/allocation'
+import { getDeviceData } from '@/model/device'
 
 const data = getDeviceData('CH32V003F4P6')
 

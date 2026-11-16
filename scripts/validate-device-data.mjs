@@ -33,7 +33,7 @@ const server = await createServer({
   server: { middlewareMode: true },
   optimizeDeps: { noDiscovery: true, include: [] },
 })
-const clockLib = await server.ssrLoadModule('/src/lib/clock/index.ts')
+const clockLib = await server.ssrLoadModule('/src/model/clock/index.ts')
 
 function validateDevice(dir) {
   const id = path.basename(dir)

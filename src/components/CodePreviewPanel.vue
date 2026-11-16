@@ -7,10 +7,10 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type * as monacoTypes from 'monaco-editor'
 import { Refresh } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { generateProject } from '../lib/codegen'
-import type { Conflict, GeneratedFile } from '../types'
-import { ensureMonaco, languageOf, monaco } from '../lib/monaco'
+import { useProjectStore } from '@/controllers/project'
+import { generateProject } from '@/model/codegen'
+import type { Conflict, GeneratedFile } from '@/model/types'
+import { ensureMonaco, languageOf, monaco } from '@/services/monaco'
 
 const props = defineProps<{
   /** 面板所处的视图上下文：决定头部对象名 */

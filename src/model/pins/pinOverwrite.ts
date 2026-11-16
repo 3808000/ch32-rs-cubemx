@@ -1,7 +1,7 @@
 // 引脚覆盖确认 + 撤回。所有覆盖已有配置的操作必须走这里。
 import { ElMessageBox, ElMessage } from 'element-plus'
-import type { PinAssignment } from '../types'
-import { useProjectStore } from '../stores/project'
+import type { PinAssignment } from '@/model/types'
+import { useProjectStore } from '@/controllers/project'
 
 interface UndoEntry {
   pin: string

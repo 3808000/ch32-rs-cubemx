@@ -2,7 +2,7 @@
 // 数据：真实 CH32V003F4P6（USART1 四档、SPI1 两档、I2C1 三档、ADC1 无核心 AF 角色）。
 import { describe, it, expect } from 'vitest'
 import { planActivationPins, CORE_ROLES } from '../src/components/PeripheralConfigCard.vue'
-import { getDeviceData } from '../src/data/device'
+import { getDeviceData } from '@/model/device'
 
 const data = getDeviceData('CH32V003F4P6')
 

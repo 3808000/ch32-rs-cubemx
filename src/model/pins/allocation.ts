@@ -1,5 +1,5 @@
 // ADC 通道 / EXTI 线分配枚举（供分配面板）。
-import type { DeviceData } from '../types'
+import type { DeviceData } from '@/model/types'
 
 export interface AdcChannelOption {
   channel: string

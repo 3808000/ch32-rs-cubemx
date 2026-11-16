@@ -35,7 +35,7 @@
 
 - rv32ec 是 tier-3：nightly + rust-src + `-Z build-std=core` + 自定义 target json。
 - V003 仅 2KB SRAM：默认不开 embassy；开了给 RAM 预算警告。
-- ch32-hal 未发 crates.io：git 依赖锁 rev（`src/lib/codegen/halRev.ts`）。
+- ch32-hal 未发 crates.io：git 依赖锁 rev（`src/model/codegen/halRev.ts`）。
 - REMAP 是 const 泛型：同外设引脚 remap 不一致编译必失败 → REMAP_MISMATCH 配置期拦截。
 - EXTI 边沿不在构造函数；ADC 通道是引脚 trait 实现。
 - EJS 空行：if/forEach 结束标签用 `-%>`。

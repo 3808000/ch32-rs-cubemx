@@ -2,7 +2,7 @@
 // 状态栏：左 Saved/Click to save，右通知铃铛 + 未读数
 import { computed } from 'vue'
 import { Bell, Check, WarningFilled } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
+import { useProjectStore } from '@/controllers/project'
 
 const store = useProjectStore()
 const emit = defineEmits<{ (e: 'notifications'): void }>()

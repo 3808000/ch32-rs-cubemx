@@ -1,7 +1,7 @@
 // 引脚分组单元测试：单归属约束（一个引脚只能属于一个组）。
 import { describe, it, expect } from 'vitest'
-import { GROUP_COLORS, addToGroup, removeFromGroup, groupOfPin, createGroup } from '../src/lib/groups'
-import type { PinGroup } from '../src/types'
+import { GROUP_COLORS, addToGroup, removeFromGroup, groupOfPin, createGroup } from '@/model/pins/groups'
+import type { PinGroup } from '@/model/types'
 
 function groups(...defs: [string, string[]][]): PinGroup[] {
   return defs.map(([name, pins], i) => ({ name, pins, color: GROUP_COLORS[i % GROUP_COLORS.length] }))

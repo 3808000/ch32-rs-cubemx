@@ -1,9 +1,9 @@
 // 时钟树布局单元测试：节点/连线/分组几何与 applyClockControl / formatMhz
 // 数据：真实 CH32V003F4P6（HSI 24MHz、HSE 晶振、PLL 固定 ×2、APB1 固定 1）
 import { describe, it, expect } from 'vitest'
-import { computeClock, defaultClock } from '../src/lib/clock'
-import { buildClockTree, applyClockControl, formatMhz } from '../src/lib/clock/tree'
-import { getDeviceData } from '../src/data/device'
+import { computeClock, defaultClock } from '@/model/clock'
+import { buildClockTree, applyClockControl, formatMhz } from '@/model/clock/tree'
+import { getDeviceData } from '@/model/device'
 
 const spec = getDeviceData('CH32V003F4P6').clock
 

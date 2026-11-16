@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 浏览器式标签页条：激活页白底蓝字上圆角 + 底部蓝线；未保存改动加红点
 import { HomeFilled, Cpu, Timer, Connection } from '@element-plus/icons-vue'
-import { useProjectStore, type ViewId } from '../stores/project'
+import { useProjectStore, type ViewId } from '@/controllers/project'
 
 const store = useProjectStore()
 

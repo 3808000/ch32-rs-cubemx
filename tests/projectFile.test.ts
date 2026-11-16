@@ -1,9 +1,9 @@
 // 工程配置回读测试：parseProjectFile / serializeProjectFile。
 // 覆盖：合法配置、序列化往返、非法 JSON、缺 version、未知芯片、缺字段旧工程。
 import { describe, expect, it } from 'vitest'
-import type { ProjectConfig } from '../src/types'
-import { parseProjectFile, serializeProjectFile } from '../src/lib/projectFile'
-import { HAL_REV } from '../src/lib/codegen/halRev'
+import type { ProjectConfig } from '@/model/types'
+import { parseProjectFile, serializeProjectFile } from '@/services/projectFile'
+import { HAL_REV } from '@/model/codegen/halRev'
 
 /** 解析成功时取 config，失败时让测试直接报错 */
 function expectConfig(text: string): ProjectConfig {

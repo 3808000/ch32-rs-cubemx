@@ -3,7 +3,7 @@
 // + 左 320px 列表 + 中卡片流 + 右面板 tabs（使用汇总 / EXTI 分配 / ADC 通道 / 分组）。
 import { computed, nextTick, provide, reactive, ref } from 'vue'
 import { Document, Fold, Expand, Menu, Promotion } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
+import { useProjectStore } from '@/controllers/project'
 import PeripheralList from '../components/PeripheralList.vue'
 import PeripheralConfigCard, { PERIPHERAL_COLLAPSE_KEY, cardDomId } from '../components/PeripheralConfigCard.vue'
 import { derivePeriCategories } from '../components/PeripheralList.vue'

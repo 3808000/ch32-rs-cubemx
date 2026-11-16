@@ -3,9 +3,9 @@
 import { computed, ref } from 'vue'
 import { Cpu, Folder, FolderOpened, Search, Upload } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import { useProjectStore } from '../stores/project'
-import { listDevices } from '../data/device'
-import { parseProjectFile, readFileAsText } from '../lib/projectFile'
+import { useProjectStore } from '@/controllers/project'
+import { listDevices } from '@/model/device'
+import { parseProjectFile, readFileAsText } from '@/services/projectFile'
 
 const store = useProjectStore()
 const search = ref('')

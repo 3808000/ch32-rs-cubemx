@@ -2,9 +2,9 @@
 // ADC 通道分配面板（右面板 tab）：全通道分配状态 + ANALOG 分配/清除。
 import { computed } from 'vue'
 import { Histogram } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { adcChannels } from '../lib/allocation'
-import { usePinOverwrite } from '../lib/pinOverwrite'
+import { useProjectStore } from '@/controllers/project'
+import { adcChannels } from '@/model/pins/allocation'
+import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import StatusBadge from './common/StatusBadge.vue'
 import EmptyState from './common/EmptyState.vue'
 

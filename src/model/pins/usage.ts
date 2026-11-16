@@ -1,7 +1,7 @@
 // 外设使用归并：引脚 → 驱动占用汇总（供 PeripheralUsagePanel）。
-import type { DeviceData, ProjectConfig } from '../types'
-import { derivePeripheralUsage } from './peripherals'
-import { peripheralOfSignal } from '../data/device'
+import type { DeviceData, ProjectConfig } from '@/model/types'
+import { derivePeripheralUsage } from '@/model/peripherals'
+import { peripheralOfSignal } from '@/model/device'
 
 export interface PinUsage {
   pin: string

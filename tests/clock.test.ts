@@ -2,7 +2,7 @@
 // mergeClockConfig / matchPreset / nearestPreset / sourceFreqMhz / pllOutMhz
 // 数据：真实 CH32V003F4P6（HSI 24MHz、PLL 固定 ×2、AHB 1..256、APB2 1/2/4/8/16、APB1 固定 1）
 import { describe, it, expect } from 'vitest'
-import type { ClockConfig } from '../src/types'
+import type { ClockConfig } from '@/model/types'
 import {
   computeClock,
   validateClock,
@@ -13,8 +13,8 @@ import {
   nearestPreset,
   sourceFreqMhz,
   pllOutMhz,
-} from '../src/lib/clock'
-import { getDeviceData } from '../src/data/device'
+} from '@/model/clock'
+import { getDeviceData } from '@/model/device'
 
 const spec = getDeviceData('CH32V003F4P6').clock
 

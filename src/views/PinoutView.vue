@@ -2,14 +2,14 @@
 // Pinout 视图：页头 + 工具栏 + 分段控件 + 封装图/表格 + Detail view + Code preview
 import { computed, ref } from 'vue'
 import { Document, RefreshLeft, Search, Download } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
+import { useProjectStore } from '@/controllers/project'
 import PackageCanvas from '../components/PackageCanvas.vue'
 import PinTable from '../components/PinTable.vue'
 import PinConfigPanel from '../components/PinConfigPanel.vue'
 import ConflictsPanel from '../components/ConflictsPanel.vue'
 import CodePreviewPanel from '../components/CodePreviewPanel.vue'
 import CodegenDialog from '../components/CodegenDialog.vue'
-import { usePinOverwrite, clearUndo } from '../lib/pinOverwrite'
+import { usePinOverwrite, clearUndo } from '@/model/pins/pinOverwrite'
 
 const store = useProjectStore()
 const { undo } = usePinOverwrite()

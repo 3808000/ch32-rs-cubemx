@@ -2,8 +2,8 @@
 // Quick menu（§8.6）：右侧浮出目录树（分类 → 实例），点击 scrollIntoView 定位卡片。
 import { computed } from 'vue'
 import { Close } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { derivePeripheralUsage } from '../lib/peripherals'
+import { useProjectStore } from '@/controllers/project'
+import { derivePeripheralUsage } from '@/model/peripherals'
 import { derivePeriCategories } from './PeripheralList.vue'
 import { cardDomId } from './PeripheralConfigCard.vue'
 

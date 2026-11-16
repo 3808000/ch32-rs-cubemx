@@ -45,10 +45,10 @@ export function planActivationPins(kind: PeriKind, id: string, roles: Record<str
 // Parameter Settings 按数据层 params spec 渲染；remap 下拉切换时重分配 AF 引脚（走覆盖确认）；
 // 引脚分配状态行缺失标黄；启用但缺引脚时显示 store.conflicts 中该外设的警告。
 import { computed, inject } from 'vue'
-import type { AdcChannel, ParamSpec } from '../types'
-import { useProjectStore } from '../stores/project'
-import { usePinOverwrite } from '../lib/pinOverwrite'
-import { derivePeripheralUsage } from '../lib/peripherals'
+import type { AdcChannel, ParamSpec } from '@/model/types'
+import { useProjectStore } from '@/controllers/project'
+import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import { derivePeripheralUsage } from '@/model/peripherals'
 import Card from './common/Card.vue'
 import CollapsiblePanel from './common/CollapsiblePanel.vue'
 import StatusBadge from './common/StatusBadge.vue'

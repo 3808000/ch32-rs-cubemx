@@ -1,6 +1,6 @@
 // 时钟核心：频率链计算 / 校验 / PLL 求解 / 预设匹配。
 // 完全数据驱动：所有芯片差异来自 ClockData，禁止按芯片名分支。
-import type { ClockConfig, ClockData, ClockFrequencies, ClockIssue, ClockPreset } from '../../types'
+import type { ClockConfig, ClockData, ClockFrequencies, ClockIssue, ClockPreset } from '@/model/types'
 
 /** 取时钟源频率（MHz）。PLL 源返回 null（需先算 pllIn）。 */
 export function sourceFreqMhz(spec: ClockData, sourceId: string, cfg: ClockConfig): number | null {

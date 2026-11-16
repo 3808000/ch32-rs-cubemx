@@ -3,8 +3,8 @@
 // 分组操作走 lib/groups 纯函数，结果整体写回 store.groups。
 import { computed, reactive, ref } from 'vue'
 import { CollectionTag, Delete, Plus } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { addToGroup, createGroup, GROUP_COLORS, removeFromGroup } from '../lib/groups'
+import { useProjectStore } from '@/controllers/project'
+import { addToGroup, createGroup, GROUP_COLORS, removeFromGroup } from '@/model/pins/groups'
 import EmptyState from './common/EmptyState.vue'
 
 const store = useProjectStore()

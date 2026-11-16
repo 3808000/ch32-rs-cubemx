@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 左侧图标栏：56px 深藏青底，当前模块黄色方块高亮，底部帮助/设置
 import { HomeFilled, Cpu, Timer, Connection, QuestionFilled, Setting } from '@element-plus/icons-vue'
-import { useProjectStore, type ViewId } from '../stores/project'
+import { useProjectStore, type ViewId } from '@/controllers/project'
 
 const store = useProjectStore()
 const emit = defineEmits<{ (e: 'action', key: string): void }>()

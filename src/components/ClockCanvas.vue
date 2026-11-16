@@ -4,8 +4,8 @@
 // 控件弹层 Teleport 到 body（fixed 定位），避免被画布 overflow:hidden 裁剪。
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ZoomIn, ZoomOut, FullScreen } from '@element-plus/icons-vue'
-import type { ClockNodeControl, ClockTreeNode, ClockTreeLayout } from '../lib/clock/tree'
-import { formatMhz } from '../lib/clock/tree'
+import type { ClockNodeControl, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
+import { formatMhz } from '@/model/clock/tree'
 
 const props = defineProps<{
   layout: ClockTreeLayout

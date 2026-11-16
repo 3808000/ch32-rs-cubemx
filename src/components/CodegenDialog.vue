@@ -3,11 +3,11 @@
 import { computed, reactive, ref } from 'vue'
 import JSZip from 'jszip'
 import { Download, FolderOpened } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { generateProject } from '../lib/codegen'
-import { downloadProjectFile } from '../lib/projectFile'
-import { isDesktopApp, pickFolderNative, saveFileNative, writeFolderNative } from '../lib/desktop'
-import { DEFAULT_SELECTION, type CodegenSelection, type GeneratedFile } from '../types'
+import { useProjectStore } from '@/controllers/project'
+import { generateProject } from '@/model/codegen'
+import { downloadProjectFile } from '@/services/projectFile'
+import { isDesktopApp, pickFolderNative, saveFileNative, writeFolderNative } from '@/services/desktop'
+import { DEFAULT_SELECTION, type CodegenSelection, type GeneratedFile } from '@/model/types'
 
 const store = useProjectStore()
 const visible = defineModel<boolean>({ default: false })

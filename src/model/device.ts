@@ -9,7 +9,7 @@ import type {
   PeripheralsData,
   RemapData,
   RemapEntry,
-} from '../types'
+} from '@/model/types'
 
 import v003chip from '../../data/devices/ch32v003f4p6/chip.json'
 import v003remap from '../../data/devices/ch32v003f4p6/remap.json'

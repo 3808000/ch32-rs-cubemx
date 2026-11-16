@@ -2,10 +2,10 @@
 // 时钟详情面板（右侧 360px）：选中节点参数控件 + 问题列表 + 预设快捷 + 目标频率解算。
 // 修改即 store.setClock(mergeClockConfig(spec, {...cfg, ...patch}))。
 import { computed, ref } from 'vue'
-import { useProjectStore } from '../stores/project'
-import { matchPreset, mergeClockConfig, solvePll, validateClock } from '../lib/clock'
-import type { PllCandidate } from '../lib/clock'
-import type { ClockConfig, ClockPreset } from '../types'
+import { useProjectStore } from '@/controllers/project'
+import { matchPreset, mergeClockConfig, solvePll, validateClock } from '@/model/clock'
+import type { PllCandidate } from '@/model/clock'
+import type { ClockConfig, ClockPreset } from '@/model/types'
 
 const props = defineProps<{ nodeId: string | null }>()
 const emit = defineEmits<{ (e: 'focus', nodeId: string): void }>()

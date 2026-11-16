@@ -1,7 +1,7 @@
 <script lang="ts">
 // 倾斜角度 / 画布尺寸 / 引脚文本的纯函数：随组件导出，供单元测试直接验证。
 // 组件渲染始终以 rotation=0 的基础布局为准，旋转交给 CSS transform（整体刚体旋转，文字随转）。
-import type { ChipPin } from '../types'
+import type { ChipPin } from '@/model/types'
 
 export const TILT_STEP = 45
 
@@ -80,8 +80,8 @@ export function pinOuterText(pin: ChipPin, a: { label?: string; function?: strin
 // 主体轮廓/引脚胶囊/胶囊内引脚名/外置标签全部随转（每次 −45°，首次读数 315°），
 // 画布为容纳对角线的最小正方形。胶囊内显示引脚名（quad 顶/底竖排），序号只在浮卡/表格。
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import type { ChipData, Conflict, PinAssignment } from '../types'
-import { computePackageGeometry, pinColors, type PinVisualState } from '../lib/packageSvg'
+import type { ChipData, Conflict, PinAssignment } from '@/model/types'
+import { computePackageGeometry, pinColors, type PinVisualState } from '@/model/package'
 import { RefreshRight, ZoomIn, ZoomOut, FullScreen, Pointer, Rank, Monitor } from '@element-plus/icons-vue'
 
 const props = defineProps<{

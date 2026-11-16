@@ -1,9 +1,9 @@
 // 外设实例推导单元测试：derivePeripheralUsage / enabledUsage。
 // 数据：真实 CH32V003F4P6（USART1 四档、SPI1 两档、I2C1 三档、ADC1 八通道）。
 import { describe, it, expect } from 'vitest'
-import type { PinAssignment, PinMode, ProjectConfig } from '../src/types'
-import { derivePeripheralUsage, enabledUsage } from '../src/lib/peripherals'
-import { getDeviceData } from '../src/data/device'
+import type { PinAssignment, PinMode, ProjectConfig } from '@/model/types'
+import { derivePeripheralUsage, enabledUsage } from '@/model/peripherals'
+import { getDeviceData } from '@/model/device'
 
 const data = getDeviceData('CH32V003F4P6')
 

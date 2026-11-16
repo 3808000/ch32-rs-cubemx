@@ -10,14 +10,14 @@ import type {
   GeneratedFile,
   PinAssignment,
   ProjectConfig,
-} from '../../types'
-import { DEFAULT_SELECTION } from '../../types'
-import { checkConflicts, labelToIdent } from '../conflicts'
-import { computeClock, matchPreset, mergeClockConfig } from '../clock'
-import { derivePeripheralUsage, enabledUsage } from '../peripherals'
-import type { PeripheralUsage } from '../peripherals'
-import { HAL_GIT, HAL_REV } from './halRev'
-import * as T from './templates'
+} from '@/model/types'
+import { DEFAULT_SELECTION } from '@/model/types'
+import { checkConflicts, labelToIdent } from '@/model/conflicts'
+import { computeClock, matchPreset, mergeClockConfig } from '@/model/clock'
+import { derivePeripheralUsage, enabledUsage } from '@/model/peripherals'
+import type { PeripheralUsage } from '@/model/peripherals'
+import { HAL_GIT, HAL_REV } from '@/model/codegen/halRev'
+import * as T from '@/model/codegen/templates'
 
 // ---------- EJS 编译缓存（同一模板字符串只编译一次） ----------
 

@@ -1,8 +1,8 @@
 // 冲突检查：提示词 §7 全部规则。纯函数，无芯片名分支。
 // checkConflicts(config, deviceData, unlocked?) → Conflict[]
-import type { Conflict, DeviceData, ProjectConfig } from '../../types'
-import { computeClock, nearestPreset, validateClock } from '../clock'
-import { categoryOfPeripheral, peripheralOfSignal, remapValuesFor } from '../../data/device'
+import type { Conflict, DeviceData, ProjectConfig } from '@/model/types'
+import { computeClock, nearestPreset, validateClock } from '@/model/clock'
+import { categoryOfPeripheral, peripheralOfSignal, remapValuesFor } from '@/model/device'
 
 /** 标签 → Rust 标识符（snake_case），用于重名判定 */
 export function labelToIdent(label: string): string {

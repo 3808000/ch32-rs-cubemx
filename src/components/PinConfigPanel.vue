@@ -2,10 +2,10 @@
 // 引脚配置面板（右侧 Detail view）：模式/参数/信号/remap/标签/EXTI。
 import { computed } from 'vue'
 import { Delete, Unlock } from '@element-plus/icons-vue'
-import { useProjectStore } from '../stores/project'
-import { remapsOfPin, remapValuesFor } from '../data/device'
-import { usePinOverwrite } from '../lib/pinOverwrite'
-import type { PinMode } from '../types'
+import { useProjectStore } from '@/controllers/project'
+import { remapsOfPin, remapValuesFor } from '@/model/device'
+import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import type { PinMode } from '@/model/types'
 
 const store = useProjectStore()
 const { requestOverwrite } = usePinOverwrite()

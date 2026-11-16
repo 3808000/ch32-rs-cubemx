@@ -2,11 +2,11 @@
 // 由 scripts/verify-build.mjs 调用：npx vite-node scripts/verify-build-entry.ts -- --chip CH32V003F4P6 --out <dir>
 import fs from 'node:fs'
 import path from 'node:path'
-import { generateProject } from '../src/lib/codegen/index'
-import { getDeviceData } from '../src/data/device'
-import { mergeClockConfig } from '../src/lib/clock/index'
-import type { PinAssignment, ProjectConfig } from '../src/types'
-import { HAL_REV } from '../src/lib/codegen/halRev'
+import { generateProject } from '@/model/codegen'
+import { getDeviceData } from '@/model/device'
+import { mergeClockConfig } from '@/model/clock'
+import type { PinAssignment, ProjectConfig } from '@/model/types'
+import { HAL_REV } from '@/model/codegen/halRev'
 
 function argOf(name: string, fallback: string): string {
   const i = process.argv.indexOf(name)

@@ -1,8 +1,8 @@
 // 外设使用归并单元测试：pinUsageSummary（引脚 → 驱动占用汇总）。
 import { describe, it, expect } from 'vitest'
-import type { PinAssignment, ProjectConfig } from '../src/types'
-import { pinUsageSummary } from '../src/lib/usage'
-import { getDeviceData } from '../src/data/device'
+import type { PinAssignment, ProjectConfig } from '@/model/types'
+import { pinUsageSummary } from '@/model/pins/usage'
+import { getDeviceData } from '@/model/device'
 
 const data = getDeviceData('CH32V003F4P6')
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 冲突面板：按 error/warning 分组，点击定位引脚
 import { computed } from 'vue'
-import { useProjectStore } from '../stores/project'
+import { useProjectStore } from '@/controllers/project'
 import { CircleCloseFilled, WarningFilled } from '@element-plus/icons-vue'
 
 const store = useProjectStore()

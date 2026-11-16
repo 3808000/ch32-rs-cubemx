@@ -3,11 +3,11 @@
 // 分配走 requestOverwrite 确认，写 INPUT 模式 + exti params。
 import { computed } from 'vue'
 import { Bell } from '@element-plus/icons-vue'
-import type { ExtiEdge } from '../types'
-import { useProjectStore } from '../stores/project'
-import { extiLines } from '../lib/allocation'
-import type { ExtiLineOption } from '../lib/allocation'
-import { usePinOverwrite } from '../lib/pinOverwrite'
+import type { ExtiEdge } from '@/model/types'
+import { useProjectStore } from '@/controllers/project'
+import { extiLines } from '@/model/pins/allocation'
+import type { ExtiLineOption } from '@/model/pins/allocation'
+import { usePinOverwrite } from '@/model/pins/pinOverwrite'
 import EmptyState from './common/EmptyState.vue'
 
 const store = useProjectStore()

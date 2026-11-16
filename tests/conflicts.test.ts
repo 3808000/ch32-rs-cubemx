@@ -1,9 +1,9 @@
 // 冲突检查单元测试：20 条规则，每条至少一正（规则触发）一反（规则不触发）。
 // 数据：真实 CH32V003F4P6；个别规则用合成 DeviceData（SRAM / DMA / unsupportedFeatures）。
 import { describe, it, expect } from 'vitest'
-import type { DeviceData, PinAssignment, PinMode, ProjectConfig, PeripheralState } from '../src/types'
-import { checkConflicts, labelToIdent } from '../src/lib/conflicts'
-import { getDeviceData } from '../src/data/device'
+import type { DeviceData, PinAssignment, PinMode, ProjectConfig, PeripheralState } from '@/model/types'
+import { checkConflicts, labelToIdent } from '@/model/conflicts'
+import { getDeviceData } from '@/model/device'
 
 const data = getDeviceData('CH32V003F4P6')
 

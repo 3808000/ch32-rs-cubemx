@@ -1,7 +1,7 @@
 // 时钟树 SVG 布局（纯函数）：输入 ClockData + ClockConfig + ClockFrequencies，
 // 输出节点 / 正交连线 / 分组容器布局。列位置完全由数据推导，禁止按芯片名分支。
-import type { ClockConfig, ClockData, ClockFrequencies, ClockIssue } from '../../types'
-import { pllOutMhz, sourceFreqMhz } from './index'
+import type { ClockConfig, ClockData, ClockFrequencies, ClockIssue } from '@/model/types'
+import { pllOutMhz, sourceFreqMhz } from '@/model/clock'
 
 export interface ClockPt {
   x: number

@@ -8,10 +8,10 @@ import type {
   PinAssignment,
   PinGroup,
   ProjectConfig,
-} from '../types'
-import { hasDevice } from '../data/device'
-import { HAL_REV } from './codegen/halRev'
-import { isDesktopApp, saveFileNative } from './desktop'
+} from '@/model/types'
+import { hasDevice } from '@/model/device'
+import { HAL_REV } from '@/model/codegen/halRev'
+import { isDesktopApp, saveFileNative } from '@/services/desktop'
 
 export type ProjectFileParseResult = { config: ProjectConfig } | { error: string }
 

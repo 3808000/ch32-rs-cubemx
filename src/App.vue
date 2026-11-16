@@ -10,9 +10,9 @@ import HomeView from './views/HomeView.vue'
 import PinoutView from './views/PinoutView.vue'
 import ClockView from './views/ClockView.vue'
 import PeripheralsView from './views/PeripheralsView.vue'
-import { useProjectStore } from './stores/project'
-import { HAL_REV } from './lib/codegen/halRev'
-import { parseProjectFile, readFileAsText } from './lib/projectFile'
+import { useProjectStore } from '@/controllers/project'
+import { HAL_REV } from '@/model/codegen/halRev'
+import { parseProjectFile, readFileAsText } from '@/services/projectFile'
 
 const store = useProjectStore()
 const showNotifications = ref(false)

@@ -1,7 +1,7 @@
 // 外设实例推导：从 AF/ANALOG 引脚配置 + 显式启用状态归并出外设使用情况。
 // 契约：derivePeripheralUsage(config, data) → PeripheralUsage[]（codegen 与 UI 共用）。
-import type { DeviceData, PeripheralState, ProjectConfig } from '../../types'
-import { categoryOfPeripheral } from '../../data/device'
+import type { DeviceData, PeripheralState, ProjectConfig } from '@/model/types'
+import { categoryOfPeripheral } from '@/model/device'
 
 export interface PeripheralPinUsage {
   role: string // 'tx' | 'rx' | 'sck' | ... | 'ADC_IN0'

@@ -9,11 +9,11 @@ import type {
   PinMode,
   PinParams,
   ProjectConfig,
-} from '../types'
-import { getDeviceData } from '../data/device'
-import { mergeClockConfig } from '../lib/clock'
-import { checkConflicts } from '../lib/conflicts'
-import { HAL_REV } from '../lib/codegen/halRev'
+} from '@/model/types'
+import { getDeviceData } from '@/model/device'
+import { mergeClockConfig } from '@/model/clock'
+import { checkConflicts } from '@/model/conflicts'
+import { HAL_REV } from '@/model/codegen/halRev'
 
 const STORAGE_KEY = 'ch32-rs-cubemx:project'
 

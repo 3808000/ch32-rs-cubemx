@@ -1,7 +1,7 @@
 // 封装图几何单元测试：dual/quad 布局、90° 步进旋转、引脚配色。
 // 数据：真实 CH32V003F4P6（dual TSSOP20，每边 10 脚）；quad 用合成数据。
 import { describe, it, expect } from 'vitest'
-import { computePackageGeometry, pinColors } from '../src/lib/packageSvg'
+import { computePackageGeometry, pinColors } from '@/model/package'
 import {
   normalizeAngle,
   normalizeSigned,
@@ -14,8 +14,8 @@ import {
   pinNameFontSize,
   pinOuterText,
 } from '../src/components/PackageCanvas.vue'
-import type { ChipData, ChipPin, PinAssignment } from '../src/types'
-import { getDeviceData } from '../src/data/device'
+import type { ChipData, ChipPin, PinAssignment } from '@/model/types'
+import { getDeviceData } from '@/model/device'
 
 const chip = getDeviceData('CH32V003F4P6').chip
 

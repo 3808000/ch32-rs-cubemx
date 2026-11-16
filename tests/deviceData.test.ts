@@ -13,7 +13,7 @@ import {
   irqByName,
   peripheralOfSignal,
   categoryOfPeripheral,
-} from '../src/data/device'
+} from '@/model/device'
 
 const data = getDeviceData('CH32V003F4P6')
 

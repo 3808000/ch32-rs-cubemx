@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // 引脚表格视图
 import { computed, ref } from 'vue'
-import { useProjectStore } from '../stores/project'
-import { remapsOfPin } from '../data/device'
+import { useProjectStore } from '@/controllers/project'
+import { remapsOfPin } from '@/model/device'
 
 const store = useProjectStore()
 const search = ref('')
