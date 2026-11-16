@@ -1,12 +1,8 @@
-// 时钟树 SVG 布局（纯函数）：输入 ClockData + ClockConfig + ClockFrequencies，
-// 输出节点 / 正交连线 / 分组容器布局。列位置完全由数据推导，禁止按芯片名分支。
+// 时钟树数据模型（纯函数）：输入 ClockData + ClockConfig + ClockFrequencies，
+// 输出节点 / 连线 / 分组容器的逻辑结构（不含画布坐标）。
+// 节点数量与取值全部来自 spec（源数量、PLL 参数、分频档位、ADC 选项、定时器域模式）。
 import type { ClockConfig, ClockData, ClockFrequencies, ClockIssue } from '@/model/types'
 import { pllOutMhz, sourceFreqMhz } from '@/model/clock'
-
-export interface ClockPt {
-  x: number
-  y: number
-}
 
 export interface ClockNodeControlOption {
   value: string | number
@@ -30,13 +26,10 @@ export interface ClockNodeControl {
   unit?: string
 }
 
-export interface ClockTreeNode {
+/** 节点逻辑内容；几何字段（x/y/w/h）由 layout 层补充。 */
+export interface ClockNodeModel {
   id: string
   label: string
-  x: number
-  y: number
-  w: number
-  h: number
   /** 输入频率（MHz），源节点为 null */
   inMhz: number | null
   /** 输出频率（MHz） */
@@ -54,60 +47,26 @@ export interface ClockTreeNode {
   hint?: string
 }
 
-export interface ClockTreeEdge {
+/** 连线逻辑内容；折线点集与标签位置由 layout 层补充。 */
+export interface ClockEdgeModel {
   id: string
   from: string
   to: string
-  /** 正交折线点集 */
-  points: ClockPt[]
   active: boolean
   label?: string
-  labelAt: ClockPt
 }
 
-export interface ClockTreeGroup {
+/** 分组容器逻辑内容；几何字段由 layout 层补充。 */
+export interface ClockGroupModel {
   id: string
   label: string
-  x: number
-  y: number
-  w: number
-  h: number
 }
 
-export interface ClockTreeLayout {
-  width: number
-  height: number
-  nodes: ClockTreeNode[]
-  edges: ClockTreeEdge[]
-  groups: ClockTreeGroup[]
+export interface ClockTreeModel {
+  nodes: ClockNodeModel[]
+  edges: ClockEdgeModel[]
+  groups: ClockGroupModel[]
 }
-
-// ---------- 布局常量（列坐标，全部相对画布原点） ----------
-
-const NODE_W = 160
-/** 节点高度需容纳：上限标签 / 频率两栏 / 节点标题 / 控件行（26px） */
-const NODE_H = 108
-/** 源列（HSI/HSE…纵向堆叠） */
-const SRC_X = 40
-const SRC_Y0 = 60
-const SRC_DY = 140 // NODE_H + 32 间距
-/** PLL 列 / SYSCLK 列 */
-const PLL_X = 280
-const SYS_X = 520
-const AHB_DY = 56 // SYSCLK 底 → AHB 顶
-const APB_DY = 60 // AHB 底 → APB 顶
-/** APB 总线行 */
-const APB1_X = 380
-const APB2_X = 680
-/** 外设列（TIM 域 / ADC） */
-const PERIPH_X = 1000
-const PERIPH_DY = 124
-/** 分组框顶部到首节点的留白（容纳分组标签） */
-const GROUP_PAD = 30
-/** 走线列：源→PLL / 源→SYSCLK 复用 / SYSCLK 复用汇流 */
-const LANE_SRC_PLL = 240
-const LANE_SRC_SYS = 260
-const LANE_MUX = 476
 
 /** 频率显示：整数不带小数点，最多 3 位小数（尾零自然截断）。 */
 export function formatMhz(v: number | null | undefined): string {
@@ -140,19 +99,13 @@ function busNode(
   div: ClockData['ahb'],
   inMhz: number,
   outMhz: number,
-  x: number,
-  y: number,
   cfg: ClockConfig,
   issues: ClockIssue[] | undefined,
-): ClockTreeNode {
+): ClockNodeModel {
   const issueLevel = issueLevelOf(issues, id)
   return {
     id,
     label,
-    x,
-    y,
-    w: NODE_W,
-    h: NODE_H,
     inMhz,
     outMhz,
     maxMhz: div.maxMhz,
@@ -170,61 +123,30 @@ function busNode(
   }
 }
 
-/** 计算连线标签位置：取最后一段的中点，水平段在上方、垂直段在右侧。 */
-function labelPos(points: ClockPt[]): ClockPt {
-  const n = points.length
-  if (n < 2) return { x: points[0]!.x + 8, y: points[0]!.y - 8 }
-  const a = points[n - 2]!
-  const b = points[n - 1]!
-  if (a.y === b.y) return { x: (a.x + b.x) / 2, y: a.y - 7 }
-  return { x: a.x + 8, y: (a.y + b.y) / 2 }
-}
-
 /**
- * 生成时钟树布局：左列时钟源 → PLL / SYSCLK 多路复用 → AHB → APB1/APB2 → 外设列（TIM 域、ADC）。
- * 节点数量与取值全部来自 spec（源数量、PLL 参数、分频档位、ADC 选项、定时器域模式）。
+ * 构建时钟树逻辑模型：左列时钟源 → PLL / SYSCLK 多路复用 → AHB → APB1/APB2 → 外设列（TIM 域、ADC）。
+ * 只负责节点 / 边的构成与取值，坐标与走线由 layout 层的 buildClockTree 补充。
  */
-export function buildClockTree(
+export function buildClockModel(
   spec: ClockData,
   cfg: ClockConfig,
   freqs: ClockFrequencies,
   issues?: ClockIssue[],
-): ClockTreeLayout {
-  const nodes: ClockTreeNode[] = []
-  const edges: ClockTreeEdge[] = []
-  const groups: ClockTreeGroup[] = []
+): ClockTreeModel {
+  const nodes: ClockNodeModel[] = []
+  const edges: ClockEdgeModel[] = []
+  const groups: ClockGroupModel[] = []
 
-  // ---------- 纵向位置推导 ----------
   const srcSpecs = spec.sources.filter((s) => !s.pll)
-  const lastBottom = SRC_Y0 + (srcSpecs.length - 1) * SRC_DY + NODE_H
-  /** SYSCLK 多路复用中心 y = 源堆叠的垂直中点 */
-  const mc = (SRC_Y0 + lastBottom) / 2
-  const pllTop = mc - NODE_H / 2
-  const sysTop = pllTop
-  const ahbY = sysTop + NODE_H + AHB_DY
-  const ahbBottom = ahbY + NODE_H
-  const apbY = ahbBottom + APB_DY
-  const apbBottom = apbY + NODE_H
-  const tim1Y = apbY + PERIPH_DY
-  const tim2Y = apbY + PERIPH_DY * 2
-  // ADC 分组框在 TIM 分组框下方留出间距，避免标签与边框重叠
-  const adcY = tim2Y + NODE_H + GROUP_PAD + 28
 
   const usePll = cfg.source === 'PLL'
   const pllSourceId = cfg.pllSource ?? spec.pll.sourceOptions[0] ?? ''
 
   // ---------- 分组容器 ----------
   groups.push(
-    {
-      id: 'g-sources',
-      label: 'Clock sources',
-      x: SRC_X - 20,
-      y: SRC_Y0 - GROUP_PAD,
-      w: NODE_W + 40,
-      h: lastBottom + 18 - (SRC_Y0 - GROUP_PAD),
-    },
-    { id: 'g-pll', label: `PLL Max ${spec.pll.outMaxMhz} MHz`, x: PLL_X - 20, y: pllTop - GROUP_PAD, w: NODE_W + 40, h: NODE_H + GROUP_PAD + 10 },
-    { id: 'g-sys', label: 'System Clock', x: SYS_X - 20, y: sysTop - GROUP_PAD, w: NODE_W + 40, h: NODE_H + GROUP_PAD + 10 },
+    { id: 'g-sources', label: 'Clock sources' },
+    { id: 'g-pll', label: `PLL Max ${spec.pll.outMaxMhz} MHz` },
+    { id: 'g-sys', label: 'System Clock' },
   )
   const timMode = spec.timerClock ?? 'apb_x2'
   const tim1Max = timMode === 'sysclk' ? spec.sysclkMaxMhz : spec.apb1.maxMhz * 2
@@ -232,34 +154,19 @@ export function buildClockTree(
   groups.push({
     id: 'g-tim',
     label: `TIM Max ${tim1Max} MHz`,
-    x: PERIPH_X - 20,
-    y: tim1Y - GROUP_PAD,
-    w: NODE_W + 40,
-    h: tim2Y + NODE_H + 18 - (tim1Y - GROUP_PAD),
   })
   groups.push({
     id: 'g-adc',
     label: spec.adc.maxMhz !== undefined ? `ADC Max ${spec.adc.maxMhz} MHz` : 'ADC',
-    x: PERIPH_X - 20,
-    y: adcY - GROUP_PAD,
-    w: NODE_W + 40,
-    h: NODE_H + GROUP_PAD + 18,
   })
 
   // ---------- 节点 ----------
-  const srcY: Record<string, number> = {}
-  srcSpecs.forEach((s, i) => {
-    const y = SRC_Y0 + i * SRC_DY
-    srcY[s.id] = y
+  for (const s of srcSpecs) {
     const out = s.hxtal ? (cfg.hxtalMhz ?? s.hxtal.default) : (s.freqMhz ?? null)
     const srcLevel = issueLevelOf(issues, s.id)
     nodes.push({
       id: s.id,
       label: s.label,
-      x: SRC_X,
-      y,
-      w: NODE_W,
-      h: NODE_H,
       inMhz: null,
       outMhz: out,
       maxMhz: null,
@@ -279,10 +186,10 @@ export function buildClockTree(
         : null,
       hint: s.hxtal ? `范围 ${s.hxtal.min}~${s.hxtal.max} MHz` : undefined,
     })
-  })
+  }
 
   // PLL（倍频下拉；数据层 fixed 时置灰）。即使当前未选用 PLL，也显示其潜在输出（置灰态），
-// 便于用户判断切到 PLL 后的频率。
+  // 便于用户判断切到 PLL 后的频率。
   const pllLabel = spec.sources.find((s) => s.pll)?.label ?? 'PLL'
   const firstParam = spec.pll.params[0]
   const pllInShown = sourceFreqMhz(spec, pllSourceId, cfg)
@@ -291,10 +198,6 @@ export function buildClockTree(
   nodes.push({
     id: 'PLL',
     label: pllLabel,
-    x: PLL_X,
-    y: pllTop,
-    w: NODE_W,
-    h: NODE_H,
     inMhz: pllInShown,
     outMhz: pllOutShown,
     maxMhz: spec.pll.outMaxMhz,
@@ -331,10 +234,6 @@ export function buildClockTree(
   nodes.push({
     id: 'SYSCLK',
     label: 'SYSCLK',
-    x: SYS_X,
-    y: sysTop,
-    w: NODE_W,
-    h: NODE_H,
     inMhz: sysIn,
     outMhz: freqs.sysclkMhz,
     maxMhz: spec.sysclkMaxMhz,
@@ -352,9 +251,9 @@ export function buildClockTree(
 
   // 总线
   nodes.push(
-    busNode('AHB', 'AHB', 'ahb', spec.ahb, freqs.sysclkMhz, freqs.hclkMhz, SYS_X, ahbY, cfg, issues),
-    busNode('APB1', 'APB1', 'apb1', spec.apb1, freqs.hclkMhz, freqs.pclk1Mhz, APB1_X, apbY, cfg, issues),
-    busNode('APB2', 'APB2', 'apb2', spec.apb2, freqs.hclkMhz, freqs.pclk2Mhz, APB2_X, apbY, cfg, issues),
+    busNode('AHB', 'AHB', 'ahb', spec.ahb, freqs.sysclkMhz, freqs.hclkMhz, cfg, issues),
+    busNode('APB1', 'APB1', 'apb1', spec.apb1, freqs.hclkMhz, freqs.pclk1Mhz, cfg, issues),
+    busNode('APB2', 'APB2', 'apb2', spec.apb2, freqs.hclkMhz, freqs.pclk2Mhz, cfg, issues),
   )
 
   // 定时器域（模式由 spec.timerClock 决定：sysclk 直通 / APB 分频>1 时 ×2）
@@ -363,10 +262,6 @@ export function buildClockTree(
   nodes.push({
     id: 'TIM1',
     label: 'TIM1',
-    x: PERIPH_X,
-    y: tim1Y,
-    w: NODE_W,
-    h: NODE_H,
     inMhz: freqs.pclk1Mhz,
     outMhz: freqs.pclk1TimMhz,
     maxMhz: tim1Max,
@@ -380,10 +275,6 @@ export function buildClockTree(
   nodes.push({
     id: 'TIM2',
     label: 'TIM2',
-    x: PERIPH_X,
-    y: tim2Y,
-    w: NODE_W,
-    h: NODE_H,
     inMhz: freqs.pclk2Mhz,
     outMhz: freqs.pclk2TimMhz,
     maxMhz: tim2Max,
@@ -401,10 +292,6 @@ export function buildClockTree(
   nodes.push({
     id: 'ADC',
     label: 'ADC',
-    x: PERIPH_X,
-    y: adcY,
-    w: NODE_W,
-    h: NODE_H,
     inMhz: adcBase,
     outMhz: freqs.adcMhz,
     maxMhz: spec.adc.maxMhz ?? null,
@@ -422,88 +309,25 @@ export function buildClockTree(
   })
 
   // ---------- 连线（正交折线） ----------
-  const edge = (id: string, from: string, to: string, points: ClockPt[], active: boolean, label?: string) => {
-    edges.push({ id, from, to, points, active, label, labelAt: labelPos(points) })
+  const edge = (id: string, from: string, to: string, active: boolean, label?: string) => {
+    edges.push({ id, from, to, active, label })
   }
-  const srcRight = SRC_X + NODE_W
-  // 复用线走廊：PLL 分组框上方（避免压住分组标签与边框）
-  const corrY = pllTop - GROUP_PAD - 14
 
   for (const s of srcSpecs) {
-    const y = srcY[s.id]!
-    const eyPll = y + Math.round(NODE_H * 0.54) // 下出口：馈 PLL
-    const eySys = y + Math.round(NODE_H * 0.26) // 上出口：直入 SYSCLK
-    edge(
-      `src-${s.id}-pll`,
-      s.id,
-      'PLL',
-      [
-        { x: srcRight, y: eyPll },
-        { x: LANE_SRC_PLL, y: eyPll },
-        { x: LANE_SRC_PLL, y: mc },
-        { x: PLL_X, y: mc },
-      ],
-      usePll && pllSourceId === s.id,
-    )
-    edge(
-      `src-${s.id}-sys`,
-      s.id,
-      'SYSCLK',
-      [
-        { x: srcRight, y: eySys },
-        { x: LANE_SRC_SYS, y: eySys },
-        { x: LANE_SRC_SYS, y: corrY },
-        { x: LANE_MUX, y: corrY },
-        { x: LANE_MUX, y: mc },
-        { x: SYS_X, y: mc },
-      ],
-      cfg.source === s.id,
-    )
+    edge(`src-${s.id}-pll`, s.id, 'PLL', usePll && pllSourceId === s.id)
+    edge(`src-${s.id}-sys`, s.id, 'SYSCLK', cfg.source === s.id)
   }
-  edge('pll-sys', 'PLL', 'SYSCLK', [{ x: PLL_X + NODE_W, y: mc }, { x: SYS_X, y: mc }], usePll)
+  edge('pll-sys', 'PLL', 'SYSCLK', usePll)
 
-  const ahbCx = SYS_X + NODE_W / 2
-  edge('sys-ahb', 'SYSCLK', 'AHB', [{ x: ahbCx, y: sysTop + NODE_H }, { x: ahbCx, y: ahbY }], true, `÷${cfg.ahb}`)
-  const busMidY = ahbBottom + APB_DY / 2
-  edge(
-    'ahb-apb1',
-    'AHB',
-    'APB1',
-    [
-      { x: SYS_X + 40, y: ahbBottom },
-      { x: SYS_X + 40, y: busMidY },
-      { x: APB1_X + NODE_W / 2, y: busMidY },
-      { x: APB1_X + NODE_W / 2, y: apbY },
-    ],
-    true,
-    `÷${cfg.apb1}`,
-  )
-  edge(
-    'ahb-apb2',
-    'AHB',
-    'APB2',
-    [
-      { x: SYS_X + NODE_W - 40, y: ahbBottom },
-      { x: SYS_X + NODE_W - 40, y: busMidY },
-      { x: APB2_X + NODE_W / 2, y: busMidY },
-      { x: APB2_X + NODE_W / 2, y: apbY },
-    ],
-    true,
-    `÷${cfg.apb2}`,
-  )
+  edge('sys-ahb', 'SYSCLK', 'AHB', true, `÷${cfg.ahb}`)
+  edge('ahb-apb1', 'AHB', 'APB1', true, `÷${cfg.apb1}`)
+  edge('ahb-apb2', 'AHB', 'APB2', true, `÷${cfg.apb2}`)
 
   // 定时器域：APB 底部出口（错开 x 避免同点重叠）
-  const tim1Cy = tim1Y + NODE_H / 2
-  const tim2Cy = tim2Y + NODE_H / 2
   edge(
     'apb1-tim1',
     'APB1',
     'TIM1',
-    [
-      { x: APB1_X + NODE_W / 2, y: apbBottom },
-      { x: APB1_X + NODE_W / 2, y: tim1Cy },
-      { x: PERIPH_X, y: tim1Cy },
-    ],
     true,
     timMode === 'sysclk' ? 'SYSCLK' : cfg.apb1 > 1 ? '×2' : '×1',
   )
@@ -511,42 +335,21 @@ export function buildClockTree(
     'apb2-tim2',
     'APB2',
     'TIM2',
-    [
-      { x: APB2_X + 40, y: apbBottom },
-      { x: APB2_X + 40, y: tim2Cy },
-      { x: PERIPH_X, y: tim2Cy },
-    ],
     true,
     timMode === 'sysclk' ? 'SYSCLK' : cfg.apb2 > 1 ? '×2' : '×1',
   )
 
   // ADC：按数据里的时钟源选出发节点与走线
-  const adcCy = adcY + NODE_H / 2
   const adcLabel = `÷${adcOpt.div}`
   if (adcOpt.source === 'AHB') {
-    edge('ahb-adc', 'AHB', 'ADC', [
-      { x: SYS_X + NODE_W, y: ahbY + NODE_H / 2 },
-      { x: PERIPH_X - 80, y: ahbY + NODE_H / 2 },
-      { x: PERIPH_X - 80, y: adcCy },
-      { x: PERIPH_X, y: adcCy },
-    ], true, adcLabel)
+    edge('ahb-adc', 'AHB', 'ADC', true, adcLabel)
   } else if (adcOpt.source === 'APB1') {
-    edge('apb1-adc', 'APB1', 'ADC', [
-      { x: APB1_X + 120, y: apbBottom },
-      { x: APB1_X + 120, y: adcCy },
-      { x: PERIPH_X, y: adcCy },
-    ], true, adcLabel)
+    edge('apb1-adc', 'APB1', 'ADC', true, adcLabel)
   } else {
-    edge('apb2-adc', 'APB2', 'ADC', [
-      { x: APB2_X + 120, y: apbBottom },
-      { x: APB2_X + 120, y: adcCy },
-      { x: PERIPH_X, y: adcCy },
-    ], true, adcLabel)
+    edge('apb2-adc', 'APB2', 'ADC', true, adcLabel)
   }
 
-  const width = PERIPH_X + NODE_W + 40
-  const height = adcY + NODE_H + 36
-  return { width, height, nodes, edges, groups }
+  return { nodes, edges, groups }
 }
 
 /** 应用画布/详情控件修改，返回新的 ClockConfig（纯函数）。 */
