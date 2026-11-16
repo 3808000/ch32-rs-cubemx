@@ -12,6 +12,8 @@ import type { FileGroup } from '@/model/types'
 export function classifyFileGroup(path: string): FileGroup {
   const p = path.replace(/\\/g, '/')
   if (p.startsWith('vendor/')) return 'pack'
+  // xtask 是生成的构建辅助工具（非用户代码），归 project_file（生成一次）
+  if (p.startsWith('xtask/')) return 'project_file'
   if (/(^|\/)src\/main\.rs$/.test(p)) return 'user_code'
   if (p.includes('src/generated/')) return 'generated'
   return 'project_file'
