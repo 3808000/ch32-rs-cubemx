@@ -25,8 +25,9 @@ const store = useProjectStore()
 // ---- General（M9：名称与存储位置创建时设定，此处只读） ----
 const chip = computed(() => store.deviceData.chip)
 const toolchain = computed(() => {
-  // M11：ch58x 工具链随运行时档（embassy 需 nightly：impl_trait_in_assoc_type），blocking 用 stable
-  if (isCh58x.value) return runtime.value === 'embassy' ? 'nightly' : 'stable'
+  // M11：ch58x 工具链随运行时档（embassy 需 nightly：impl_trait_in_assoc_type），blocking 用 stable；
+  // M13：BLE 档固定 busy-poll（stable，不用 embassy 执行器/nightly feature）
+  if (isCh58x.value) return bleEnabled.value ? 'stable' : runtime.value === 'embassy' ? 'nightly' : 'stable'
   return chip.value.nightly ? 'nightly + rust-src' : 'stable'
 })
 /** M11：HAL rev 显示后端感知——ch58x 工程生成物用 CH58X_HAL_REV（config.hal.rev 是 ch32 口径，不适用）。 */
@@ -56,9 +57,10 @@ const bleNameTooLong = computed(
 function setRuntime(kind: RuntimeKind) {
   if (kind === 'rtic') return
   if (kind === 'embassy' && !embassySupported.value) return
-  // BLE 互锁（M12）：BLE 协议栈依赖 embassy 执行器，BLE 开启时不允许切回 blocking
+  // BLE 互锁（M12/M13）：BLE 档使用 busy-poll 运行时，blocking/embassy 切换不影响 BLE 生成；
+  // 仍禁止切回 blocking 以免 store 状态与生成物语义不一致（store 互锁 ble⇒embassy 保持不变）。
   if (kind === 'blocking' && bleEnabled.value) {
-    store.notify('BLE 已启用：协议栈需 embassy 运行时，无法切换到 blocking', 'warning')
+    store.notify('BLE 档使用 busy-poll 运行时：blocking/embassy 选择不影响 BLE 生成', 'warning')
     return
   }
   store.setFeatures({ embassy: kind === 'embassy' })
@@ -92,8 +94,8 @@ function setBleEnabled(v: boolean) {
   store.setFeatures({ ble: v, ...(v ? { embassy: true } : {}) })
   store.notify(
     v
-      ? 'BLE 已启用：运行时已切换为 embassy（需 LSE 32.768kHz 晶振；PA10/PA11 不可再用）'
-      : 'BLE 已停用（embassy 运行时保持不变）',
+      ? 'BLE 已启用：使用 busy-poll 运行时（stable）；32K 低频域走 LSI 缺省（无 LSE 晶振也能跑，库内部回退）'
+      : 'BLE 已停用（运行时设置保持不变）',
     v ? 'warning' : 'info',
   )
 }
@@ -343,7 +345,7 @@ function onGenerate() {
               <div class="ps-label">Rust toolchain</div>
               <div class="ps-value">
                 {{ toolchain }}
-                <span class="ps-note">{{ isCh58x ? (runtime === 'embassy' ? 'embassy 档需 nightly（impl_trait_in_assoc_type）' : '标准 rustup target') : (chip.nightly ? 'build-std=core（自定义 target）' : '稳定版 target') }}</span>
+                <span class="ps-note">{{ isCh58x ? (bleEnabled ? 'BLE 档固定 stable（busy-poll，无 nightly feature）' : runtime === 'embassy' ? 'embassy 档需 nightly（impl_trait_in_assoc_type）' : '标准 rustup target') : (chip.nightly ? 'build-std=core（自定义 target）' : '稳定版 target') }}</span>
               </div>
             </div>
             <div class="ps-row">
@@ -368,20 +370,27 @@ function onGenerate() {
             <div class="ps-row">
               <div class="ps-label">运行时</div>
               <div class="ps-value ps-runtime-value">
-                <el-radio-group :model-value="runtime" size="small" @change="setRuntime($event as RuntimeKind)">
+                <el-radio-group
+                  :model-value="runtime"
+                  size="small"
+                  :disabled="bleEnabled"
+                  @change="setRuntime($event as RuntimeKind)"
+                >
                   <el-radio-button value="blocking" :disabled="bleEnabled">blocking（阻塞）</el-radio-button>
-                  <el-radio-button value="embassy" :disabled="!embassySupported">embassy（async）</el-radio-button>
+                  <el-radio-button value="embassy" :disabled="bleEnabled || !embassySupported">embassy（async）</el-radio-button>
                   <el-radio-button value="rtic" disabled>rtic</el-radio-button>
                 </el-radio-group>
                 <span class="ps-note">
                   {{
-                    runtime === 'embassy'
-                      ? isCh58x
-                        ? '生成 embassy 异步工程：GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 按阻塞 API 初始化'
-                        : '生成 embassy 异步工程：main.rs 使用 #[embassy_executor::main]，外设按 async API 初始化'
-                      : isCh58x
-                        ? '生成阻塞式工程：main.rs 使用 #[qingke_rt::entry]，外设按 blocking API 初始化'
-                        : '生成阻塞式工程：main.rs 使用 #[entry]，外设按 blocking API 初始化'
+                    isCh58x && bleEnabled
+                      ? 'BLE 档：busy-poll 运行时（stable），main.rs 为 #[qingke_rt::entry] + csrs mstatus,8；不初始化 embassy 执行器/Timer'
+                      : runtime === 'embassy'
+                        ? isCh58x
+                          ? '生成 embassy 异步工程：GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 按阻塞 API 初始化'
+                          : '生成 embassy 异步工程：main.rs 使用 #[embassy_executor::main]，外设按 async API 初始化'
+                        : isCh58x
+                          ? '生成阻塞式工程：main.rs 使用 #[qingke_rt::entry]，外设按 blocking API 初始化'
+                          : '生成阻塞式工程：main.rs 使用 #[entry]，外设按 blocking API 初始化'
                   }}
                 </span>
               </div>
@@ -398,7 +407,7 @@ function onGenerate() {
               <div class="ps-label"></div>
               <div class="ps-value">
                 <span class="ps-note ps-runtime-warn">
-                  BLE 已启用：协议栈需要 embassy 运行时（embassy_sync + 异步执行器）与 LSE 32.768kHz 晶振，blocking 已禁用。
+                  BLE 档使用 busy-poll 运行时（stable）：绕开上游 ch58x-hal embassy 时间驱动与 qingke-rt 启动缺陷；GPIO 异步等待本期 BLE 档不提供。
                 </span>
               </div>
             </div>
@@ -439,13 +448,14 @@ function onGenerate() {
               <div class="ps-label">启用 BLE</div>
               <div class="ps-value">
                 <el-switch :model-value="bleEnabled" size="small" @change="setBleEnabled($event === true)" />
-                <span class="ps-note">开启自动切换 embassy；生成 src/generated/ble.rs 与启动代码</span>
+                <span class="ps-note">开启后使用 busy-poll 运行时（stable）；生成 src/generated/ble.rs 与启动代码</span>
               </div>
             </div>
           </div>
           <p class="ps-note ps-ble-note">
-            LSE 32.768kHz 晶振由 BLE 强制使用（HAL SelRTCClock 硬编码，LSI 不可用）：PA10/PA11（X32KI/X32KO）被协议栈占用，不可再分配。
-            固定 ATT MTU 23、TX 6dBm、无绑定存储（SNV）；配对策略与复杂 GATT 表留在用户区。详见 README「CH58x BLE」与契约文档。
+            BLE 档使用 busy-poll 运行时（stable）：绕开上游 ch58x-hal embassy 时间驱动（SysTick 空闲停计）与 qingke-rt 启动缺陷（mstatus.MIE=0）。
+            32K 低频域走 LSI 缺省（不生成 enable_lse）：无 32.768kHz 晶振的板子也能启动，库内部会回退 LSI。PA10/PA11（X32KI/X32KO）仍按 M12 契约保留不可分配。
+            固定 ATT MTU 23、TX 6dBm、无绑定存储（SNV）；GPIO 异步等待本期 BLE 档不提供。详见 README「BLE 协议栈」与契约文档。
           </p>
           <div class="ps-rows">
             <div class="ps-row">

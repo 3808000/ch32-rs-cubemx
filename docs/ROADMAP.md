@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-18）：M1–M12 十二个里程碑核心项全部完成并推送。** 测试 380→1222，39 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（M12 起六路：V003/V203/H417/CH582M blocking/embassy/BLE）/ 浏览器验收。剩余为低优先 P2 与需硬件操作的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-17 深夜）：M1–M13 十三个里程碑核心项全部完成并推送。** 测试 380→1236，40 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（六路：V003/V203/H417/CH582M blocking/embassy/BLE）/ 浏览器验收；M13 追加实机射频闭环（CH582M 广播被 bluez 扫描确认）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -238,6 +238,23 @@
 **M12 验收门禁**：1222 测试；tsc/eslint/validate/build；verify 六路；浏览器 BLE 全链路；ch32 快照不变；推送。
 
 **暂缓/待核实**：central 角色（上游无示例）；配对策略/复杂 GATT 表/扫描过滤留用户区；MTU>23/TX 功率配置（HAL 硬编码）；CH582M 两线调试开启（用户硬件操作后补实机 attach/烧录核实）；BLE 实机射频验证（需调试口或 ISP 烧录后观察广播）。
+
+---
+
+## M13（v0.14）CH58x BLE 实机化 —— 「从编译通过到射频上天」 ✅ 已完成（2026-11-17 深夜）
+
+> **落地状态**：Rust 生成的 BLE 固件在 CH582M 实机广播成功（bluez 扫到 `CH582M` @ 出厂 MAC 0C:3D:5E:A6:62:94）。1236 测试全绿；verify 六路含 --ble（stable）；官方 C hex 对照实验分离硬件/软件根因。四个实机根因全部生成器侧修复（未改 HAL 源码）：MIE 启动补位、busy-poll 运行时（绕 embassy SysTick/WFI 缺陷）、LSI 缺省（绕强制 LSE）、广播 flags 补 GENERAL discoverable 位（bluez 过滤根因，最后一片拼图）。
+> **证据链**：HAL notes §14.2bis/ter（寄存器级诊断：PFIC/向量表/RTC/PLL/SysTick 实测 + C 运行态对照）；契约 D17–D19。
+> **用户协作**：Windows WCHISPStudio 开启两线调试（官方工具，证据存档）；官方 EVT/BleLib zip 提供；CH-LINK/USB 接线操作。
+> **插曲答疑**：480MHz=PLL VCO（sysctl.rs:9 + 手册 §7 + CLK_SYS_CFG 寄存器三重证据），总线=480÷div≤80MHz。
+
+| # | 任务 | 改动落点 | 验收 |
+|---|---|---|---|
+| 13.1 | busy-poll BLE 运行时 + MIE 补位 + LSI 缺省 + stable 工具链 | ch58x templates/{mainRs,bleRs,clockRs,cargoToml,rustToolchain}、index/clock/readme、UI BLE 节 | 83+ 用例；verify --ble stable |
+| 13.2 | RF ISR 接线（BLEL/BLEB→库 ISR）+ flags GENERAL 位 | bleRs.ts、ble.ts advDataItems | 实机 bluez 扫到 CH582M |
+| 13.3 | 对照实验与诊断归档 | docs §14.2bis/ter、契约 D17–D19 | C hex 对照 + 寄存器证据 |
+
+**暂缓**：central 角色、配对策略 UI、MTU>23、BLE+GPIO 异步共存、中断模式 BLE（PFIC 使能路径）、上游 issue 提交（证据包已备）。
 
 ---
 

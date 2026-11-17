@@ -567,6 +567,22 @@ debugPrint：warning 忽略（featureWarnings → README/报告）。
 
 **生成器侧已确定的修复方向（M13 候选）**：①main 入口显式 `csrs mstatus,8`（补 MIE，无论上游语义如何都正确）；②BLE 运行时改 **busy-poll 泵**变体：`#[qingke_rt::entry]` 阻塞 main + `loop { TMOS_SystemProcess(); hal::delay_us(300); }`（CycleDelay 不依赖中断/Timer），事件用 try-poll——绕开坏时间驱动；ble feature 仍需 embassy feature（编译耦合）但不用 executor/Timer。③向上游提 issue（证据包：本节 1–6 + 寄存器快照）。
 
+### 14.2ter M13 实机闭环（2026-11-17 深夜）：Rust 生成 BLE 固件实机广播成功
+
+对照实验链（官方 EVT 预编译 hex 经用户授权烧录对照）：
+- 官方 C `Peripheral.hex` 广播可见（`Simple Peripheral`，出厂 MAC 0C:3D:5E:A6:62:94）→ **板级硬件/RF/晶振全好**。
+- 官方 C 运行态实测：PFIC IENR0=0、BLEL/BLEB 向量=DefaultHandler、仅 RTC 槽接线（且 PFIC 关→从不触发）→ **C 亦纯 polling 驱动**；32K 源=LSI（CK32K_CONFIG=0x8a，RTC 计数 ≈32.768kHz 准确）→ C 库对无 LSE 板自动回退 LSI。
+- 时钟实测：SysTick 增量 ≈61.6M/s（1.02s 自由运行）= 480÷8 → **PLL 锁 480MHz、HSE 32MHz 在振**；总线=60MHz（CLK_SYS_CFG=0x0048）。480 为 VCO 非总线（用户疑问已答：sysctl.rs:9 常量 + 手册 §7 + 寄存器三重证据）。
+
+Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）：
+1. **MIE=0**：qingke-rt 0.5 mret 置位语义实机未生效 → main 入口 `csrs mstatus, 8`（修后 mstatus=0x1888、SysTick ISR 恢复）。
+2. **embassy 时间驱动饿死**：SysTick 在 WFI 空闲停计 + 驱动 hclk/8 假设与硅片不符 → BLE 档改 **busy-poll 运行时**（blocking main + `loop{TMOS_SystemProcess(); delay_us(300); try-poll}`，stable 工具链，无 executor/Timer）。
+3. **强制 LSE**：enable_lse() 置 XT=1 无回退（板无 LSE 晶振）→ BLE 档不再追加 enable_lse（LSI 缺省，库内部回退，与 C 一致）。
+4. **广播 flags 缺 discoverable 位**（最后一片拼图）：仅 BREDR_NOT_SUPPORTED=0x04 的广播被 bluez StartDiscovery 按规范过滤；C 带 discoverable 位可见。修：`GAP_ADTYPE_FLAGS_GENERAL | BREDR_NOT_SUPPORTED`=0x06（持续广播）。
+   诊断中另证实：BLEL/BLEB 向量接库 ISR（`LLE_IRQLibHandler/BB_IRQLibHandler`，PAC `__EXTERNAL_INTERRUPTS[20/21]` 弱符号 override）已加入生成代码（PFIC 未使能时不触发，与 C 行为一致，保留作中断模式余地）。
+
+**闭环证据**：M13 固件烧录 Verified OK 后 bluez 扫到 `Device 0C:3D:5E:A6:62:94 CH582M`（出厂 MAC 与 C 同源）；gdb 证实属性表句柄已分配（handle=0x0e）、GAP adv 数据指针/TLV 合法（flags 06 + 厂商 D7 07 + UUID FFE0 + 短名；scan-rsp 完整名 CH582M）、TMOS 泵运行（pc 在 delay_us 循环）。**CH58x BLE 从代码生成到实机射频全链路打通**。
+
 ### 14.3 M12 验证状态
 
 - 1222 测试全绿（+124：ch58xBleCodegen 70 / bleRules 23 / bleProjectFile 15 / ideConfig ch58x 13 / 默认时钟 3）；tsc/eslint/validate/build ✓。

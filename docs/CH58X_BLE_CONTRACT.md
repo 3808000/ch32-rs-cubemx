@@ -51,6 +51,13 @@
 - ch32rv 0.31.4 仍无 CH58x（源码 0 命中）；probe-rs CH58x PR #4534 关闭未合并；开源 openocd fork 均无 sdi/wlinke。
 - **结论**：调试/烧录链路工具已就绪且唯一可行路径明确；硅片侧两线调试开关待用户硬件操作。BLE 代码生成与编译验证不依赖此开关。
 
+## 3bis. M13 实机修复决策（D17–D19，覆盖 D2/D3/D4 部分表述）
+
+- **D17 busy-poll 运行时**：BLE 档 = `#[qingke_rt::entry]` blocking main + 入口 `csrs mstatus,8` + `generated::ble::run()` 全同步忙等泵（TMOS_SystemProcess + delay_us(300) + try_next_message_pure）；**stable 工具链**；无 embassy-executor/embassy-time/nightly feature；features 仍 ["embassy","ble"]（编译耦合）；features.embassy 被 ble 分支忽略。根因：SysTick WFI 停计 + qingke-rt MIE 启动缺陷（§14.2bis/ter）。
+- **D18 LSI 缺省**：BLE 档不追加 enable_lse()（板可能无 LSE；C 库自动回退 LSI 实机证实）；SelRTCClock=0 HAL 硬编码保留。PA10/PA11 保守保留不可分配。
+- **D19 广播 flags 必带 discoverable**：`GAP_ADTYPE_FLAGS_GENERAL | GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED`（0x06）；仅 0x04 会被 bluez 发现流程过滤（实机对照证实）。RF ISR 接线（BLEL/BLEB → LLE/BB_IRQLibHandler）保留生成（PFIC 未使能时不触发，与 C 一致）。
+- 状态共享：busy-poll 单执行上下文 → `static mut + critical_section`（禁 atomic）；embassy-sync 仅 try API 类型依赖。
+
 ## 4. 文件域（排他）
 
 - **A2**：`src/model/codegen/ch58x/**` 除 ide.ts/templates/ideConfig.ts（ble.ts 新 + templates/bleRs.ts 新 + mainRs/cargoToml/clockRs/index/derive 扩展）；`tests/ch58xBleCodegen.test.ts` 新（≥35 用例）。

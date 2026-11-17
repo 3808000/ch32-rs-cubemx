@@ -1,10 +1,16 @@
-// M12：ch58x-hal BLE 协议栈代码生成测试（CH582M）。
-// 契约：docs/CH58X_BLE_CONTRACT.md D1–D12；HAL 签名基准 reference/ch58x-hal @ 611954e
+// M12/M13：ch58x-hal BLE 协议栈代码生成测试（CH582M）。
+// 契约：docs/CH58X_BLE_CONTRACT.md D1–D12；M13 实机修复见 docs/HAL_API_NOTES.md §14.2bis
+// （mstatus.MIE=0 → 入口 csrs mstatus,8；SysTick WFI 停计 → BLE 档 busy-poll；无 LSE 晶振 → LSI 缺省）。
+// HAL 签名基准 reference/ch58x-hal @ 611954e
 // （src/ble/{mod,gap,gatt,gattservapp,ffi}.rs + examples/ble-{blinky,peripheral,broadcaster,scanner}.rs）。
-// 覆盖：接线/错误兜底、LSE、MAC 三来源、单订阅者、无原子、TMOS 泵、GATT 表/CCCD/notify、
+// 覆盖：接线/错误兜底、LSI（不追加 enable_lse）、MAC 三来源、单订阅者、无原子、busy-poll TMOS 泵、
+//       try API 逐字核对、stable 工具链、GATT 表/CCCD/notify 循环计数、
 //       广播/扫描 TLV 与设备名三处同步、间隔换算、UUID 参数化、Cargo features、README 诚实边界、
 //       cube.json 往返、fileGroup。
 import { describe, expect, it } from 'vitest'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import type { BleConfig, CodegenResult, CodegenSelection, DeviceData, PinAssignment, PinMode, ProjectConfig } from '@/model/types'
 import { DEFAULT_BLE_CONFIG } from '@/model/types'
 import { getDeviceData } from '@/model/device'
@@ -101,7 +107,7 @@ describe('BLE 接线（D1/D2/D4）', () => {
     expect(e?.message).toContain('embassy')
   })
 
-  it('ble 时时钟模块被强制生成（ble::init 硬编码 SelRTCClock=0，需要 LSE）', () => {
+  it('ble 时时钟模块被强制生成（ble::init 硬编码 SelRTCClock=0，需要 PLL 主频配置）', () => {
     const r = gen(bleConfig(), { clock: false })
     expect(r.errors).toEqual([])
     expect(r.files.some((f) => f.path === 'src/generated/clock.rs')).toBe(true)
@@ -119,32 +125,37 @@ describe('BLE 接线（D1/D2/D4）', () => {
     expect(contentOf(r, 'src/generated/mod.rs')).toContain('pub mod ble;')
   })
 
-  it('main.rs 末尾调用 generated::ble::run(&spawner).await（spawner 参数去下划线）', () => {
+  it('main.rs：qingke_rt entry + csrs mstatus,8（hal::init 之前）+ generated::ble::run()', () => {
     const c = contentOf(gen(bleConfig()), 'src/main.rs')
-    expect(c).toContain('async fn main(spawner: embassy_executor::Spawner) -> !')
-    expect(c).toContain('generated::ble::run(&spawner).await;')
+    expect(c).toContain('#[qingke_rt::entry]')
+    expect(c).toContain('fn main() -> !')
+    expect(c).toContain('generated::ble::run();')
+    const iCsrs = c.indexOf('core::arch::asm!("csrs mstatus, 8")')
     const iInit = c.indexOf('hal::init(')
-    const iEmbassy = c.indexOf('hal::embassy::init();')
     const iRun = c.indexOf('generated::ble::run(')
-    expect(iEmbassy).toBeGreaterThan(iInit)
-    expect(iRun).toBeGreaterThan(iEmbassy)
+    expect(iCsrs).toBeGreaterThanOrEqual(0)
+    expect(iInit).toBeGreaterThan(iCsrs)
+    expect(iRun).toBeGreaterThan(iInit)
   })
 })
 
-describe('LSE（D3）', () => {
-  it('预设时钟链追加 .enable_lse()', () => {
+describe('时钟 LSI 缺省（M13 实机根因）', () => {
+  it('预设时钟链不追加 .enable_lse()（板子可能无 LSE 晶振）', () => {
     const c = contentOf(gen(bleConfig()), 'src/generated/clock.rs')
-    expect(c).toContain('config.clock.use_pll_60mhz().enable_lse();')
+    expect(c).toContain('config.clock.use_pll_60mhz();')
+    expect(c).not.toContain('.enable_lse()')
+    expect(c).not.toContain('config.clock.enable_lse')
   })
 
-  it('显式 PLL 分频追加 config.clock.enable_lse();', () => {
+  it('显式 PLL 分频同样不生成 enable_lse（保持 LSI 缺省）', () => {
     const c = contentOf(gen(bleConfig({}, { clock: pllClock(7) })), 'src/generated/clock.rs')
     expect(c).toContain('config.clock.mux = hal::sysctl::ClockSrc::PLL(7);')
-    expect(c).toContain('config.clock.enable_lse();')
+    expect(c).not.toContain('.enable_lse()')
+    expect(c).not.toContain('config.clock.enable_lse')
   })
 
-  it('非 BLE 不生成 enable_lse（LSI 缺省）', () => {
-    expect(contentOf(gen(baseConfig()), 'src/generated/clock.rs')).not.toContain('enable_lse')
+  it('非 BLE 也不生成 enable_lse（LSI 缺省）', () => {
+    expect(contentOf(gen(baseConfig()), 'src/generated/clock.rs')).not.toContain('.enable_lse()')
   })
 
   it('PA10/PA11（LSE 晶振）被占用 → BLE_LSE_PIN_IN_USE error', () => {
@@ -258,6 +269,14 @@ describe('设备名与 TLV（D4/D7）', () => {
     expect(c).toContain('0xD7, 0x07')
     expect(c).toContain('0x03, GAP_ADTYPE_16BIT_MORE, lo_u16(SERVICE_UUID), hi_u16(SERVICE_UUID)')
   })
+
+  it('flags 带 GENERAL discoverable 位（M13 实机：无 discoverable 位被 bluez 发现流程过滤；observer 不广播故无 flags）', () => {
+    for (const role of ['peripheral', 'broadcaster'] as const) {
+      const c = bleOf(gen(bleConfig({ role })))
+      expect(c).toContain('GAP_ADTYPE_FLAGS_GENERAL | GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED')
+    }
+    expect(bleOf(gen(bleConfig({ role: 'observer' })))).not.toContain('ADVERT_DATA')
+  })
 })
 
 describe('Cargo（D8）', () => {
@@ -273,16 +292,18 @@ describe('Cargo（D8）', () => {
     expect(c).toContain(`rev = "${CH58X_HAL_REV}"`)
   })
 
-  it('BLE 档追加 embassy-sync = "0.6.2" 直依赖（Channel 跨任务状态）', () => {
+  it('BLE 档追加 embassy-sync（try API 来源）+ critical-section（共享状态）直依赖', () => {
     const c = contentOf(gen(bleConfig()), 'Cargo.toml')
     expect(c).toContain('embassy-sync = "0.6.2"')
+    expect(c).toContain('critical-section = "1.2"')
   })
 
-  it('BLE 档不出现 generic-queue（embassy 档 integrated queue，__pender 由 main 宏提供）', () => {
+  it('BLE 档无 embassy-executor/embassy-time，但保留 generic-queue 链接修复', () => {
     const c = contentOf(gen(bleConfig()), 'Cargo.toml')
-    expect(c).not.toContain('generic-queue')
-    expect(c).toContain('embassy-executor = { version = "0.7.0"')
-    expect(c).toContain('embassy-time = "0.4.0"')
+    expect(c).not.toContain('embassy-executor =')
+    expect(c).not.toContain('embassy-time = "0.4.0"')
+    expect(c).toContain('embassy-time-queue-utils = { version = "0.1.0", features = ["generic-queue-8"] }')
+    expect(c).toContain('[profile.release-debug]')
   })
 
   it('非 BLE 档保持 M11：features ["embassy"] 且无 embassy-sync', () => {
@@ -293,10 +314,10 @@ describe('Cargo（D8）', () => {
 })
 
 describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
-  it('初始化顺序：run 内 ble::init < 角色 init < 角色参数 < 公共初始化 < 服务注册', () => {
+  it('初始化顺序：run 内 ble::init < 角色 init < 角色参数 < 公共初始化 < 服务注册 < StartDevice < 主循环', () => {
     const c = bleOf(gen(bleConfig()))
     // run 函数体（定义顺序不代表调用顺序，只看 run 内）
-    const runBody = c.slice(c.indexOf('pub async fn run('))
+    const runBody = c.slice(c.indexOf('pub fn run('))
     const i = (s: string) => runBody.indexOf(s)
     const seq = [
       'ble::init(config())',
@@ -304,15 +325,14 @@ describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
       'role_profile_init();',
       'common_init();',
       'peripheral_service_init();',
-      'spawner.spawn(peripheral_gap_task(task_id, subscriber))',
+      'GAPRole_PeripheralStartDevice(task_id, &BOND_CB, &APP_CB)',
+      'tmos_poll(subscriber)',
     ]
     for (const s of seq) expect(i(s)).toBeGreaterThanOrEqual(0)
     for (let k = 1; k < seq.length; k++) expect(i(seq[k])).toBeGreaterThan(i(seq[k - 1]))
-    // 服务注册在 register_service 中；StartDevice 在角色任务首行（注册之后才 spawn 该任务）
+    // 服务注册在 register_service 中；StartDevice 现在直接写在 run 内（服务注册之后）
     const svcDef = c.slice(c.indexOf('unsafe fn peripheral_service_init'), c.indexOf('unsafe extern "C" fn on_gap_state_change'))
     expect(svcDef).toContain('GATTServApp::register_service(&mut PERIPHERAL_ATTR_TABLE[..]')
-    const gapDef = c.slice(c.indexOf('async fn peripheral_gap_task'), c.indexOf('/// TMOS 主循环'))
-    expect(gapDef).toContain('GAPRole_PeripheralStartDevice(task_id, &BOND_CB, &APP_CB)')
   })
 
   it('契约 §1 服务注册在 StartDevice 之前（GGS/GATTServApp 先于 register_service）', () => {
@@ -325,29 +345,36 @@ describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
     const svcDef = c.slice(c.indexOf('unsafe fn peripheral_service_init'), c.indexOf('unsafe extern "C" fn on_gap_state_change'))
     expect(svcDef.indexOf('register_service')).toBeGreaterThan(0)
     // 调用顺序：common_init 在 peripheral_service_init 之前
-    const runBody = c.slice(c.indexOf('pub async fn run('))
+    const runBody = c.slice(c.indexOf('pub fn run('))
     expect(runBody.indexOf('common_init();')).toBeLessThan(runBody.indexOf('peripheral_service_init();'))
   })
 
-  it('TMOS 泵：独立 task + 300µs + #[highcode] + TMOS_SystemProcess', () => {
+  it('TMOS 泵：busy-poll 主循环 + 300µs 纯忙等 + #[highcode] + TMOS_SystemProcess', () => {
     const c = bleOf(gen(bleConfig()))
-    expect(c).toContain('#[highcode]\n#[embassy_executor::task]\nasync fn tmos_mainloop()')
-    expect(c).toContain('Ticker::every(Duration::from_micros(300))')
+    expect(c).toContain('#[highcode]\nfn tmos_poll(mut subscriber: ble::EventSubscriber) -> !')
     expect(c).toContain('TMOS_SystemProcess();')
+    expect(c).toContain('hal::delay_us(300);')
+    // 不再使用 embassy Timer/Ticker（CH58x SysTick 空闲停计 → 上游时间驱动饿死）
+    expect(c).not.toContain('Ticker::every')
+    expect(c).not.toContain('embassy_time')
   })
 
-  it('run 先 spawn TMOS 泵，再 spawn 角色任务', () => {
+  it('run 内先 StartDevice 再进入 busy-poll 主循环（无 spawner/spawn）', () => {
     const c = bleOf(gen(bleConfig()))
-    expect(c.indexOf('spawner.spawn(tmos_mainloop())')).toBeGreaterThan(0)
-    expect(c.indexOf('spawner.spawn(peripheral_gap_task(task_id, subscriber))')).toBeGreaterThan(
-      c.indexOf('spawner.spawn(tmos_mainloop())'),
+    const runBody = c.slice(c.indexOf('pub fn run('))
+    expect(runBody.indexOf('GAPRole_PeripheralStartDevice(task_id, &BOND_CB, &APP_CB)')).toBeGreaterThan(0)
+    expect(runBody.indexOf('tmos_poll(subscriber)')).toBeGreaterThan(
+      runBody.indexOf('GAPRole_PeripheralStartDevice(task_id, &BOND_CB, &APP_CB)'),
     )
+    expect(c).not.toContain('spawner.spawn')
+    expect(c).not.toContain('embassy_executor')
   })
 
-  it('单订阅者：全文件只有一个 next_message_pure，无 subscriber/TmosEvent clone', () => {
+  it('单订阅者：全文件只有一处 subscriber.try_next_message_pure，无 subscriber/TmosEvent clone', () => {
     const c = bleOf(gen(bleConfig()))
-    expect(c.match(/next_message_pure/g)?.length).toBe(1)
-    expect(c).not.toContain('subscriber.clone')
+    // 文件头注释会多次提到 API 名，实际调用点只能有一处（单订阅者；多消费者 = double free）
+    expect(c.match(/subscriber\.try_next_message_pure\(\)/g)?.length).toBe(1)
+    expect(c).not.toContain('next_message_pure().await')
     expect(c).not.toContain('.clone()')
     expect(c).not.toContain('second subscriber')
   })
@@ -393,7 +420,7 @@ describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
     expect(c).toContain(
       'GATTServApp::process_ccc_write_req(conn_handle, attr, value, len, offset, GATT_CLIENT_CFG_NOTIFY)',
     )
-    expect(c).toContain('AppEvent::Subscribed(conn_handle)')
+    expect(c).not.toContain('AppEvent')
   })
 
   it('读回调：offset>0 → ATT_ERR_ATTR_NOT_LONG；未知 UUID → ATT_ERR_ATTR_NOT_FOUND', () => {
@@ -403,20 +430,24 @@ describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
     expect(c).toContain('*plen = 1;')
   })
 
-  it('notify：GATT_bm_alloc + GATT_Notification + 失败 GATT_bm_free + 订阅后 1s 周期', () => {
+  it('notify：GATT_bm_alloc + GATT_Notification + 失败 GATT_bm_free + 循环计数周期 + read_char_cfg', () => {
     const c = bleOf(gen(bleConfig()))
     expect(c).toContain('GATT_bm_alloc(conn_handle, ATT_HANDLE_VALUE_NOTI, 1, ptr::null_mut(), 0)')
     expect(c).toContain('GATT_Notification(conn_handle, &noti, 0).is_err()')
     expect(c).toContain('GATT_bm_free(buf as *mut gattMsg_t, ATT_HANDLE_VALUE_NOTI)')
-    expect(c).toContain('Ticker::every(Duration::from_millis(1000))')
+    expect(c).toContain('const NOTIFY_PERIOD_ITERS: u32 = 1_000_000 / 300;')
+    expect(c).toContain('ticks.wrapping_add(1)')
     expect(c).toContain('GATTServApp::read_char_cfg(handle')
+    expect(c).not.toContain('ticker')
   })
 
-  it('写回调 1 字节命令经 Channel 发 AppEvent::Write', () => {
+  it('写回调 1 字节命令直接落共享状态（static mut + critical_section，无 Channel）', () => {
     const c = bleOf(gen(bleConfig()))
-    expect(c).toContain('static APP_CHANNEL: Channel<CriticalSectionRawMutex, AppEvent, 8>')
-    expect(c).toContain('APP_CHANNEL.try_send(AppEvent::Write(*value))')
-    expect(c).toContain('enum AppEvent')
+    expect(c).toContain('static mut STATE: BleState')
+    expect(c).toContain('critical_section::with(|_| unsafe { f(&mut STATE) })')
+    expect(c).toContain('with_state(|s| s.notify_value = byte)')
+    expect(c).not.toContain('embassy_sync::channel')
+    expect(c).not.toContain('APP_CHANNEL')
   })
 
   it('断连恢复：GAPROLE_WAITING + GAP_LINK_TERMINATED_EVENT → init_char_cfg + 重开广播', () => {
@@ -468,10 +499,13 @@ describe('broadcaster（D4）', () => {
     expect(scan).not.toContain('GAP_ADTYPE_POWER_LEVEL')
   })
 
-  it('broadcaster 不消费 TmosEvent（订阅者立即释放）', () => {
+  it('broadcaster 不消费 TmosEvent（订阅者立即释放），主循环无 event try-poll', () => {
     const c = bleOf(gen(bleConfig({ role: 'broadcaster' })))
     expect(c).toContain('let (_task_id, _) = ble::init(config()).unwrap();')
-    expect(c).not.toContain('next_message_pure')
+    expect(c).not.toContain('subscriber.try_next_message_pure')
+    expect(c).not.toContain('EventSubscriber')
+    expect(c).toContain('fn tmos_poll() -> !')
+    expect(c).toContain('GAPRole_BroadcasterStartDevice(&CALLBACKS)')
   })
 })
 
@@ -492,12 +526,22 @@ describe('observer（D4）', () => {
     expect(c).toContain('info.rssi')
   })
 
-  it('observer：周期重扫（发现完成 → CancelSync + StartDiscovery）', () => {
+  it('observer：周期重扫（发现完成 → 置位后由主循环 CancelSync + StartDiscovery，不回调内重入）', () => {
     const c = bleOf(gen(bleConfig({ role: 'observer' })))
     expect(c).toContain('GAP_DEVICE_DISCOVERY_EVENT')
+    expect(c).toContain('static mut RESTART_DISCOVERY: bool = false;')
     expect(c).toContain('GAPRole_CancelSync()')
     expect(c).toContain('GAPRole_ObserverStartDiscovery(OBSERVER_DISCOVERY_MODE, OBSERVER_ACTIVE_SCAN, 0)')
-    expect(c).toContain('EVENTS.receive().await')
+    expect(c).toContain('println!("BLE: discovery done, restarting")')
+    // 回调只置位；重启发生在 tmos_poll 主循环（TMOS 回调内重入协议栈不安全）
+    const cb = c.slice(c.indexOf('unsafe extern "C" fn observer_event_callback'), c.indexOf('#[highcode]'))
+    expect(cb).toContain('RESTART_DISCOVERY = true;')
+    expect(cb).not.toContain('GAPRole_CancelSync()')
+    const poll = c.slice(c.indexOf('#[highcode]\nfn tmos_poll'))
+    expect(poll).toContain('if RESTART_DISCOVERY {')
+    expect(poll).toContain('GAPRole_CancelSync()')
+    expect(c).not.toContain('EVENTS.receive().await')
+    expect(c).not.toContain('embassy_executor')
   })
 
   it('observer 不生成广播数据/GATT 表', () => {
@@ -596,24 +640,160 @@ describe('cube.json / README（D1/D12）', () => {
     })
   })
 
-  it('README BLE 节列出 D12 全部诚实边界', () => {
+  it('README BLE 节列出 D12/M13 全部诚实边界', () => {
     const c = contentOf(gen(bleConfig()), 'README.md')
-    expect(c).toContain('BLE 诚实边界（D12）')
+    expect(c).toContain('BLE 诚实边界（D12 / M13）')
     expect(c).toContain('MTU 固定 23')
     expect(c).toContain('TX 功率固定 6dBm')
     expect(c).toContain('无 SNV')
     expect(c).toContain('central 角色不开放')
     expect(c).toContain('配对参数为缺省值')
     expect(c).toContain('旧工程启用 BLE')
-    expect(c).toContain('generated::ble::run(&spawner).await;')
+    expect(c).toContain('generated::ble::run();')
     expect(c).toContain('两线调试')
     expect(c).toContain('CFG_DEBUG_EN')
+    // M13：busy-poll / LSI / GPIO 异步边界
+    expect(c).toContain('busy-poll')
+    expect(c).toContain('HAL_API_NOTES.md')
+    expect(c).toContain('LSI 缺省，不强制 LSE')
+    expect(c).toContain('GPIO 异步等待本期 BLE 档不提供')
+    expect(c).not.toContain('generated::ble::run(&spawner)')
   })
 
   it('README 非 BLE 仍声明未生成 BLE', () => {
     const c = contentOf(gen(baseConfig()), 'README.md')
     expect(c).toContain('本期**不生成 BLE 代码**')
     expect(c).not.toContain('BLE 诚实边界')
+  })
+})
+
+describe('M13 busy-poll 运行时（实机修复回归）', () => {
+  it('main.rs 无 nightly feature / embassy_executor / hal::embassy::init（busy-poll 不需要）', () => {
+    const c = contentOf(gen(bleConfig()), 'src/main.rs')
+    expect(c).not.toContain('#![feature(')
+    expect(c).not.toContain('embassy_executor')
+    expect(c).not.toContain('hal::embassy::init()')
+    expect(c).not.toContain('Spawner')
+    expect(c).not.toContain('.await')
+  })
+
+  it('三角色 ble.rs 均接 RF 中断：BLEL/BLEB → 库 ISR（ll_tx_wait_finish 死等实机根因）', () => {
+    for (const role of ['peripheral', 'broadcaster', 'observer'] as const) {
+      const c = contentOf(gen(bleConfig({ role })), 'src/generated/ble.rs')
+      expect(c).toContain('fn LLE_IRQLibHandler();')
+      expect(c).toContain('fn BB_IRQLibHandler();')
+      expect(c).toContain('#[qingke_rt::interrupt]\nfn BLEL()')
+      expect(c).toContain('#[qingke_rt::interrupt]\nfn BLEB()')
+      expect(c).toContain('unsafe { LLE_IRQLibHandler() }')
+      expect(c).toContain('unsafe { BB_IRQLibHandler() }')
+    }
+  })
+
+  it('csrs mstatus,8 在 hal::init 之前（MIE=0 实机根因）', () => {
+    const c = contentOf(gen(bleConfig()), 'src/main.rs')
+    const iCsrs = c.indexOf('core::arch::asm!("csrs mstatus, 8")')
+    const iInit = c.indexOf('hal::init(')
+    expect(iCsrs).toBeGreaterThanOrEqual(0)
+    expect(iInit).toBeGreaterThan(iCsrs)
+    // 只在入口出现一次
+    expect(c.match(/csrs mstatus, 8/g)?.length).toBe(1)
+  })
+
+  it('busy loop：TMOS_SystemProcess 后 delay_us(300)，且无 Ticker/Duration/await', () => {
+    const c = bleOf(gen(bleConfig()))
+    const poll = c.slice(c.indexOf('#[highcode]\nfn tmos_poll'))
+    const iTmos = poll.indexOf('TMOS_SystemProcess();')
+    const iDelay = poll.indexOf('hal::delay_us(300);')
+    expect(iTmos).toBeGreaterThanOrEqual(0)
+    expect(iDelay).toBeGreaterThan(iTmos)
+    expect(poll).not.toContain('Duration')
+    expect(poll).not.toContain('await')
+    expect(poll).not.toContain('Ticker')
+  })
+
+  it('try API 名字与 embassy-sync 0.6.2 源码逐字一致（try_next_message_pure）', () => {
+    const c = bleOf(gen(bleConfig()))
+    expect(c).toContain('subscriber.try_next_message_pure()')
+    expect(c).toContain('embassy-sync 0.6.2')
+    // 本机 cargo registry 存在时直接核对签名（CI 无 registry 则跳过源码核对）
+    const root = join(homedir(), '.cargo', 'registry', 'src')
+    if (!existsSync(root)) return
+    let checked = false
+    for (const idx of readdirSync(root)) {
+      const p = join(root, idx, 'embassy-sync-0.6.2', 'src', 'pubsub', 'subscriber.rs')
+      if (!existsSync(p)) continue
+      const src = readFileSync(p, 'utf8')
+      expect(src).toContain('pub fn try_next_message_pure(&mut self) -> Option<T>')
+      checked = true
+    }
+    expect(checked).toBe(true)
+  })
+
+  it('工具链 stable（不再需要 nightly feature）', () => {
+    const r = gen(bleConfig())
+    const toolchain = contentOf(r, 'rust-toolchain.toml')
+    expect(toolchain).toContain('channel = "stable"')
+    expect(toolchain).not.toContain('channel = "nightly"')
+  })
+
+  it('BLE 档即使 features.embassy=true 也不生成 executor/time 依赖（忽略运行时档）', () => {
+    const r = gen(bleConfig())
+    const cargo = contentOf(r, 'Cargo.toml')
+    expect(cargo).not.toContain('embassy-executor =')
+    expect(cargo).not.toContain('embassy-time = "0.4.0"')
+    expect(cargo).not.toContain('"nightly"')
+    expect(cargo).toContain('critical-section = "1.2"')
+  })
+
+  it('notify 周期为循环计数（≈3333 圈）而非定时器', () => {
+    const c = bleOf(gen(bleConfig()))
+    expect(c).toContain('1_000_000 / 300')
+    expect(c).toContain('NOTIFY_PERIOD_ITERS')
+    expect(c).toContain('ticks.wrapping_add(1)')
+    expect(c).not.toContain('embassy_time::Timer')
+  })
+
+  it('断连恢复保留：重初始化 CCCD + 清连接句柄 + 重新开广播', () => {
+    const c = bleOf(gen(bleConfig()))
+    const iWaiting = c.indexOf('GAPROLE_WAITING =>')
+    const block = c.slice(iWaiting, c.indexOf('_ => {}', iWaiting))
+    expect(block).toContain('GATTServApp::init_char_cfg(ev.linkTerminate.connectionHandle, CLIENT_CHARCFG.as_mut_ptr())')
+    expect(block).toContain('with_state(|s| s.conn = None)')
+    expect(block).toContain('GAPRole_SetParameter(GAPROLE_ADVERT_ENABLED, 1, &true as *const _ as _)')
+  })
+
+  it('生成物不含 create 的异步任务/#[embassy_executor::task]（busy-poll 全部同步）', () => {
+    for (const role of ['peripheral', 'broadcaster', 'observer'] as const) {
+      const c = bleOf(gen(bleConfig({ role })))
+      expect(c).not.toContain('#[embassy_executor::task]')
+      expect(c).not.toContain('async fn')
+      expect(c).not.toContain('spawner')
+    }
+  })
+
+  it('非 BLE blocking 档回归：入口不变、无 csrs/无 run 调用', () => {
+    const r = gen(baseConfig())
+    const c = contentOf(r, 'src/main.rs')
+    expect(c).toContain('#[qingke_rt::entry]')
+    expect(c).not.toContain('csrs mstatus')
+    expect(c).not.toContain('generated::ble::run')
+    expect(c).not.toContain('#![feature(')
+    expect(contentOf(r, 'rust-toolchain.toml')).toContain('channel = "stable"')
+  })
+
+  it('非 BLE embassy 档回归：entry 宏 + nightly feature + hal::embassy::init', () => {
+    const r = gen(baseConfig({ features: { embassy: true, debugPrint: false } }))
+    const c = contentOf(r, 'src/main.rs')
+    expect(c).toContain('#![feature(impl_trait_in_assoc_type)]')
+    expect(c).toContain('#[embassy_executor::main(entry = "qingke_rt::entry")]')
+    expect(c).toContain('hal::embassy::init();')
+    expect(c).not.toContain('csrs mstatus')
+    expect(contentOf(r, 'rust-toolchain.toml')).toContain('channel = "nightly"')
+  })
+
+  it('HTML 报告概览：BLE 档运行时标为 busy-poll（不谎称 blocking/embassy）', () => {
+    const html = contentOf(gen(bleConfig(), { htmlReport: true }), 'report.html')
+    expect(html).toContain('busy-poll（BLE，stable，无 executor/Timer）')
   })
 })
 

@@ -25,10 +25,16 @@ ch58x-hal = { git = "<%- halGit %>", rev = "<%- halRev %>", default-features = f
 qingke-rt = { version = "0.5.0", features = ["highcode"] }
 panic-halt = "0.2.0"
 <% if (ble) { -%>
-# BLE 模板禁用原子类型（imc target 无原子能力）：共享状态走 Channel，需要直接依赖 embassy-sync
+# BLE busy-poll 档（M13）：不用 embassy-executor / embassy-time（stable 工具链即可，无 nightly feature）。
+# 事件 try-poll 用 Subscriber::try_next_message_pure（embassy-sync 0.6.2，须与 HAL 的版本一致）；
+# 共享状态用 static mut + critical_section（qingke 的 critical-section-impl 由 HAL 启用）。
 embassy-sync = "0.6.2"
-<% } -%>
-<% if (embassy) { -%>
+critical-section = "1.2"
+# 链接修复（同 blocking 档）：HAL 非可选依赖 embassy-time-queue-utils 默认 integrated queue，
+# 引用 embassy_executor::raw::wake_task → 需要应用提供 __pender；BLE busy-poll 无 executor 提供该符号，
+# 显式启用 generic-queue（cargo feature 统一）改走通用 waker 队列。
+embassy-time-queue-utils = { version = "0.1.0", features = ["generic-queue-8"] }
+<% } else if (embassy) { -%>
 embassy-executor = { version = "0.7.0", features = ["nightly", "arch-riscv32", "executor-thread"] }
 embassy-time = "0.4.0"
 <% } else { -%>

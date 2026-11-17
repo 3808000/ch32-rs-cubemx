@@ -205,7 +205,10 @@ function u16Bytes(name: string): string[] {
 /** 广播包 TLV（peripheral：flags + WCH 厂商 + 服务 UUID + 短名；broadcaster：flags + WCH + 短名 + power）。 */
 export function advDataItems(plan: BlePlan): string[] {
   const shortName = plan.shortNameBytes.map(hex8)
-  const flags = ['0x02', 'GAP_ADTYPE_FLAGS', 'GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED']
+  // M13 实机修复：必须带 discoverable 位（GENERAL=0x02），否则 bluez StartDiscovery 等
+  // 发现流程按 BLE 规范过滤掉非 discoverable 广播——实机对照 C 固件（带 discoverable 位可见、
+  // 仅 BREDR_NOT_SUPPORTED=0x04 不可见）证实。GENERAL=持续广播（LIMITED 仅 30s 窗口）。
+  const flags = ['0x02', 'GAP_ADTYPE_FLAGS', 'GAP_ADTYPE_FLAGS_GENERAL | GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED']
   const manufacturer = ['0x04', 'GAP_ADTYPE_MANUFACTURER_SPECIFIC', '0xD7', '0x07', '0x01']
   if (plan.role === 'broadcaster') {
     return [

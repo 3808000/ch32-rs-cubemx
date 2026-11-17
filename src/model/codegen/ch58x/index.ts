@@ -1,10 +1,11 @@
-// ch58x-hal 后端入口（M11 管线 / M12 BLE）：CH58x 系（CH582M 等）独立代码生成管线。
+// ch58x-hal 后端入口（M11 管线 / M12 BLE / M13 BLE busy-poll）：CH58x 系（CH582M 等）独立代码生成管线。
 // 契约见 docs/CH58X_BACKEND_CONTRACT.md 与 docs/CH58X_BLE_CONTRACT.md；HAL 签名核对 reference/ch58x-hal @ 611954e
 // （uart.rs / spi.rs / i2c.rs / adc.rs / gpio.rs / sysctl.rs / delay.rs / embassy/mod.rs / ble/*）。
 //
 // 与 ch32 管线的差异（有意为之，见契约 D2–D14）：
 // - 生成区结构相同（src/generated/** + 用户区 main.rs），但 Rust API 全部换成 ch58x-hal；
-// - 运行时两档：blocking（stable + #[qingke_rt::entry]）与 embassy（nightly + entry 宏 + hal::embassy::init）；
+// - 运行时三档：blocking（stable + #[qingke_rt::entry]）、embassy（nightly + entry 宏 + hal::embassy::init）
+//   与 BLE busy-poll（stable + #[qingke_rt::entry] + csrs mstatus,8 + TMOS 忙等泵，M13）；
 // - 不生成 exti.rs / irq.rs / DMA / Timer / PWM；M12 起生成 BLE（generated/ble.rs，三角色）与
 //   MRS OpenOCD 调试链（launch.json + gdbserver/烧录任务，两线调试需 ISP/BOOT 开启）。
 import type { CodegenResult, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
@@ -35,10 +36,13 @@ export function generateCh58xProject(
   sel: CodegenSelection,
 ): CodegenResult {
   const ble = config.features?.ble ?? false
-  // BLE 必须 embassy（D2）。时钟生成也被 BLE 强制打开：ble::init 硬编码 SelRTCClock=0，
-  // 没有 clock.rs 的 enable_lse() 时 BLE 会跑在未校准的 LSI 上。
+  // BLE 档仍要求 features.embassy（D2：Cargo features 编译耦合 ["embassy", "ble"]），但 M13 起
+  // 生成骨架按 busy-poll 运行时处理：不用 embassy executor/Timer、不用 nightly feature。
+  // 因此“运行时 embassy”只看非 BLE 工程——ble 分支生成器完全忽略 features.embassy。
+  const embassy = (config.features?.embassy ?? false) && !ble
+  // 时钟生成被 BLE 强制打开：ble::init 硬编码 SelRTCClock=0，需要 clock.rs 生成 PLL 主频配置。
+  // M13：BLE 档不再追加 enable_lse()（板子可能无 LSE 晶振；库在 SelRTCClock=0 时内部回退 LSI）。
   const clockUsed = sel.clock || ble
-  const embassy = config.features?.embassy ?? false
 
   // 1. 配置期冲突（error 阻止导出）；unlockedPins 与 preflight 保持一致（CH582M 的 PB23=nrst 可解锁）
   const conflicts = checkConflicts(config, data, config.unlockedPins ?? [])
@@ -69,7 +73,7 @@ export function generateCh58xProject(
 
   // 5. 生成区
   if (clockUsed) {
-    files.push(renderClock(clockPlan, ble))
+    files.push(renderClock(clockPlan))
     modules.push('clock')
   }
   if (sel.pins) {

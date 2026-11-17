@@ -10,7 +10,7 @@ import * as T from './templates'
 /** 与导出文件一一对应的说明（路径不存在时给空描述）。 */
 const FILE_DESCS: Record<string, string> = {
   'Cargo.toml': '工程清单与依赖（ch58x-hal / qingke-rt 0.5 / panic-halt）',
-  'rust-toolchain.toml': '工具链锁定（blocking=stable，embassy=nightly）',
+  'rust-toolchain.toml': '工具链锁定（blocking/BLE busy-poll=stable，embassy=nightly）',
   '.cargo/config.toml': '构建目标与链接参数（-Tlink.x；无 build.rs）',
   '.gitignore': 'Git 忽略规则（构建产物 target/）',
   'cube.json': 'ch32-rs-CubeMX 配置回读（可重新导入）',
@@ -26,7 +26,7 @@ const FILE_DESCS: Record<string, string> = {
   'src/generated/spi.rs': 'SPI0 初始化 + 软件 NSS',
   'src/generated/i2c.rs': 'I2C 初始化（阻塞）',
   'src/generated/adc.rs': 'ADC 初始化（通道=裸引脚单例）',
-  'src/generated/ble.rs': 'BLE 协议栈脚手架（config/run + GATT/广播/扫描 + TMOS 泵）',
+  'src/generated/ble.rs': 'BLE 协议栈脚手架（config/run + GATT/广播/扫描 + busy-poll TMOS 泵，M13）',
 }
 
 export function renderReadme(
@@ -82,5 +82,11 @@ export function renderCh58xHtmlReport(
     content = content.split(originalRev.slice(0, 7)).join(CH58X_HAL_REV.slice(0, 7))
   }
   if (embassy) content = content.split('<td>stable</td>').join('<td>nightly</td>')
+  // M13：BLE 档是 busy-poll 运行时（stable，无 embassy 执行器/Timer），报告概览不说“blocking”
+  if (config.features?.ble) {
+    content = content
+      .split('<td>blocking（阻塞）</td>')
+      .join('<td>busy-poll（BLE，stable，无 executor/Timer）</td>')
+  }
   return { ...report, content }
 }
