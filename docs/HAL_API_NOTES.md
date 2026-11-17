@@ -554,6 +554,19 @@ debugPrint：warning 忽略（featureWarnings → README/报告）。
 - IDE 生成（D9）：launch.json cppdbg attach 3333 + tasks `openocd-wch -f ${env:MRS_OPENOCD_CFG}`（gdbserver/烧录）+ wchisp 备用；README 两条 setup（symlink + export）与两线调试前提诚实标注。
 - **代码生成与编译不依赖两线调试开关**：CH582M --ble 真实 cargo build 通过（LIBCH58xBLE.a 链接）。
 
+### 14.2bis 烧录后实机诊断链（2026-11-17 晚，BLE 射频验证受阻根因）
+
+烧录（program verify reset exit，用户授权）✓ Verified OK。固件启动、embassy executor 运行（pc 符号/调用栈正确，imc critical-section 回退路径实机证实）。但 **BLE 不广播**，只读诊断链（gdb getter/内存读，未写 flash）：
+
+1. `PERIPHERAL_ATTR_TABLE` 句柄全 0 + `GAP_GetParamValue(781/773)` 返回 0xFFFF + `BLE_HEAP` 全 0 → **ble::init/服务注册从未执行**（main _future 卡在更早的 await）。
+2. SysTick：CTLR=0x3（=STE|STIE，与驱动 init 期望逐位一致，PAC 0.4.0 位定义核对）、CMP=0x11970（驱动写过的 alarm 值，非初值 MAX-1）、SR.CNTIF=1 且 alarm 不更新 → **SysTick ISR 从未执行**。
+3. 向量表/mtvec/PFIC 全正确：mtvec=0x20000003、RAM 向量表 SysTick 槽(0x20000030)=0x20000090=ISR 地址、PFIC enable 在驱动源码中存在 → 排除接线/链接问题。
+4. **mstatus=0x0（MIE=0）**：qingke-rt 0.5 启动写 0x1880（MPIE=1/MIE=0），注释称由 handle_reset 末尾 mret 置 MIE——实机未生效（上游启动语义疑点，待上游核实）。
+5. gdb 补 MIE（`set $mstatus|$8`，运行时 CSR、复位可逆）后：mstatus=0x1888、SR.CNTIF 被清 → **ISR 开始执行**，中断链修复证实。
+6. 但自由运行 10s CNT 仅 +196（7.5MHz 应 +7.5e7）→ **SysTick 在 WFI/空闲期间停计**；embassy executor 空闲即 WFI → 时基瘫痪 → Timer/Ticker 全饿死 → BLE init 不可达。结论：**ch58x-hal embassy SysTick 时间驱动与 CH58x 睡眠门控行为不兼容（上游缺陷）**；ch58x-hal 上游自述 "DO NOT USE in production" 与此一致。
+
+**生成器侧已确定的修复方向（M13 候选）**：①main 入口显式 `csrs mstatus,8`（补 MIE，无论上游语义如何都正确）；②BLE 运行时改 **busy-poll 泵**变体：`#[qingke_rt::entry]` 阻塞 main + `loop { TMOS_SystemProcess(); hal::delay_us(300); }`（CycleDelay 不依赖中断/Timer），事件用 try-poll——绕开坏时间驱动；ble feature 仍需 embassy feature（编译耦合）但不用 executor/Timer。③向上游提 issue（证据包：本节 1–6 + 寄存器快照）。
+
 ### 14.3 M12 验证状态
 
 - 1222 测试全绿（+124：ch58xBleCodegen 70 / bleRules 23 / bleProjectFile 15 / ideConfig ch58x 13 / 默认时钟 3）；tsc/eslint/validate/build ✓。
