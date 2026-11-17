@@ -64,7 +64,7 @@
 - Phase 1（完成）：封装图/引脚配置/冲突/codegen/Monaco 预览/**端到端编译通过**（V003 阻塞+embassy、V203 阻塞+embassy）。
 - Phase 2（完成）：时钟树画布（GLSP 风格、数据驱动布局）+ 频率链/校验/PLL 解算 + diff 预览 + 固定 VCO÷分频 PLL 模型。
 - Phase 3（完成）：外设视图（列表/卡片/参数/remap 切换）+ EXTI/ADC/分组/使用汇总分配面板。
-- Phase 4（进行中）：多芯片——CH32V203C8T6 已接入并通过编译验证；CH32H417QEU6（QFN128 双核 V3F+V5F）已接入，代码生成产出 Cargo workspace（ch32-hal-template h417-dual：`cargo xtask build` 逐核构建）并**端到端编译通过**；**CH582M ch58x-hal 后端已接入（M11）+ BLE 协议栈（M12）**：独立 codegen 管线（src/model/codegen/ch58x/）、blocking/embassy 双档、GPIO/UART0-3/SPI0/I2C/ADC 生成、6 档时钟预设（defaultSource=PLL）、BLE 三角色（generated/ble.rs）、vendor/ch58x-hal 内嵌（zip 入 git）、MRS OpenOCD 调试链 + wchisp 备用；编译 target 刻意 riscv32imc（WCH QingKe LR/SC 原子缺陷规避，qingke#9）+ blocking 档 generic-queue（__pender 链接修复）；待办：V103/X035/V307、多封装、EasyEDA 同步、CH582M 两线调试开启后实机核实、central 角色、一键烧录。
+- Phase 4（进行中）：多芯片——CH32V203C8T6 已接入并通过编译验证；CH32H417QEU6（QFN128 双核 V3F+V5F）已接入，代码生成产出 Cargo workspace（ch32-hal-template h417-dual：`cargo xtask build` 逐核构建）并**端到端编译通过**；**CH582M ch58x-hal 后端已接入（M11）+ BLE 协议栈（M12）**：独立 codegen 管线（src/model/codegen/ch58x/）、blocking/embassy 双档、GPIO/UART0-3/SPI0/I2C/ADC 生成、6 档时钟预设（defaultSource=PLL）、BLE 三角色（generated/ble.rs）、vendor/ch58x-hal 内嵌（zip 入 git）、MRS OpenOCD 调试链 + wchisp 备用；编译 target 刻意 riscv32imc（WCH QingKe LR/SC 原子缺陷规避，qingke#9）+ blocking 档 generic-queue（__pender 链接修复）；实机：两线调试经 Windows WCHISPStudio 开启后 MRS OpenOCD examine + gdb attach 只读核实通过（2026-11-17 晚，HAL notes §14.2）；烧录待授权。待办：V103/X035/V307、多封装、EasyEDA 同步、central 角色、一键烧录。
 
 ## 7. 测试与门禁现状（2026-11-16 工程化重构后）
 

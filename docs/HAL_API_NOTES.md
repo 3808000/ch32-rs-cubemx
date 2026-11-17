@@ -547,7 +547,10 @@ debugPrint：warning 忽略（featureWarnings → README/报告）。
 
 - ch32rv 0.31.4 仍无 CH58x（源码 0 命中）；probe-rs CH58x PR #4534 关闭未合并；开源 openocd fork 均无 sdi/wlinke。
 - **MRS V3.0.0 Linux 包自带 WCH fork OpenOCD**（0.11.0+dev-snapshot 2026-10-21，v2.10；wlinke 驱动 + sdi transport + wch_riscv target；strings 含 CH58x；WCH-Link-CH549 RV 模式无 CH58x 排除提示）。已部署用户目录 `/home/teze/mrs-openocd/`（无 sudo，可逆）。
-- **只读 attach 实测失败**（6000/400 kHz 两档）：`WCH-Link failed to connect with riscv chip`，官方提示两线调试未开启（CFG_DEBUG_EN）或物理链路。探针层 OK。**未做任何写操作**。开启需 ISP/BOOT：Windows WCHISPTool（官方）或 Linux wchisp BOOT 模式（config set unimplemented；config reset 效果待硅片验证，需用户授权）——**待用户硬件操作**。
+- **只读 attach 曾失败**（6000/400 kHz 两档）：`WCH-Link failed to connect with riscv chip`——根因后证实为 **CFG_DEBUG_EN=0**。
+- **两线调试开启（2026-11-17 晚，用户于 Windows 侧官方工具操作）**：WCHISPStudio V4.00「开启两线仿真」两次回执「开启调试接口成功!」（19:58:56 / 20:05:39，UID 94-62-A6-5E-3D-0C-77-CD，BTVER 02.40）；未点下载、未写读保护。证据：`/run/media/teze/新加卷/linux/windows-side/`（状态.md + 4 截图）。Linux 侧 ISP 零事件之谜（BOOT 脚 DOWNLOAD_CFG 实际值未知）不再阻塞——调试口路径绕开 ISP/BOOT。
+- **只读 attach 复测通过（开启后，CH-LINK 接回 Linux）**：`The debug interface has been opened` + `wlink_init ok` + `Examined RISC-V core; found 1 harts, XLEN=32, misa=0x40901125` + `Target successfully examined`（6000 kHz 一次通过）。
+- **gdbserver 路径实机验证**：openocd gdb server 3333 → `riscv-none-elf-gdb target remote` 读 pc=0x0 / sp=0x20007fc0（boot ROM 栈顶，芯片当时在 bootloader）、`x/8xw 0x0` = 重复 0xf3f9bda9（**无有效固件**，首字非 SRAM 初始 SP）、`monitor flash info 0` = 448KB（0x70000，与 CH582M 一致；protection state unknown=驱动未实现该查询）、detach 干净。**launch.json 三步流（gdbserver→attach→读）实机等价验证完成**。全程未写 flash。
 - IDE 生成（D9）：launch.json cppdbg attach 3333 + tasks `openocd-wch -f ${env:MRS_OPENOCD_CFG}`（gdbserver/烧录）+ wchisp 备用；README 两条 setup（symlink + export）与两线调试前提诚实标注。
 - **代码生成与编译不依赖两线调试开关**：CH582M --ble 真实 cargo build 通过（LIBCH58xBLE.a 链接）。
 
@@ -556,4 +559,5 @@ debugPrint：warning 忽略（featureWarnings → README/报告）。
 - 1222 测试全绿（+124：ch58xBleCodegen 70 / bleRules 23 / bleProjectFile 15 / ideConfig ch58x 13 / 默认时钟 3）；tsc/eslint/validate/build ✓。
 - verify:build：V003/V203/H417/CH582M blocking/embassy/**--ble** 全过（stable 1.100 / nightly 1.102）。
 - 浏览器验收：BLE 节（角色/名称字节计数/广播间隔/MAC 三来源/UUID16/observer 参数）+ 运行时互锁（BLE⇒embassy、blocking 禁用）+ 新建工程默认 PLL 直接生成 + ZIP 75 文件 0 冲突。
+- **实机目标层核实闭环（2026-11-17 晚）**：Windows 官方工具开启两线调试 → CH-LINK 接回 Linux → MRS OpenOCD examine 通过 → gdb 3333 attach 读寄存器/Flash/flash info → detach。见 §14.2。烧录待用户授权。
 - 开发期 HMR _artifact_ 记录：autosave 单例闭包绑定旧 store 实例，HMR 重置 store 后继续写旧工程快照——仅 dev 环境出现（生产 store 不重建），验收以干净 reload 为准；不视为产品缺陷，留观。

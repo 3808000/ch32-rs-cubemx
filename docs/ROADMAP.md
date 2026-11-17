@@ -225,7 +225,7 @@
 
 > **落地状态**：BLE 三角色（peripheral 含简单 GATT 服务 / broadcaster / observer）数据驱动生成；1222 测试全绿（1098→1222）；verify:build 六路全过（V003/V203/H417/CH582M blocking/embassy/**--ble**，BLE 厂商库真实链接编译）；浏览器验收（BLE 节全参数 + 运行时互锁 + 新建工程默认 PLL 直接生成 + ZIP 75 文件 0 冲突）。6 个子智能体（3 调研 + 3 实现）+ 主控契约/集成/默认时钟修复。
 > **契约**：[CH58X_BLE_CONTRACT.md](CH58X_BLE_CONTRACT.md)（src/ble/* 逐字核实 + D1–D12）；事实与实机状态 [HAL_API_NOTES §14](HAL_API_NOTES.md)。
-> **调试链突破**：MRS V3.0.0 Linux 自带 WCH fork OpenOCD（wlinke+sdi+wch_riscv，CH58x 支持）已部署用户目录；CH-LINK RV 模式即配。只读 attach 失败=芯片两线调试（CFG_DEBUG_EN）待开启（需 ISP/BOOT 硬件操作，用户决策）；**生成/编译不依赖该开关**。IDE 生成 launch.json + openocd-wch 任务链（D9）。
+> **调试链突破并实机闭环**：MRS V3.0.0 Linux 自带 WCH fork OpenOCD（wlinke+sdi+wch_riscv，CH58x 支持）部署用户目录；首次 attach 失败根因=CFG_DEBUG_EN=0；用户于 Windows WCHISPStudio「开启两线仿真」成功（证据存档 windows-side/）后 CH-LINK 接回 Linux，**examine + gdb 3333 attach 读寄存器/Flash 全通过**（misa=0x40901125、Flash 448KB、空片无有效固件）。IDE 生成 launch.json + openocd-wch 任务链（D9）实机等价验证完成。烧录待用户授权。
 > **集成修复**：ClockData.defaultSource 数据驱动（CH582M 默认 PLL——旧默认 HSE 不可生成会阻止新建工程导出）；ch58x README/ide 旧断言同步 M12。
 > **插曲（用户报告）**：Pinout/Clock 画布无法拖动/区域聚焦 → 光标锚定缩放 + 背景拖动平移（f17a3d7）；时钟卡片左对齐死区 → safe center 居中 + 跨溢出锚定补偿（0eae042）。
 
