@@ -73,6 +73,37 @@ describe('anchorZoomScroll（滚动容器 + padding）', () => {
   })
 })
 
+describe('anchorZoomScroll（safe center 居中 origin）', () => {
+  it('未溢出轴传入居中 origin：补偿量可超出滚动起点（交由浏览器钳为 0）', () => {
+    // 卡片宽 756、容器内容宽 819 → origin = 20 + (819−756)/2 = 51.5
+    const s = anchorZoomScroll(0, 336, 20, 1.1, 51.5)
+    expect(s).toBeCloseTo(20 + (336 - 51.5) * 1.1 - 336)
+    expect(s).toBeLessThan(0)
+  })
+  it('origin ≠ padding 的正向补偿', () => {
+    expect(anchorZoomScroll(50, 200, 20, 2, 120)).toBeCloseTo(20 + (50 + 200 - 120) * 2 - 200)
+  })
+  it('跨越未溢出→溢出：传入居中 origin 后光标下内容仍在光标处', () => {
+    // 卡片 700 → 缩放 1.2 → 840（>819 内容宽，已溢出）；居中 origin = 20 + (819−700)/2
+    const pad = 20
+    const contentW = 819
+    const cardW0 = 700
+    const s0 = 0.6
+    const r = 1.2
+    const origin0 = pad + (contentW - cardW0) / 2
+    const u = 500
+    const nodeSvg = (u - origin0) / s0
+    const scroll1 = anchorZoomScroll(0, u, pad, r, origin0)
+    expect(scroll1).toBeGreaterThan(0)
+    // 溢出后 safe center 回退 start：新原点 = padding，scale = s0·r
+    const screen1 = pad + nodeSvg * s0 * r - scroll1
+    expect(screen1).toBeCloseTo(u)
+  })
+  it('溢出轴 origin=padding 时与旧公式一致', () => {
+    expect(anchorZoomScroll(100, 200, 20, 2, 20)).toBeCloseTo(anchorZoomScroll(100, 200, 20, 2))
+  })
+})
+
 describe('shouldStartPan（背景拖动平移决策）', () => {
   it('hand 工具：左键任意处（含引脚上）平移', () => {
     expect(shouldStartPan({ tool: 'hand', onPin: true, button: 0 })).toBe(true)

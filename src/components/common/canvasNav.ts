@@ -27,11 +27,24 @@ export function anchorZoomPan(pan: Pt, cursor: Pt, center: Pt, ratio: number): P
 
 /**
  * 滚动容器光标锚定缩放：内容 = padding + SVG（SVG 尺寸随 zoom 线性缩放）。
- * 光标视口偏移 u 处的内容坐标 = scroll + u；SVG 坐标 = scroll + u − padding。
- * 缩放后保持光标下内容不动：scroll' = padding + (scroll + u − padding)·r − u。
+ * 光标视口偏移 u 处的内容坐标 = scroll + u；SVG 坐标 = scroll + u − origin。
+ * 缩放后保持光标下内容不动：scroll' = padding + (scroll + u − origin)·r − u。
+ *
+ * origin 是缩放前 SVG 左上角在滚动内容坐标系中的偏移（相对 scrollLeft=0 的视口左缘）。
+ * 常规（内容溢出/左对齐）时 origin = padding，公式退化为旧形式。
+ * 居中布局下未溢出轴的 origin = padding + 两侧空白/2；跨越「未溢出 → 溢出」时
+ * 传入该实际 origin 可抵消对齐方式切换（居中 → start）造成的一次性跳变。
+ * 缩放后的新原点按 padding 计：溢出轴 safe center 回退 start，原点确在 padding；
+ * 仍未溢出的轴 scroll 会被浏览器钳回 0（锚定在该轴不可行），结果无害。
  */
-export function anchorZoomScroll(scroll: number, cursorOffset: number, padding: number, ratio: number): number {
-  return padding + (scroll + cursorOffset - padding) * ratio - cursorOffset
+export function anchorZoomScroll(
+  scroll: number,
+  cursorOffset: number,
+  padding: number,
+  ratio: number,
+  origin = padding,
+): number {
+  return padding + (scroll + cursorOffset - origin) * ratio - cursorOffset
 }
 
 /**

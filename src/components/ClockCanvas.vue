@@ -55,9 +55,27 @@ const effScale = computed(() => baseScale.value * zoom.value)
 
 /** 缩放上限 3（与 Pinout 画布 30%~300% 一致） */
 const ZOOM_MAX = 3
-/** 滚动容器内边距（与 .canvas-scroll padding 一致，锚定缩放数学需要） */
+/**
+ * 滚动容器内边距（与 .canvas-scroll padding 一致，锚定缩放数学需要）。
+ * safe center 下未溢出轴的 SVG 原点还包含居中空白；溢出轴回退 start、原点即 padding。
+ * 缩放前的实际原点由 contentOrigin() 量取并传入 anchorZoomScroll。
+ */
 const SCROLL_PAD = 20
 const scrollEl = ref<HTMLElement | null>(null)
+const innerEl = ref<HTMLElement | null>(null)
+
+/**
+ * 缩放前 SVG 原点在滚动内容坐标系中的偏移（相对 scrollLeft/Top=0 的视口边缘）。
+ * 左对齐时恒为 padding；safe center 下未溢出轴还包含两侧居中空白的一半，
+ * 跨「未溢出 → 溢出」切换时把它传给 anchorZoomScroll 可抵消对齐回退造成的一次性跳变。
+ */
+function contentOrigin(el: HTMLElement, axis: 'x' | 'y'): number {
+  const inner = innerEl.value
+  if (!inner) return SCROLL_PAD
+  const ir = inner.getBoundingClientRect()
+  const sr = el.getBoundingClientRect()
+  return axis === 'x' ? ir.left - sr.left + el.scrollLeft : ir.top - sr.top + el.scrollTop
+}
 
 /**
  * 光标锚定缩放（M12-hotfix）：缩放后调整 scrollLeft/Top，使光标下的时钟节点保持不动，
@@ -70,8 +88,10 @@ async function zoomAt(f: number, cursorOffset?: { x: number; y: number }) {
   if (r === 1) return
   const el = scrollEl.value
   const u = cursorOffset ?? (el ? { x: el.clientWidth / 2, y: el.clientHeight / 2 } : { x: 0, y: 0 })
-  const sx = el ? anchorZoomScroll(el.scrollLeft, u.x, SCROLL_PAD, r) : 0
-  const sy = el ? anchorZoomScroll(el.scrollTop, u.y, SCROLL_PAD, r) : 0
+  const ox = el ? contentOrigin(el, 'x') : SCROLL_PAD
+  const oy = el ? contentOrigin(el, 'y') : SCROLL_PAD
+  const sx = el ? anchorZoomScroll(el.scrollLeft, u.x, SCROLL_PAD, r, ox) : 0
+  const sy = el ? anchorZoomScroll(el.scrollTop, u.y, SCROLL_PAD, r, oy) : 0
   zoom.value = nz
   await nextTick()
   if (el) {
@@ -219,7 +239,7 @@ function onNodeClick(nodeId: string) {
   >
     <!-- 内联编辑器随 SVG 内容一起滚动，无需在滚动时关闭 -->
     <div ref="scrollEl" class="canvas-scroll" :class="{ dragging: panning }">
-      <div class="canvas-inner" :class="{ 'zoom-anim': zoomAnimating }" :style="{ width: svgW + 'px', height: svgH + 'px' }">
+      <div ref="innerEl" class="canvas-inner" :class="{ 'zoom-anim': zoomAnimating }" :style="{ width: svgW + 'px', height: svgH + 'px' }">
         <svg :width="svgW" :height="svgH" :viewBox="`0 0 ${layout.width} ${layout.height}`" class="clock-svg">
           <!-- 分组容器 -->
           <g v-for="g in layout.groups" :key="g.id">
@@ -269,11 +289,25 @@ function onNodeClick(nodeId: string) {
   background: var(--mx-bg);
   overflow: hidden;
 }
+/*
+ * 内容小于视口时居中（M12-hotfix）：布局是窄高树，fit 比例由高度约束主导，
+ * 左对齐会在右侧留下大片死区。flex + safe center 让卡片在未溢出轴上居中；
+ * 溢出轴安全回退到 start，保证滚动可达（普通 center 会把起始侧裁到负偏移，滚不回去）。
+ *
+ * 锚定缩放数学（anchorZoomScroll）不受影响：
+ * - 溢出轴：safe center 回退为 start，内容原点仍在 padding 边缘，公式成立；
+ * - 未溢出轴：scroll 恒为 0（无滚动区间），锚定本就不可行，与改动前左对齐时一致。
+ * 缩放跨越「未溢出 → 溢出」时，对齐方式从居中切到 start；contentOrigin() 把切换前
+ * 的居中偏移传入锚定公式，消除跳变（补偿量超出滚动起点时由浏览器钳为 0，残余不可达）。
+ */
 .canvas-scroll {
   width: 100%;
   height: 100%;
   overflow: auto;
   padding: 20px;
+  display: flex;
+  justify-content: safe center;
+  align-items: safe center;
 }
 /* 背景拖动平移中：抓取光标 + 禁选文本 */
 .canvas-scroll.dragging {
