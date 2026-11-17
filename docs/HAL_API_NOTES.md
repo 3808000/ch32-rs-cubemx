@@ -375,3 +375,21 @@ ch32rv: error[attach-failed]: probe replied with error (reason 0x55): [81, 55, 0
   flash 断点有磨损且中断会话可能残留 `ebreak`（ch32rv 会尽力还原）。
 - `ch32rv flash`、`wlink flash`、GDB `load` 都会写 flash。本次核实**只做** `probe list/info`、
   `target info`、`wlink status` 与 `ch32rv gdb` attach 尝试，未执行任何写操作。
+
+### 12.6 CH582M 接入复测（2026-11-17）：支持矩阵结论
+
+用户接入 CH582M 目标后复测（只读）：
+
+| 工具 | 结果 | 原因 |
+|---|---|---|
+| `ch32rv probe list/info` | 探针层通过（WCH-Link v2.12, serial BC493E69FAB2） | 探针与目标芯片无关 |
+| `ch32rv target info` | `error[target-no-response]` | 自动检测失败 |
+| `ch32rv target info --chip CH582M` | `error[target-not-in-db]: --chip CH582M is not in the target DB` | **ch32rv 0.31.3 目标 DB 仅 CH32V 系**（cmd_db.rs：0x06=CH32V307、0x09=CH32V003 等；全源码无 ch58x 条目） |
+| `wlink status` | `Protocol error 0x55` | wlink 0.1.3 仅 CH32V 系 |
+| `wchlink-rs`（用户参考库） | --type 表仅 5=V20x/6=V30x/9=V003/1=V10x | 同仅 CH32V 系 |
+| openocd 0.12.0+dev（系统） | scripts/target 无 wch/ch58x/ch32v _cfg | 上游未合入 WCH RISC-V 目标 |
+
+**结论**：CH582M 属 CH58x（BLE）系，与 CH32V 系调试协议/ID 不同；当前开源链（ch32rv/wlink/wchlink/openocd 0.12）
+均不支持，`target-no-response` 是**支持矩阵问题而非接线问题**。CH58x 调试需 WCH MRS/LinkUtility 自带 gdbserver
+（未安装）；且本工具 CH582 代码生成仍被 `halBackend=ch58x-hal` 守卫拦截（独立里程碑）。
+**目标层核实待 CH32V 系目标板**（V003/V203/V307/H417 等）接入后补跑；launch.json 模板能力依据不变（§12.4）。
