@@ -3,11 +3,12 @@
 // 越界按级别着色（error 红 / warning 橙）、连接点实心蓝/空心灰、点节点向父级抛 focus。
 // 节点 / 连线拆分到 components/clock/ 子组件；本组件保留画布、缩放与交互状态，
 // 并协调 editingNodeId：同一时刻画布内只允许一个节点处于编辑态（开新关旧）。
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ZoomIn, ZoomOut, FullScreen } from '@element-plus/icons-vue'
 import type { ClockNodeControl, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
 import ClockNode from '@/components/clock/ClockNode.vue'
 import ClockWire from '@/components/clock/ClockWire.vue'
+import { anchorZoomScroll, clampZoom } from '@/components/common/canvasNav'
 
 const props = defineProps<{
   layout: ClockTreeLayout
@@ -54,10 +55,31 @@ const effScale = computed(() => baseScale.value * zoom.value)
 
 /** 缩放上限 3（与 Pinout 画布 30%~300% 一致） */
 const ZOOM_MAX = 3
-function applyZoom(f: number) {
-  zoom.value = Math.min(ZOOM_MAX, Math.max(0.3, zoom.value * f))
+/** 滚动容器内边距（与 .canvas-scroll padding 一致，锚定缩放数学需要） */
+const SCROLL_PAD = 20
+const scrollEl = ref<HTMLElement | null>(null)
+
+/**
+ * 光标锚定缩放（M12-hotfix）：缩放后调整 scrollLeft/Top，使光标下的时钟节点保持不动，
+ * 用户可独立放大任意局部再配置。数学见 canvasNav.anchorZoomScroll。
+ * 尺寸随 zoom 计算属性变化，scroll 校正须在 nextTick（DOM 更新）后执行。
+ */
+async function zoomAt(f: number, cursorOffset?: { x: number; y: number }) {
+  const nz = clampZoom(zoom.value, f, 0.3, ZOOM_MAX)
+  const r = nz / zoom.value
+  if (r === 1) return
+  const el = scrollEl.value
+  const u = cursorOffset ?? (el ? { x: el.clientWidth / 2, y: el.clientHeight / 2 } : { x: 0, y: 0 })
+  const sx = el ? anchorZoomScroll(el.scrollLeft, u.x, SCROLL_PAD, r) : 0
+  const sy = el ? anchorZoomScroll(el.scrollTop, u.y, SCROLL_PAD, r) : 0
+  zoom.value = nz
+  await nextTick()
+  if (el) {
+    el.scrollLeft = sx
+    el.scrollTop = sy
+  }
 }
-/** 按钮缩放：画布尺寸变化走 160ms CSS 过渡（滚轮走 applyZoom，保持即时） */
+/** 按钮缩放：以视口中心为锚，画布尺寸变化走 160ms CSS 过渡 */
 function zoomBy(f: number) {
   zoomAnimating.value = true
   if (zoomTimer !== null) window.clearTimeout(zoomTimer)
@@ -65,18 +87,52 @@ function zoomBy(f: number) {
     zoomAnimating.value = false
     zoomTimer = null
   }, 200)
-  applyZoom(f)
+  void zoomAt(f)
 }
 function fit() {
   zoomBy(1 / zoom.value)
+  void nextTick().then(() => {
+    if (scrollEl.value) {
+      scrollEl.value.scrollLeft = 0
+      scrollEl.value.scrollTop = 0
+    }
+  })
 }
 function onWheel(e: WheelEvent) {
-  // 与 GLSP/MX2 一致：Ctrl/⌘ + 滚轮缩放，普通滚轮用于滚动画布（触控板双指滚动不误缩放）
+  // 与 GLSP/MX2 一致：Ctrl/⌘ + 滚轮缩放（光标锚定），普通滚轮用于滚动画布（触控板双指滚动不误缩放）
   if (!e.ctrlKey && !e.metaKey) return
   e.preventDefault()
-  applyZoom(e.deltaY < 0 ? 1.1 : 0.9)
+  const rect = wrap.value?.getBoundingClientRect()
+  const cursor = rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : undefined
+  void zoomAt(e.deltaY < 0 ? 1.1 : 0.9, cursor)
 }
 const zoomPercent = computed(() => `${Math.round(effScale.value * 100)}%`)
+
+// ---------- 背景拖动平移（M12-hotfix）：空白处按住左键/中键拖动 = 滚动画布 ----------
+const panning = ref(false)
+const panStart = reactive({ x: 0, y: 0, sl: 0, st: 0 })
+function onPanMouseDown(e: MouseEvent) {
+  const t = e.target as Element | null
+  // 节点/控件/工具条上不平移（节点保留点选聚焦与内联编辑）
+  if (t?.closest('.node, button, input, select, foreignObject, .zoom-bar')) return
+  if (e.button !== 0 && e.button !== 1) return
+  if (e.button === 1) e.preventDefault()
+  const el = scrollEl.value
+  if (!el) return
+  panning.value = true
+  panStart.x = e.clientX
+  panStart.y = e.clientY
+  panStart.sl = el.scrollLeft
+  panStart.st = el.scrollTop
+}
+function onPanMouseMove(e: MouseEvent) {
+  if (!panning.value || !scrollEl.value) return
+  scrollEl.value.scrollLeft = panStart.sl - (e.clientX - panStart.x)
+  scrollEl.value.scrollTop = panStart.st - (e.clientY - panStart.y)
+}
+function onPanMouseUp() {
+  panning.value = false
+}
 
 // ---------- 配置变化高亮脉冲（应用预设/修改控件后，频率发生变化的节点闪一次） ----------
 const pulseIds = ref<Set<string>>(new Set())
@@ -151,9 +207,18 @@ function onNodeClick(nodeId: string) {
 </script>
 
 <template>
-  <div ref="wrap" class="canvas-wrap" @wheel="onWheel" @click="closeEdit">
+  <div
+    ref="wrap"
+    class="canvas-wrap"
+    @wheel="onWheel"
+    @click="closeEdit"
+    @mousedown="onPanMouseDown"
+    @mousemove="onPanMouseMove"
+    @mouseup="onPanMouseUp"
+    @mouseleave="onPanMouseUp"
+  >
     <!-- 内联编辑器随 SVG 内容一起滚动，无需在滚动时关闭 -->
-    <div class="canvas-scroll">
+    <div ref="scrollEl" class="canvas-scroll" :class="{ dragging: panning }">
       <div class="canvas-inner" :class="{ 'zoom-anim': zoomAnimating }" :style="{ width: svgW + 'px', height: svgH + 'px' }">
         <svg :width="svgW" :height="svgH" :viewBox="`0 0 ${layout.width} ${layout.height}`" class="clock-svg">
           <!-- 分组容器 -->
@@ -185,13 +250,13 @@ function onNodeClick(nodeId: string) {
     </div>
 
     <!-- 底部浮动缩放条 -->
-    <div class="zoom-bar" title="Ctrl/⌘ + 滚轮缩放；也可使用按钮缩放">
+    <div class="zoom-bar" title="空白处拖动平移；Ctrl/⌘ + 滚轮以光标为锚点缩放；也可使用按钮缩放">
       <button class="zb-btn" title="缩小" @click="zoomBy(0.85)"><el-icon :size="15"><ZoomOut /></el-icon></button>
       <span class="zb-percent" title="当前有效缩放比例（随容器自适应）">{{ zoomPercent }}</span>
       <button class="zb-btn" title="放大" @click="zoomBy(1.18)"><el-icon :size="15"><ZoomIn /></el-icon></button>
       <span class="zb-sep"></span>
       <button class="zb-btn" title="适合窗口" @click="fit"><el-icon :size="15"><FullScreen /></el-icon></button>
-      <span class="zb-hint">Ctrl/⌘+滚轮缩放</span>
+      <span class="zb-hint">空白处拖动平移 · Ctrl/⌘+滚轮缩放</span>
     </div>
   </div>
 </template>
@@ -209,6 +274,11 @@ function onNodeClick(nodeId: string) {
   height: 100%;
   overflow: auto;
   padding: 20px;
+}
+/* 背景拖动平移中：抓取光标 + 禁选文本 */
+.canvas-scroll.dragging {
+  cursor: grabbing;
+  user-select: none;
 }
 .canvas-inner {
   position: relative;

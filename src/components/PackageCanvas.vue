@@ -112,6 +112,7 @@ import {
 import { canMoveTo, moveCandidates, type MoveCandidate } from '@/model/pins/moveSignal'
 import { RefreshRight, ZoomIn, ZoomOut, FullScreen, Pointer, Rank, Monitor } from '@element-plus/icons-vue'
 import PinContextMenu from '@/components/pinout/PinContextMenu.vue'
+import { anchorZoomPan, clampZoom, shouldStartPan } from '@/components/common/canvasNav'
 
 const props = defineProps<{
   chip: ChipData
@@ -251,8 +252,21 @@ function resetTop() {
   angle.value = topAngle(angle.value)
 }
 
-function applyZoom(f: number) {
-  zoom.value = Math.min(3, Math.max(0.3, zoom.value * f))
+/**
+ * 光标锚定缩放（M12-hotfix）：滚轮以光标为锚点放大/缩小，光标下的封装区域保持不动，
+ * 用户可独立放大任意局部再配置；按钮缩放以容器中心为锚（pan 随比例缩放，视图中心不变）。
+ * 数学见 canvasNav.anchorZoomPan（transform 层 flex 居中 + origin 中心）。
+ */
+function zoomAt(f: number, cursor?: { x: number; y: number }) {
+  const nz = clampZoom(zoom.value, f)
+  const r = nz / zoom.value
+  if (r === 1) return
+  zoom.value = nz
+  const rect = container.value?.getBoundingClientRect()
+  const center = rect ? { x: rect.width / 2, y: rect.height / 2 } : { x: 0, y: 0 }
+  const p = anchorZoomPan(pan, cursor ?? center, center, r)
+  pan.x = p.x
+  pan.y = p.y
 }
 /** 临时开启缩放层补间（按钮缩放 / 倾斜引起的基准比例变化） */
 function startZoomAnim() {
@@ -266,7 +280,7 @@ function startZoomAnim() {
 /** 按钮缩放：外层 transform 过渡 160ms（滚轮走 applyZoom，保持即时） */
 function zoomBy(f: number) {
   startZoomAnim()
-  applyZoom(f)
+  zoomAt(f)
 }
 function fit() {
   zoomBy(1 / zoom.value)
@@ -279,10 +293,20 @@ function fullscreen() {
 
 function onWheel(e: WheelEvent) {
   e.preventDefault()
-  applyZoom(e.deltaY < 0 ? 1.1 : 0.9)
+  const rect = container.value?.getBoundingClientRect()
+  const cursor = rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : undefined
+  zoomAt(e.deltaY < 0 ? 1.1 : 0.9, cursor)
 }
+/**
+ * 背景拖动平移（M12-hotfix）：pointer 工具空白处左键即可平移（引脚上保留点选/拖拽移动信号），
+ * hand 工具任意处平移，中键任意处平移。UI 元素（工具条/按钮/浮卡/菜单）先行排除。
+ */
 function onMouseDown(e: MouseEvent) {
-  if (tool.value !== 'hand') return
+  const t = e.target as Element | null
+  if (t?.closest('button, input, .float-toolbar, .hover-card, .menu-backdrop')) return
+  const onPin = !!t?.closest('[data-pin-name]')
+  if (!shouldStartPan({ tool: tool.value, onPin, button: e.button })) return
+  if (e.button === 1) e.preventDefault() // 阻止中键自动滚动
   dragging.value = true
   dragStart.x = e.clientX
   dragStart.y = e.clientY
@@ -645,10 +669,10 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
     <!-- 底部浮动工具条 -->
     <div class="float-toolbar">
       <el-tooltip content="指针" placement="top">
-        <button class="ft-btn" aria-label="指针工具" :class="{ active: tool === 'pointer' }" @click="tool = 'pointer'"><el-icon :size="15"><Pointer /></el-icon></button>
+        <button class="ft-btn" aria-label="指针工具" title="指针工具：点选引脚 / 拖拽移动信号；空白处拖动平移画布" :class="{ active: tool === 'pointer' }" @click="tool = 'pointer'"><el-icon :size="15"><Pointer /></el-icon></button>
       </el-tooltip>
       <el-tooltip content="抓手" placement="top">
-        <button class="ft-btn" aria-label="抓手工具" :class="{ active: tool === 'hand' }" @click="tool = 'hand'"><el-icon :size="15"><Rank /></el-icon></button>
+        <button class="ft-btn" aria-label="抓手工具" title="抓手工具：任意处拖动平移画布（滚轮始终以光标为锚点缩放）" :class="{ active: tool === 'hand' }" @click="tool = 'hand'"><el-icon :size="15"><Rank /></el-icon></button>
       </el-tooltip>
       <span class="ft-sep"></span>
       <el-tooltip content="倾斜封装 45°" placement="top">
@@ -701,8 +725,10 @@ const offsetTransform = computed(() => `translate(${canvasOffset.value.dx} ${can
 .canvas-scroll.hand {
   cursor: grab;
 }
-.canvas-scroll.hand.dragging {
+/* 任意工具拖动平移中：抓取光标 + 禁选文本 */
+.canvas-scroll.dragging {
   cursor: grabbing;
+  user-select: none;
 }
 /* 缩放层：尺寸固定为正方形画布，缩放/平移统一走 transform */
 .package-zoom {
