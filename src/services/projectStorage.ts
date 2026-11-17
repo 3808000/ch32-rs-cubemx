@@ -1,28 +1,149 @@
-// 工程持久化服务：localStorage 读写（控制器不直接做 IO）+ 自动保存订阅（M4.1 浏览器版）。
-// 自动保存只写单槽 localStorage（键名与历史版本兼容）；桌面端磁盘工程库（每工程目录 +
-// projects.json）属 M4 后续 TODO，届时由本文件扩展为多后端实现。
+// 工程持久化服务：localStorage 读写（控制器不直接做 IO）+ 自动保存订阅。
+// - 浏览器：单槽 localStorage（键名与历史版本兼容，行为逐字节不变）；
+// - 桌面端（M10）：磁盘工程库，cube.json 写入当前工程目录，并同步索引 projects.json；
+//   同时写一份单槽 localStorage 影子快照，保证启动时 controller.restore() 仍可同步恢复。
 // 损坏数据静默判失败，由调用方决定是否提示。
 import { watch } from 'vue'
 import type { ProjectConfig } from '@/model/types'
+import { isDesktopApp, readTextFileNative, writeTextFileNative } from '@/services/desktop'
+import {
+  joinFsPath,
+  listLibraryDisk,
+  saveProjectEntryDisk,
+  selectRecentEntries,
+} from '@/services/recentProjects'
 
 const STORAGE_KEY = 'ch32-rs-cubemx:project'
 
 /** 自动保存防抖间隔（M4.1：dirty 变化后 ~2s 落盘）。 */
 export const AUTOSAVE_DEBOUNCE_MS = 2000
 
-/** 最近一次写入 localStorage 的序列化快照：自动保存据此跳过无变化写盘。
+/** 最近一次写入 json 的序列化快照：自动保存据此跳过无变化写盘。
  *  手动 saveProject() 也会更新，避免自动保存与 Ctrl+S 重复写入。 */
 let lastSavedText: string | null = null
 
-/** 保存配置快照。失败时抛出原始异常（存储满/隐私模式等）。 */
+// ---------- 桌面磁盘后端状态（M10） ----------
+
+/** 当前工程磁盘目录（桌面端）；null = 尚未绑定（浏览器始终为 null）。 */
+let activeProjectDir: string | null = null
+
+/** 桌面端持久化当前目录的 localStorage 键：冷启动后自动保存仍能落到原工程。 */
+const PROJECT_DIR_KEY = 'ch32-rs-cubemx:project-dir'
+
+/** 桌面端最近一次读取/写入的配置快照：供同步 loadProject() 使用。 */
+let diskSnapshot: ProjectConfig | null = null
+
+/** 磁盘异步写失败回调（由 HomeView 接线到 store.notify）。 */
+let saveErrorHandler: ((error: unknown) => void) | null = null
+
+/** 注册磁盘保存失败回调；传 null 取消。 */
+export function setProjectSaveErrorHandler(handler: ((error: unknown) => void) | null): void {
+  saveErrorHandler = handler
+}
+
+/** 绑定当前工程目录（打开/新建工程时调用）；null/空白视为解绑。 */
+export function setCurrentProjectDir(dir: string | null): void {
+  const trimmed = (dir ?? '').trim()
+  activeProjectDir = trimmed || null
+  // 仅桌面端持久化（浏览器 localStorage 槽位保持 M4.1 逐字节不变）
+  if (!isDesktopApp()) return
+  try {
+    if (activeProjectDir) localStorage.setItem(PROJECT_DIR_KEY, activeProjectDir)
+    else localStorage.removeItem(PROJECT_DIR_KEY)
+  } catch {
+    /* 存储满/隐私模式：目录绑定仅存活于本次会话 */
+  }
+}
+
+/** 当前工程目录（未绑定为 null）；桌面端冷启动时从影子键恢复。 */
+export function currentProjectDir(): string | null {
+  if (!activeProjectDir && isDesktopApp()) {
+    try {
+      activeProjectDir = localStorage.getItem(PROJECT_DIR_KEY) || null
+    } catch {
+      activeProjectDir = null
+    }
+  }
+  return activeProjectDir
+}
+
+function reportSaveError(error: unknown): void {
+  saveErrorHandler?.(error)
+}
+
+/** 保存配置快照。失败时抛出原始异常（存储满/隐私模式等）。
+ * 桌面端：写 cube.json + 索引（异步，失败走 setProjectSaveErrorHandler），并镜像单槽 localStorage。
+ */
 export function saveProject(config: ProjectConfig): void {
   const text = JSON.stringify(config)
+  if (isDesktopApp()) {
+    localStorage.setItem(STORAGE_KEY, text)
+    lastSavedText = text
+    diskSnapshot = config
+    const dir = currentProjectDir()
+    if (dir) {
+      void saveProjectToDisk(config, dir).catch((e) => reportSaveError(e))
+    }
+    return
+  }
   localStorage.setItem(STORAGE_KEY, text)
   lastSavedText = text
 }
 
-/** 读取配置快照；不存在或损坏返回 null。 */
+/**
+ * 桌面端：把配置写入指定工程目录的 cube.json，并登记/更新磁盘索引。
+ * 父目录由 Rust write_file 逐级创建（即“ensure 目录”语义）。
+ */
+export async function saveProjectToDisk(
+  config: ProjectConfig,
+  dir: string | null = null,
+): Promise<void> {
+  const target = (dir ?? currentProjectDir() ?? '').trim()
+  if (!target) throw new Error('尚未绑定工程目录')
+  const text = JSON.stringify(config)
+  await writeTextFileNative(joinFsPath(target, 'cube.json'), text)
+  await saveProjectEntryDisk(config, target)
+  setCurrentProjectDir(target)
+  diskSnapshot = config
+  lastSavedText = text
+  // 影子快照：App 启动时 controller.restore() 走同步 loadProject()
+  try {
+    localStorage.setItem(STORAGE_KEY, text)
+  } catch {
+    /* 磁盘写入已成功：localStorage 满时忽略影子快照失败 */
+  }
+}
+
+/**
+ * 桌面端：按索引 lastOpened 读取最近工程目录的 cube.json（异步）。
+ * 同步 loadProject() 无法等待 invoke，因此由调用方在启动时预热快照。
+ */
+export async function loadProjectFromDisk(): Promise<ProjectConfig | null> {
+  if (!isDesktopApp()) return null
+  try {
+    const entry = selectRecentEntries(await listLibraryDisk(), 1)[0]
+    if (!entry) return null
+    const parsed: unknown = JSON.parse(
+      await readTextFileNative(joinFsPath(entry.dir, 'cube.json')),
+    )
+    if (typeof parsed !== 'object' || parsed === null) return null
+    diskSnapshot = parsed as ProjectConfig
+    setCurrentProjectDir(entry.dir)
+    return diskSnapshot
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 读取配置快照；不存在或损坏返回 null。
+ * 桌面端优先返回已预热的磁盘快照，否则回退单槽 localStorage（兼容旧会话）。
+ */
 export function loadProject(): ProjectConfig | null {
+  if (isDesktopApp() && diskSnapshot) {
+    lastSavedText = JSON.stringify(diskSnapshot)
+    return diskSnapshot
+  }
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) {
@@ -111,6 +232,19 @@ export function startAutosave(
       return false
     }
     if (text === lastSavedText) return false
+    // 桌面端：写当前工程目录的 cube.json；尚未绑定目录时静默跳过（不写 localStorage）
+    const dir = isDesktopApp() ? currentProjectDir() : null
+    if (isDesktopApp() && dir) {
+      void saveProjectToDisk(config, dir).then(
+        () => {
+          lastSavedAt = Date.now()
+          options.onSaved?.(lastSavedAt)
+        },
+        (e) => options.onError?.(e),
+      )
+      return true
+    }
+    if (isDesktopApp()) return false
     try {
       saveProject(config)
       lastSavedAt = Date.now()

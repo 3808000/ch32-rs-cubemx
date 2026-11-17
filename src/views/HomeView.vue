@@ -17,29 +17,55 @@ import CreateProjectWizard, {
   type CreateProjectPayload,
 } from '@/components/home/CreateProjectWizard.vue'
 import { useProjectStore } from '@/controllers/project'
+import { isDesktopApp, readTextFileNative } from '@/services/desktop'
 import { parseProjectFile, readFileAsText } from '@/services/projectFile'
 import {
   getLibrary,
   getRecent,
+  joinFsPath,
   libraryProjectId,
   LibraryConflictError,
   listLibrary,
+  listLibraryDisk,
   listRecent,
+  listRecentDisk,
+  projectDirName,
   removeLibrary,
+  removeLibraryDisk,
   removeRecent,
+  removeRecentDisk,
   renameLibrary,
+  renameLibraryDisk,
   saveToLibrary,
   touchRecent,
-  type LibraryProject,
-  type RecentProject,
+  touchRecentDisk,
+  type DiskProjectEntry,
 } from '@/services/recentProjects'
-import { AUTOSAVE_DEBOUNCE_MS, startAutosave } from '@/services/projectStorage'
+import {
+  AUTOSAVE_DEBOUNCE_MS,
+  currentProjectDir as activeProjectDir,
+  saveProjectToDisk,
+  setCurrentProjectDir,
+  setProjectSaveErrorHandler,
+  startAutosave,
+} from '@/services/projectStorage'
+
+/** 工程库/最近工程卡片视图模型：浏览器 localStorage 与桌面索引统一渲染。 */
+interface ProjectCard {
+  id: string
+  projectName: string
+  chip: string
+  updatedAt: number
+  /** 桌面端磁盘工程目录（浏览器为空） */
+  dir?: string
+}
 
 const store = useProjectStore()
+const isDesktop = isDesktopApp()
 const fileInput = ref<HTMLInputElement | null>(null)
 const importing = ref(false)
-const recentProjects = ref<RecentProject[]>([])
-const libraryProjects = ref<LibraryProject[]>([])
+const recentProjects = ref<ProjectCard[]>([])
+const libraryProjects = ref<ProjectCard[]>([])
 
 // 工程库保存/重命名对话框
 const showSaveLibrary = ref(false)
@@ -56,12 +82,16 @@ const autosaveStatus = computed(() => {
   if (store.lastSavedAt) return `已保存 ${formatClock(store.lastSavedAt)}`
   return '自动保存已开启'
 })
-const autosaveHint = `配置变更后约 ${AUTOSAVE_DEBOUNCE_MS / 1000} 秒自动写入浏览器 localStorage；桌面端磁盘工程库待 M4 后续版本`
+const autosaveHint = isDesktop
+  ? `配置变更后约 ${AUTOSAVE_DEBOUNCE_MS / 1000} 秒自动写入当前工程目录的 cube.json（未绑定目录时跳过）`
+  : `配置变更后约 ${AUTOSAVE_DEBOUNCE_MS / 1000} 秒自动写入浏览器 localStorage`
 
 // HomeView 由 v-if 控制，每次回到 Home 都会重新挂载并刷新列表。
 // 自动保存订阅跨视图存活：startAutosave 幂等，组件卸载时不 stop（否则离开 Home 即失效）。
 onMounted(() => {
-  refreshLists()
+  void refreshLists()
+  // 磁盘异步写失败（目录不可写/索引损坏等）统一回到 store 通知
+  setProjectSaveErrorHandler((e) => store.notify(`工程保存失败：${errorText(e)}`, 'error'))
   startAutosave(() => store.config, () => store.dirty, {
     debounceMs: AUTOSAVE_DEBOUNCE_MS,
     onSaved: (at) => {
@@ -70,12 +100,37 @@ onMounted(() => {
       store.$patch({ dirty: false, lastSavedAt: at })
     },
     onError: (e) => {
-      store.notify(`自动保存失败：${e instanceof Error ? e.message : String(e)}`, 'error')
+      store.notify(`自动保存失败：${errorText(e)}`, 'error')
     },
   })
 })
 
-function refreshLists(): void {
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+function toCard(entry: DiskProjectEntry): ProjectCard {
+  return {
+    id: entry.id,
+    projectName: entry.name,
+    chip: entry.chip,
+    updatedAt: entry.updatedAt,
+    dir: entry.dir,
+  }
+}
+
+/** 刷新工程库/最近工程：桌面端异步读磁盘索引，浏览器读 localStorage（同步）。 */
+async function refreshLists(): Promise<void> {
+  if (isDesktop) {
+    try {
+      const [library, recent] = await Promise.all([listLibraryDisk(), listRecentDisk()])
+      libraryProjects.value = library.map(toCard)
+      recentProjects.value = recent.map(toCard)
+    } catch (e) {
+      ElMessage.error(`读取磁盘工程库失败：${errorText(e)}`)
+    }
+    return
+  }
   recentProjects.value = listRecent()
   libraryProjects.value = listLibrary()
 }
@@ -98,24 +153,59 @@ function formatClock(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
 }
 
-/** 打开最近工程：重新读取完整 config，载入后刷新其时间戳。 */
-function openRecentProject(id: string): void {
+/** 桌面端打开磁盘工程：读 cube.json → 解析 → openConfig → 刷新最近使用时间。 */
+async function openDiskProject(card: ProjectCard): Promise<void> {
+  if (!card.dir) {
+    ElMessage.warning('该工程缺少磁盘目录信息')
+    await refreshLists()
+    return
+  }
+  try {
+    const result = parseProjectFile(await readTextFileNative(joinFsPath(card.dir, 'cube.json')))
+    if ('error' in result) {
+      ElMessage.error(result.error)
+      return
+    }
+    setCurrentProjectDir(card.dir)
+    // openConfig → loadConfig 置 projectOpened 并跳转 Pinout
+    store.openConfig(result.config)
+    await touchRecentDisk(card.id)
+    await refreshLists()
+    ElMessage.success(`已打开 ${result.config.projectName}（${result.config.chip}）`)
+  } catch (e) {
+    ElMessage.error(`打开工程失败：${errorText(e)}`)
+  }
+}
+
+/** 打开最近工程：桌面端走磁盘索引，浏览器重新读取完整 config。 */
+async function openRecentProject(id: string): Promise<void> {
+  if (isDesktop) {
+    const recent = recentProjects.value.find((r) => r.id === id)
+    if (!recent) {
+      await refreshLists()
+      ElMessage.warning('该最近工程已被移除')
+      return
+    }
+    await openDiskProject(recent)
+    return
+  }
   const recent = getRecent(id)
   if (!recent) {
-    recentProjects.value = listRecent()
+    await refreshLists()
     ElMessage.warning('该最近工程已被移除')
     return
   }
   store.openConfig(recent.config)
   touchRecent(recent.config)
-  refreshLists()
+  await refreshLists()
   ElMessage.success(`已打开 ${recent.projectName}（${recent.chip}）`)
 }
 
-/** 从最近列表移除（不影响已保存的 localStorage 工程快照）。 */
-function removeRecentProject(id: string): void {
-  removeRecent(id)
-  refreshLists()
+/** 从最近列表移除：桌面端只清 lastOpened（保留工程库与磁盘目录）。 */
+async function removeRecentProject(id: string): Promise<void> {
+  if (isDesktop) await removeRecentDisk(id)
+  else removeRecent(id)
+  await refreshLists()
 }
 
 // ---------- 工程库（M4.1 浏览器版） ----------
@@ -151,52 +241,72 @@ async function confirmSaveLibrary(): Promise<void> {
   }
   savingLibrary.value = true
   try {
-    saveToLibrary(config, { overwrite: duplicate })
-    // 库内名称与当前工程名保持一致（交给自动保存写入单槽）
+    if (isDesktop) {
+      // 桌面端：写当前工程目录（cube.json + 索引）；未绑定目录时提示先打开/新建
+      const dir = activeProjectDir()
+      if (!dir) {
+        ElMessage.warning('当前工程未绑定磁盘目录，请先新建或从工程库打开工程')
+        return
+      }
+      await saveProjectToDisk(config, dir)
+    } else {
+      saveToLibrary(config, { overwrite: duplicate })
+    }
+    // 库内名称与当前工程名保持一致（交给自动保存写入单槽/磁盘）
     if (store.projectName !== name) store.setProjectName(name)
     showSaveLibrary.value = false
-    refreshLists()
+    await refreshLists()
     ElMessage.success(duplicate ? `已覆盖工程「${name}」` : `已保存工程「${name}」`)
   } catch (e) {
     if (e instanceof LibraryConflictError) ElMessage.warning(e.message)
-    else ElMessage.error(`保存到工程库失败：${e instanceof Error ? e.message : String(e)}`)
+    else ElMessage.error(`保存到工程库失败：${errorText(e)}`)
   } finally {
     savingLibrary.value = false
   }
 }
 
-/** 从工程库打开：重新读取完整 config，载入后刷新 MRU。 */
-function openLibraryProject(project: LibraryProject): void {
+/** 从工程库打开：桌面端读磁盘 cube.json，浏览器重新读取完整 config。 */
+async function openLibraryProject(project: ProjectCard): Promise<void> {
+  if (isDesktop) {
+    await openDiskProject(project)
+    return
+  }
   const entry = getLibrary(project.id)
   if (!entry) {
-    refreshLists()
+    await refreshLists()
     ElMessage.warning('该工程已从库中移除')
     return
   }
   store.openConfig(entry.config)
   touchRecent(entry.config)
-  refreshLists()
+  await refreshLists()
   ElMessage.success(`已打开 ${entry.projectName}（${entry.chip}）`)
 }
 
-/** 删除工程库条目（不影响当前打开工程与最近列表）。 */
-async function deleteLibraryProject(project: LibraryProject): Promise<void> {
+/** 删除工程库条目：桌面端递归删目录（Rust 路径守卫）+ 索引移除。 */
+async function deleteLibraryProject(project: ProjectCard): Promise<void> {
+  const target = isDesktop ? '磁盘目录与工程库索引' : '工程库'
   try {
     await ElMessageBox.confirm(
-      `从工程库删除「${project.projectName}」（${project.chip}）？此操作不可撤销。`,
+      `从${target}删除「${project.projectName}」（${project.chip}）？此操作不可撤销。`,
       '删除工程',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
     )
   } catch {
     return // 用户取消
   }
-  removeLibrary(project.id)
-  refreshLists()
-  ElMessage.success(`已从工程库删除「${project.projectName}」`)
+  try {
+    if (isDesktop) await removeLibraryDisk(project.id)
+    else removeLibrary(project.id)
+    await refreshLists()
+    ElMessage.success(`已从工程库删除「${project.projectName}」`)
+  } catch (e) {
+    ElMessage.error(`删除工程失败：${errorText(e)}`)
+  }
 }
 
 /** 打开重命名对话框。 */
-function openRenameDialog(project: LibraryProject): void {
+function openRenameDialog(project: ProjectCard): void {
   renameId.value = project.id
   renameOldName.value = project.projectName
   renameName.value = project.projectName
@@ -204,23 +314,26 @@ function openRenameDialog(project: LibraryProject): void {
 }
 
 /** 重命名工程库条目；若正是当前工程则同步标题栏名称。 */
-function confirmRenameLibrary(): void {
+async function confirmRenameLibrary(): Promise<void> {
   const name = renameName.value.trim()
   if (!name) {
     ElMessage.warning('请输入工程名称')
     return
   }
   try {
-    const updated = renameLibrary(renameId.value, name)
+    const updated = isDesktop
+      ? await renameLibraryDisk(renameId.value, name)
+      : renameLibrary(renameId.value, name)
+    const updatedName = 'name' in updated ? updated.name : updated.projectName
     if (store.chip === updated.chip && store.projectName === renameOldName.value) {
-      store.setProjectName(name)
+      store.setProjectName(updatedName)
     }
     showRenameLibrary.value = false
-    refreshLists()
-    ElMessage.success(`已重命名工程「${updated.projectName}」`)
+    await refreshLists()
+    ElMessage.success(`已重命名工程「${updatedName}」`)
   } catch (e) {
     if (e instanceof LibraryConflictError) ElMessage.warning(e.message)
-    else ElMessage.error(`重命名失败：${e instanceof Error ? e.message : String(e)}`)
+    else ElMessage.error(`重命名失败：${errorText(e)}`)
   }
 }
 
@@ -240,16 +353,40 @@ function openWizardFromPicker(chip: string) {
   openCreateWizard(chip)
 }
 
-/** 向导 Create project：纯本地秒建（无联网 setup 步），随后进入 Pinout。 */
-function createProject(payload: CreateProjectPayload) {
+/**
+ * 向导 Create project：纯本地秒建（无联网 setup 步），随后进入 Pinout。
+ * 桌面端先落盘 cube.json + 索引，再绑定当前目录并置 projectOpened（空态契约）。
+ */
+async function createProject(payload: CreateProjectPayload): Promise<void> {
   store.setProjectName(payload.name)
   store.switchDevice(payload.chip)
+  if (isDesktop) {
+    const location = payload.location?.trim()
+    if (!location) {
+      ElMessage.error('缺少工程存储位置，请重新选择')
+      return
+    }
+    const dir = joinFsPath(location, projectDirName(payload.name))
+    try {
+      await saveProjectToDisk(
+        { ...store.config, projectName: payload.name, chip: payload.chip },
+        dir,
+      )
+    } catch (e) {
+      ElMessage.error(`创建工程失败：${errorText(e)}`)
+      return
+    }
+    setCurrentProjectDir(dir)
+  }
+  store.markProjectOpened()
   store.setView('pinout')
   store.notify(`已创建 ${payload.name}（${payload.chip}）`, 'info')
   showCreateWizard.value = false
+  if (isDesktop) await refreshLists()
 }
 
 function openProject() {
+  if (!store.projectOpened) return // 空态守卫：没有已打开工程时不跳转
   store.setView('pinout')
 }
 
@@ -276,8 +413,11 @@ async function importProjectFile(file: File) {
       ElMessage.error(result.error)
       return
     }
+    // 导入的配置没有磁盘工程目录：解绑，避免自动保存覆盖上一个工程
+    setCurrentProjectDir(null)
     store.openConfig(result.config)
     touchRecent(result.config)
+    if (isDesktop) await refreshLists()
     ElMessage.success(`已导入 ${result.config.projectName}（${result.config.chip}）`)
   } catch (err) {
     ElMessage.error(`读取工程配置失败：${err instanceof Error ? err.message : String(err)}`)
@@ -299,10 +439,22 @@ async function importProjectFile(file: File) {
           <span class="action-title">从 MCU 开始</span>
           <span class="action-desc">选择芯片 → 填写工程详情，纯本地秒建</span>
         </button>
-        <button class="action-card blue" @click="openProject">
+        <button
+          class="action-card blue"
+          :class="{ disabled: !store.projectOpened }"
+          :disabled="!store.projectOpened"
+          :title="store.projectOpened ? '回到当前工程的 Pinout' : '尚未打开工程：请先新建或从工程库打开'"
+          @click="openProject"
+        >
           <el-icon :size="30"><FolderOpened /></el-icon>
           <span class="action-title">打开当前工程</span>
-          <span class="action-desc">{{ store.projectName }} · {{ store.chip }}</span>
+          <span class="action-desc">
+            {{
+              store.projectOpened
+                ? `${store.projectName} · ${store.chip}`
+                : '尚未打开工程，请先新建或从工程库打开'
+            }}
+          </span>
         </button>
         <button class="action-card blue" :class="{ disabled: importing }" :disabled="importing" @click="pickProjectFile">
           <el-icon :size="30"><Upload /></el-icon>
@@ -337,8 +489,12 @@ async function importProjectFile(file: File) {
             </el-button>
           </div>
         </div>
-        <p class="lib-hint">
-          显式保存完整配置到浏览器 localStorage（桌面端磁盘工程库待 M4 后续）；
+        <p v-if="isDesktop" class="lib-hint">
+          工程保存在本机磁盘 ~/.config/ch32-rs-cubemx/projects/&lt;工程目录&gt;/cube.json，
+          索引为同级 projects.json；配置变更后约 {{ AUTOSAVE_DEBOUNCE_MS / 1000 }} 秒自动保存当前工程。
+        </p>
+        <p v-else class="lib-hint">
+          显式保存完整配置到浏览器 localStorage；
           配置变更后约 {{ AUTOSAVE_DEBOUNCE_MS / 1000 }} 秒自动保存当前工程快照。
         </p>
         <div v-if="libraryProjects.length === 0" class="rp-empty">
@@ -464,7 +620,11 @@ async function importProjectFile(file: File) {
           placeholder="ch32-project"
           @keyup.enter="confirmSaveLibrary"
         />
-        <p class="lib-form-hint">
+        <p v-if="isDesktop" class="lib-form-hint">
+          保存当前完整配置到当前工程目录的 cube.json 并刷新磁盘索引；
+          同目录重名保存会直接覆盖。
+        </p>
+        <p v-else class="lib-form-hint">
           保存当前完整配置（引脚 / 时钟 / 外设 / 中断 / DMA）到浏览器 localStorage；
           同名（芯片 + 名称）工程会提示覆盖。
         </p>
@@ -486,7 +646,10 @@ async function importProjectFile(file: File) {
           show-word-limit
           @keyup.enter="confirmRenameLibrary"
         />
-        <p class="lib-form-hint">仅修改工程库中的名称；若该工程正是当前工程，标题栏名称会同步更新。</p>
+        <p class="lib-form-hint">
+          仅修改工程库中的名称；若该工程正是当前工程，标题栏名称会同步更新。
+          <template v-if="isDesktop">桌面端会同步改写 cube.json 内的 projectName（目录名保持不变）。</template>
+        </p>
       </div>
       <template #footer>
         <el-button @click="showRenameLibrary = false">取消</el-button>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
-// 浏览器式标签页条：固定视图 + Project settings + 可关闭的外设对象页（M2）。
-// M5：按 conflicts 归属在对应标签上显示 error 红点 / warning 黄点（healthOf 派生）。
+// 浏览器式文档标签栏（M10）：只渲染 store.openViews 中「已打开」的视图标签，
+// 每个视图标签带 ×（active 常显 / inactive hover 显现），关闭即从标签栏移除；
+// 外设对象页标签独立追加（可单独关闭），关闭它不影响 openViews。
+// M5：按 conflicts 归属在对应标签图标右上角显示 error 红点 / warning 黄点，计数进 title。
 import { computed } from 'vue'
 import { HomeFilled, Cpu, Timer, Connection, Setting, Close } from '@element-plus/icons-vue'
 import { useProjectStore, type ViewId } from '@/controllers/project'
@@ -10,15 +12,16 @@ const props = withDefaults(defineProps<{ healthBadges?: boolean }>(), { healthBa
 
 const store = useProjectStore()
 
-const tabs: { id: ViewId; label: string; icon: unknown }[] = [
-  { id: 'home', label: 'Home', icon: HomeFilled },
-  { id: 'pinout', label: 'Pinout', icon: Cpu },
-  { id: 'clock', label: 'Clock', icon: Timer },
-  { id: 'peripherals', label: 'Peripherals', icon: Connection },
-  { id: 'project-settings', label: 'Project settings', icon: Setting },
-]
+/** 视图元信息（标题 / 图标）；标签栏只渲染 store.openViews 中已打开的项。 */
+const VIEW_META: Record<ViewId, { label: string; icon: unknown }> = {
+  home: { label: 'Home', icon: HomeFilled },
+  pinout: { label: 'Pinout', icon: Cpu },
+  clock: { label: 'Clock', icon: Timer },
+  peripherals: { label: 'Peripherals', icon: Connection },
+  'project-settings': { label: 'Project settings', icon: Setting },
+}
 
-/** 当前打开的外设对象页标签（可关闭）。 */
+/** 当前打开的外设对象页标签（可关闭，独立于 openViews）。 */
 const peripheralTab = computed(() => {
   const id = store.activePeripheralId
   if (!id) return null
@@ -101,9 +104,17 @@ function healthOfPeripheral(id: string): HealthSummary | null {
   return healthOf(`peripheral:${id}`)
 }
 
-/** 固定视图标签 + 健康摘要（一次派生，模板不重复查询 Map）。 */
-const tabsWithHealth = computed(() =>
-  tabs.map((tab) => ({ ...tab, health: healthOfView(tab.id) })),
+/**
+ * 已打开的视图标签（文档模型）：顺序与 openViews 一致。
+ * 空态（未打开工程）只有 Home，且 Home 不显示关闭按钮。
+ */
+const openTabs = computed(() =>
+  store.openViews.map((id) => ({
+    id,
+    ...VIEW_META[id],
+    health: healthOfView(id),
+    closable: store.projectOpened || id !== 'home',
+  })),
 )
 
 /** 当前外设对象页标签的健康摘要。 */
@@ -119,50 +130,84 @@ function healthTitle(health: HealthSummary): string {
   return parts.join('，')
 }
 
+/** 视图标签的 active：Peripherals 概览在有对象页时让位给对象标签。 */
+function isActiveView(id: ViewId): boolean {
+  if (store.activeView !== id) return false
+  return !(id === 'peripherals' && peripheralTab.value)
+}
+
 function closePeripheralTab() {
   store.closePeripheral()
 }
 </script>
 
 <template>
-  <div class="tabstrip">
+  <div class="tabstrip" role="tablist">
     <button
-      v-for="t in tabsWithHealth"
+      v-for="t in openTabs"
       :key="t.id"
       class="tab"
-      :class="{ active: store.activeView === t.id && !(t.id === 'peripherals' && peripheralTab) }"
+      :class="{ active: isActiveView(t.id) }"
+      role="tab"
+      :aria-selected="isActiveView(t.id)"
+      :title="t.label"
       @click="store.setView(t.id)"
     >
-      <el-icon :size="14"><component :is="t.icon" /></el-icon>
-      <span>{{ t.label }}</span>
-      <span
-        v-if="props.healthBadges && t.health"
-        class="health-dot"
-        :class="t.health?.level"
-        :title="t.health ? healthTitle(t.health) : ''"
-      ></span>
+      <span class="tab-icon">
+        <el-icon :size="14"><component :is="t.icon" /></el-icon>
+        <span
+          v-if="props.healthBadges && t.health"
+          class="health-dot"
+          :class="t.health.level"
+          :title="healthTitle(t.health)"
+        ></span>
+      </span>
+      <span class="tab-label">{{ t.label }}</span>
       <span v-if="store.dirty && store.activeView === t.id" class="dirty-dot" title="有未保存改动"></span>
+      <span
+        v-if="t.closable"
+        class="tab-close"
+        role="button"
+        tabindex="0"
+        :title="`关闭 ${t.label}`"
+        :aria-label="`关闭 ${t.label}`"
+        @click.stop="store.closeView(t.id)"
+        @keydown.stop.enter.prevent="store.closeView(t.id)"
+        @keydown.stop.space.prevent="store.closeView(t.id)"
+      >
+        <el-icon :size="12"><Close /></el-icon>
+      </span>
     </button>
 
-    <!-- 外设对象页标签（可关闭） -->
+    <!-- 外设对象页标签（独立文档，可关闭） -->
     <button
-      v-if="peripheralTab"
+      v-if="store.projectOpened && peripheralTab"
       class="tab object-tab"
       :class="{ active: store.activeView === 'peripherals' }"
+      role="tab"
+      :aria-selected="store.activeView === 'peripherals'"
+      :title="peripheralTab.label"
       @click="store.setView('peripherals')"
     >
-      <el-icon :size="14"><Connection /></el-icon>
-      <span>{{ peripheralTab.label }}</span>
-      <span
-        v-if="props.healthBadges && peripheralHealth"
-        class="health-dot"
-        :class="peripheralHealth?.level"
-        :title="peripheralHealth ? healthTitle(peripheralHealth) : ''"
-      ></span>
+      <span class="tab-icon">
+        <el-icon :size="14"><Connection /></el-icon>
+        <span
+          v-if="props.healthBadges && peripheralHealth"
+          class="health-dot"
+          :class="peripheralHealth.level"
+          :title="healthTitle(peripheralHealth)"
+        ></span>
+      </span>
+      <span class="tab-label">{{ peripheralTab.label }}</span>
       <span
         class="tab-close"
+        role="button"
+        tabindex="0"
         title="关闭外设页"
+        aria-label="关闭外设页"
         @click.stop="closePeripheralTab"
+        @keydown.stop.enter.prevent="closePeripheralTab"
+        @keydown.stop.space.prevent="closePeripheralTab"
       >
         <el-icon :size="12"><Close /></el-icon>
       </span>
@@ -173,28 +218,29 @@ function closePeripheralTab() {
 </template>
 
 <style scoped>
-/* M8 对齐 MX2：标签底板深藏青（与标题栏同色系），未选中透明底浅字，选中白签 raised（上圆角下直角贴合内容区） */
+/* MX2 对齐：深藏青标签底板 + 连续无间隙标签；选中标签白底、仅上圆角，下沿与内容区齐平无缝 */
 .tabstrip {
-  height: var(--mx-tabstrip-h);
+  height: 36px;
   background: var(--mx-tabbar-bg);
   display: flex;
   align-items: flex-end;
-  padding: 0 8px;
-  gap: 2px;
+  /* MX2 特写：底板全宽，首标签缩进左栏宽度（标签列不与左栏相交） */
+  padding: 0 8px 0 var(--mx-iconrail-w);
+  gap: 0;
   flex-shrink: 0;
 }
 .tab {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: 32px;
-  padding: 0 16px;
+  height: 36px;
+  padding: 0 14px;
   border: none;
   background: transparent;
   color: var(--mx-tab-inactive-fg);
   font-size: 13px;
   cursor: pointer;
-  border-radius: var(--mx-radius-tab) var(--mx-radius-tab) 0 0;
+  border-radius: 6px 6px 0 0;
   position: relative;
   white-space: nowrap;
 }
@@ -202,7 +248,7 @@ function closePeripheralTab() {
   color: var(--mx-tab-inactive-icon);
 }
 .tab:hover {
-  background: var(--mx-tab-inactive-hover-bg);
+  background: rgba(255, 255, 255, 0.08);
   color: var(--mx-tab-inactive-fg-hover);
 }
 .tab:hover .el-icon {
@@ -227,35 +273,43 @@ function closePeripheralTab() {
 .tab.active:focus-visible {
   outline-color: var(--mx-accent);
 }
+/* 图标容器：健康角标以图标右上角为锚点 */
+.tab-icon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+/* MX2 角标圆点：6px，深底用浅色变体，白签内回落语义色 */
 .health-dot {
-  width: 7px;
-  height: 7px;
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-/* 深藏青底：浅红/黄保证 AA 对比度 */
 .health-dot.error {
   background: var(--mx-tab-dot-error);
-  box-shadow: 0 0 0 2px var(--mx-tab-dot-ring);
 }
 .health-dot.warning {
   background: var(--mx-tab-dot-warning);
-  box-shadow: 0 0 0 2px var(--mx-tab-dot-ring);
 }
-/* 白签内：回落语义色 */
 .tab.active .health-dot.error {
   background: var(--mx-error);
-  box-shadow: 0 0 0 2px rgba(192, 0, 0, 0.12);
 }
 .tab.active .health-dot.warning {
   background: var(--mx-warning);
-  box-shadow: 0 0 0 2px rgba(178, 106, 0, 0.14);
 }
+/* 未保存点：标题文字后的小圆点 */
 .dirty-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--mx-tab-dot-error);
+  flex-shrink: 0;
 }
 .tab.active .dirty-dot {
   background: var(--mx-error);
@@ -263,25 +317,39 @@ function closePeripheralTab() {
 .tabstrip-fill {
   flex: 1;
 }
+/* × 按钮：16px 圆角，active 常显 / inactive hover 显现 */
 .tab-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 4px;
+  margin-left: 2px;
+  border-radius: 50%;
   color: var(--mx-tab-close-fg);
+  opacity: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.tab:hover .tab-close,
+.tab.active .tab-close,
+.tab-close:focus-visible {
+  opacity: 1;
+}
+/* 外设对象标签的 × 常显 */
+.object-tab .tab-close {
+  opacity: 1;
 }
 .tab-close:hover {
-  background: var(--mx-tab-close-hover-bg);
+  background: rgba(0, 0, 0, 0.08);
   color: var(--mx-text);
 }
-/* 未选中的外设对象标签仍在深底上：关闭按钮/图标用浅色 */
+/* 未选中的标签仍在深底上：× 用浅色，hover 底为半透明白 */
 .tab:not(.active) .tab-close {
   color: var(--mx-tab-inactive-icon);
 }
 .tab:not(.active) .tab-close:hover {
-  background: var(--mx-tab-inactive-hover-bg);
+  background: rgba(255, 255, 255, 0.15);
   color: var(--mx-tab-inactive-fg-hover);
 }
 </style>

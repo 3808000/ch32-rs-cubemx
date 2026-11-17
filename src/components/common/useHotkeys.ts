@@ -3,7 +3,7 @@
 import { onBeforeUnmount, onMounted } from 'vue'
 import { useProjectStore, type ViewId } from '@/controllers/project'
 
-/** 标签页循环顺序（与 TabStrip 的固定标签一致）。 */
+/** 标签页固定循环顺序（历史默认序列，保留供旧调用/测试使用）。 */
 export const VIEW_CYCLE_ORDER: readonly ViewId[] = [
   'home',
   'pinout',
@@ -12,14 +12,31 @@ export const VIEW_CYCLE_ORDER: readonly ViewId[] = [
   'project-settings',
 ]
 
-/** 在固定视图序列中前进/后退（delta 为 +1/-1），越界时回绕。 */
-export function nextViewId(current: ViewId, delta: number): ViewId {
-  const len = VIEW_CYCLE_ORDER.length
-  const index = VIEW_CYCLE_ORDER.indexOf(current)
+/** 空态循环序列（M10.1b）：工程未打开时 TabStrip 只有 Home，Ctrl+Tab 不得循环到被门禁挡住的视图。 */
+export const HOME_ONLY_CYCLE_ORDER: readonly ViewId[] = ['home']
+
+/** 按门禁状态选择默认循环序列（保留兼容；运行时实际序列以 store.openViews 为准）。 */
+export function cycleOrder(projectOpened: boolean): readonly ViewId[] {
+  return projectOpened ? VIEW_CYCLE_ORDER : HOME_ONLY_CYCLE_ORDER
+}
+
+/**
+ * 在给定视图序列中前进/后退（delta 为 +1/-1），越界时回绕。
+ * current 为 null（所有标签已关闭）时从序列首项起算，保证 Ctrl+Tab 能重新打开标签。
+ */
+export function nextViewId(
+  current: ViewId | null,
+  delta: number,
+  order: readonly ViewId[] = VIEW_CYCLE_ORDER,
+): ViewId {
+  const len = order.length
+  if (len === 0) return 'home'
+  if (current === null) return order[0] ?? 'home'
+  const index = order.indexOf(current)
   // 未知视图（理论上不会发生）从第一项开始计算
   const from = index >= 0 ? index : 0
   const next = (((from + delta) % len) + len) % len
-  return VIEW_CYCLE_ORDER[next] ?? 'home'
+  return order[next] ?? 'home'
 }
 
 /** 焦点在可编辑控件（输入框/文本域/下拉/富文本/Monaco）时，Esc 不抢给全局。 */
@@ -47,7 +64,9 @@ export function useHotkeys() {
   const store = useProjectStore()
 
   function cycleView(delta: number): void {
-    store.setView(nextViewId(store.activeView, delta))
+    // 循环序列 = 当前已打开的标签（M10 文档模型）；无标签时回退 Home-only，setView 守卫兜底
+    const order = store.openViews.length > 0 ? store.openViews : HOME_ONLY_CYCLE_ORDER
+    store.setView(nextViewId(store.activeView, delta, order))
   }
 
   /** Ctrl+W / Ctrl+Alt+P：关闭外设对象页；未打开对象页时不拦截浏览器默认行为。 */

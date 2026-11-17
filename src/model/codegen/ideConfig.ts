@@ -1,9 +1,21 @@
-// IDE 配置产物（M4.5）：按 selection.ideConfig 生成 .vscode/settings.json + tasks.json。
-// 调试配置：wlink 的 gdbserver 能力尚未核实，故不生成 launch.json（README 会标注「调试配置待核实」）。
-import type { BuildProfile, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
+// IDE 配置产物（M4.5 / M10）：按 selection.ideConfig 生成 .vscode/settings.json + tasks.json + launch.json。
+// 调试后端：wlink 0.1.3 无 gdbserver（源码 + `wlink --help` 核实），改用 ch32rv 0.31.3 的 `ch32rv gdb`
+// （默认 localhost:3333，attach 不改写 flash；但无 vFlash/load，烧录仍走 `ch32rv flash`）。
+import type { BuildProfile, ChipCore, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
 import { render } from './render'
 import { sanitizePackageName } from './util'
-import { VSCODE_SETTINGS_TPL } from './templates/ideConfig'
+import {
+  CH32RV_DEBUG_CONFIG_NAME,
+  CH32RV_GDB_DEBUGGER_PATH,
+  CH32RV_GDB_SERVER_ADDRESS,
+  CH32RV_GDB_TASK_ARGS,
+  CH32RV_GDB_TASK_COMMAND,
+  CH32RV_GDB_TASK_LABEL,
+  CH32RV_FLASH_TASK_LABEL,
+  DUAL_CORE_DEBUG_TASK_LABEL,
+  SINGLE_CORE_DEBUG_TASK_LABEL,
+  VSCODE_SETTINGS_TPL,
+} from './templates/ideConfig'
 
 const PROFILE_SUFFIX: Record<BuildProfile, string> = {
   'release-size': 'size',
@@ -18,9 +30,23 @@ interface TaskDef {
   args: string[]
   problemMatcher?: string[]
   group?: { kind: 'build'; isDefault: boolean }
+  /** 常驻任务（GDB 服务器）：VSCode 不等待其退出；手动运行于专用终端。 */
+  isBackground?: boolean
+  presentation?: { reveal: 'always' | 'silent' | 'never'; panel: 'shared' | 'dedicated' | 'new' }
 }
 
-/** 单核工程任务：build/flash（另有 size/speed/debug 三个档位）。 */
+/** ch32rv GDB 服务器任务（单核/双核共用）：手动启动后保持常驻，供 launch.json 连接。 */
+const CH32RV_GDB_SERVER_TASK: TaskDef = {
+  label: CH32RV_GDB_TASK_LABEL,
+  type: 'shell',
+  command: CH32RV_GDB_TASK_COMMAND,
+  args: [...CH32RV_GDB_TASK_ARGS],
+  problemMatcher: [],
+  isBackground: true,
+  presentation: { reveal: 'always', panel: 'dedicated' },
+}
+
+/** 单核工程任务：build/flash（另有 size/speed/debug 三个档位）+ gdbserver。 */
 function singleCoreTasks(packageName: string, target: string, profile: BuildProfile): TaskDef[] {
   const tasks: TaskDef[] = [
     {
@@ -57,11 +83,20 @@ function singleCoreTasks(packageName: string, target: string, profile: BuildProf
       args: ['-v', 'flash', '--enable-sdi-print', '--watch-serial', `target/${target}/release/${packageName}`],
       problemMatcher: [],
     },
+    {
+      // ch32rv GDB 服务器无 vFlash，烧录必须单独执行；该任务会写 flash（用户主动运行）
+      label: CH32RV_FLASH_TASK_LABEL,
+      type: 'shell',
+      command: 'ch32rv',
+      args: ['flash', `target/${target}/release-debug/${packageName}`],
+      problemMatcher: [],
+    },
+    CH32RV_GDB_SERVER_TASK,
   )
   return tasks
 }
 
-/** 双核 workspace 任务：统一走 xtask（根目录 cargo build 不会套用各核 target）。 */
+/** 双核 workspace 任务：统一走 xtask（根目录 cargo build 不会套用各核 target）+ gdbserver。 */
 function dualCoreTasks(): TaskDef[] {
   return [
     {
@@ -74,12 +109,65 @@ function dualCoreTasks(): TaskDef[] {
     },
     { label: 'xtask: 烧录', type: 'shell', command: 'cargo', args: ['xtask', 'flash'], problemMatcher: [] },
     { label: 'xtask: 合并镜像', type: 'shell', command: 'cargo', args: ['xtask', 'merge'], problemMatcher: [] },
+    CH32RV_GDB_SERVER_TASK,
   ]
+}
+
+interface LaunchConfiguration {
+  type: 'cppdbg'
+  request: 'attach'
+  name: string
+  cwd: string
+  program: string
+  MIMode: 'gdb'
+  miDebuggerPath: string
+  miDebuggerServerAddress: string
+  runToEntryPoint: string
+  preLaunchTask: string
+  setupCommands: { description: string; text: string; ignoreFailures: boolean }[]
+}
+
+/**
+ * 调试 ELF 路径：
+ * - 单核：Cargo 产物无 `.elf` 后缀（与 README 的 `target/<target>/release/<name>` 一致），
+ *   档位取 `release-debug`（debug=2、strip=false，可供 GDB 读符号）；
+ * - 双核：xtask 只构建 release，主核 bin 名为 `<package>-<core.id>`。
+ */
+function debugProgramPath(
+  packageName: string,
+  data: DeviceData,
+  dual: boolean,
+  mainCore: ChipCore | undefined,
+): string {
+  if (dual && mainCore) {
+    return `\${workspaceFolder}/target/${mainCore.target}/release/${packageName}-${mainCore.id}`
+  }
+  return `\${workspaceFolder}/target/${data.chip.target}/release-debug/${packageName}`
+}
+
+/** launch.json（cppdbg attach + ch32rv gdbserver）。不写 monitor/load：ch32rv 不实现 monitor 与 vFlash。 */
+function vscodeLaunchJson(packageName: string, data: DeviceData, dual: boolean): string {
+  const cores = data.chip.cores ?? []
+  const mainCore = cores.find((c) => c.mainCore === true) ?? cores[0]
+  const configuration: LaunchConfiguration = {
+    type: 'cppdbg',
+    request: 'attach',
+    name: CH32RV_DEBUG_CONFIG_NAME,
+    cwd: '${workspaceFolder}',
+    program: debugProgramPath(packageName, data, dual, mainCore),
+    MIMode: 'gdb',
+    miDebuggerPath: CH32RV_GDB_DEBUGGER_PATH,
+    miDebuggerServerAddress: CH32RV_GDB_SERVER_ADDRESS,
+    runToEntryPoint: 'main',
+    preLaunchTask: dual ? DUAL_CORE_DEBUG_TASK_LABEL : SINGLE_CORE_DEBUG_TASK_LABEL,
+    setupCommands: [{ description: 'Enable pretty-printing', text: '-enable-pretty-printing', ignoreFailures: true }],
+  }
+  return `${JSON.stringify({ version: '0.2.0', configurations: [configuration] }, null, 2)}\n`
 }
 
 /**
  * 生成 VSCode 配置（仅 selection.ideConfig === 'vscode'）。
- * 不生成 launch.json：调试后端（wlink gdbserver）未核实。
+ * 产物：settings.json（rust-analyzer）、tasks.json（构建/烧录/gdbserver）、launch.json（ch32rv 调试）。
  */
 export function renderIdeConfigFiles(
   config: ProjectConfig,
@@ -110,5 +198,6 @@ export function renderIdeConfigFiles(
   return [
     { path: '.vscode/settings.json', content: settings },
     { path: '.vscode/tasks.json', content: `${JSON.stringify({ version: '2.0.0', tasks }, null, 2)}\n` },
+    { path: '.vscode/launch.json', content: vscodeLaunchJson(packageName, data, dual) },
   ]
 }

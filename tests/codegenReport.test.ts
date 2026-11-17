@@ -140,7 +140,7 @@ describe('IDE 配置产物（ideConfig）', () => {
     expect(settings['rust-analyzer.cargo.extraEnv']).toEqual({ RUSTFLAGS: '-C target-feature=+xwchc' })
   })
 
-  it('vscode：生成 tasks.json（build/flash/三档位），不生成 launch.json', () => {
+  it('vscode：生成 tasks.json（build/flash/三档位），并生成 launch.json', () => {
     const files = generate({ ideConfig: 'vscode' })
     const tasks = (JSON.parse(files['.vscode/tasks.json']) as { version: string; tasks: { label: string }[] })
     expect(tasks.version).toBe('2.0.0')
@@ -151,7 +151,13 @@ describe('IDE 配置产物（ideConfig）', () => {
     expect(labels).toContain('构建 (release-debug)')
     expect(labels).toContain('烧录 (cargo run)')
     expect(labels).toContain('烧录 (wlink 直调)')
-    expect(files['.vscode/launch.json']).toBeUndefined()
+    const launch = JSON.parse(files['.vscode/launch.json']) as {
+      configurations: { type: string; request: string; name: string; miDebuggerServerAddress: string }[]
+    }
+    expect(launch.configurations[0].type).toBe('cppdbg')
+    expect(launch.configurations[0].request).toBe('attach')
+    expect(launch.configurations[0].name).toBe('Debug (ch32rv gdbserver)')
+    expect(launch.configurations[0].miDebuggerServerAddress).toBe('localhost:3333')
   })
 
   it('双核：tasks.json 使用 xtask 任务（build/flash/merge）', () => {
@@ -176,14 +182,19 @@ describe('IDE 配置产物（ideConfig）', () => {
     const tasks = (JSON.parse(files.find((f) => f.path === '.vscode/tasks.json')!.content) as {
       tasks: { label: string; args: string[] }[]
     }).tasks
-    expect(tasks.map((t) => t.label)).toEqual(['xtask: 构建', 'xtask: 烧录', 'xtask: 合并镜像'])
+    expect(tasks.map((t) => t.label)).toEqual(['xtask: 构建', 'xtask: 烧录', 'xtask: 合并镜像', 'gdbserver (ch32rv)'])
     expect(tasks[0].args).toEqual(['xtask', 'build'])
-    expect(files.some((f) => f.path === '.vscode/launch.json')).toBe(false)
+    const launch = JSON.parse(files.find((f) => f.path === '.vscode/launch.json')!.content) as {
+      configurations: { program: string; preLaunchTask: string }[]
+    }
+    expect(launch.configurations[0].program).toContain('/release/h417-ide-v3f')
+    expect(launch.configurations[0].preLaunchTask).toBe('xtask: 构建')
   })
 
-  it('vscode：README 标注「调试配置待核实」并列出 .vscode 文件', () => {
+  it('vscode：README 写明 ch32rv 调试说明并列出 .vscode 文件', () => {
     const files = generate({ ideConfig: 'vscode' })
-    expect(files['README.md']).toContain('调试配置待核实')
+    expect(files['README.md']).toContain('ch32rv')
+    expect(files['README.md']).toContain('.vscode/launch.json')
     expect(files['README.md']).toContain('.vscode/settings.json')
     expect(files['README.md']).toContain('.vscode/tasks.json')
   })

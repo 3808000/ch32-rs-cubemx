@@ -54,10 +54,18 @@ export async function saveFileNative(
   return true
 }
 
-/** 原生目录选择；取消返回 null。 */
-export async function pickFolderNative(title = '选择导出目录'): Promise<string | null> {
+/** 原生目录选择；取消返回 null。defaultPath 用于工程库默认根目录。 */
+export async function pickFolderNative(
+  title = '选择导出目录',
+  defaultPath?: string,
+): Promise<string | null> {
   const { open } = await import('@tauri-apps/plugin-dialog')
-  const dir = await open({ directory: true, multiple: false, title })
+  const dir = await open({
+    directory: true,
+    multiple: false,
+    title,
+    ...(defaultPath ? { defaultPath } : {}),
+  })
   return typeof dir === 'string' ? dir : null
 }
 
@@ -79,4 +87,26 @@ export async function readFolderNative(root: string): Promise<NativeFileEntry[]>
 /** 删除工程内单个文件（仅用于清理不再生成的 generated 文件）；不存在视为成功。 */
 export async function removeFileNative(root: string, path: string): Promise<void> {
   await invoke('remove_file', { root, path })
+}
+
+// ---------- 桌面磁盘工程库（M10） ----------
+
+/** 工程库根目录（Rust 端创建）：`$HOME/.config/ch32-rs-cubemx/projects`。 */
+export async function projectsRootNative(): Promise<string> {
+  return invoke<string>('projects_root', {})
+}
+
+/** 读取 UTF-8 文本文件（cube.json / projects.json）。 */
+export async function readTextFileNative(path: string): Promise<string> {
+  return invoke<string>('read_text_file', { path })
+}
+
+/** 写入 UTF-8 文本文件；不存在的父目录由 Rust 端创建。 */
+export async function writeTextFileNative(path: string, text: string): Promise<void> {
+  await invoke('write_file', { path, contents: encodeTextBase64(text) })
+}
+
+/** 递归删除工程目录（Rust 端校验必须位于工程库根目录之下）。 */
+export async function removeDirNative(path: string): Promise<void> {
+  await invoke('remove_dir', { path })
 }

@@ -282,3 +282,96 @@ PA1/PA2=OSC_IN/OSC_OUT（HSE 晶振）；PD1=SWDIO（调试）。
 - **EXTI**：非 ch32v0 家族 16 线，IRQ 分组 `EXTI0..4 / EXTI9_5 / EXTI15_10`。
 - **专用引脚建模**：V203 的 NRST/BOOT0 是专用脚（非 GPIO 复用），chip.json 按 `type: POWER` 建模（不可配置）；V003 的 NRST 是 PD7 复用，语义不同。
 - **ADC 异步**：`Adc` 只有阻塞 `convert`（无异步版本）。
+
+## 12. 调试链路核实：wlink 无 gdbserver；ch32rv 作为 GDB 服务器（2026-11-17）
+
+### 12.1 结论（以源码/CLI 为准，不臆造）
+
+- **wlink 0.1.3（crates.io，即 ch32-rs/wlink）没有 `gdbserver` 子命令**。
+  `wlink --help` 的子命令只有 `dump / regs / erase / flash / unprotect / protect / write-reg /
+  write-mem / halt / resume / reset / status / mode-switch / list / set-power / sdi-print / dev`；
+  源码 `src/main.rs` 的 `enum Commands` 同样没有 gdbserver；upstream `main` 分支、issues/PR 也无相关实现。
+  → 原计划的「wlink gdbserver」调试链路不存在，不能写入 launch.json。
+- 采用 **ch32rv 0.31.3**（crates.io，2026-11-13）的 `ch32rv gdb`：GDB Remote Serial Protocol 服务器
+  （gdbstub 0.7.10），默认监听 `127.0.0.1:3333`（`--listen` 可改）。attach **不改写 flash**，
+  但**不实现 vFlash/`load`，也没有 monitor 命令**（`docs/cli.ja.md` §4.6：
+  「`load`(vFlash)は持たない（書き込みは `flash`）」）。因此烧录必须单独走 `ch32rv flash`。
+- wlink 继续作为烧录 runner（生成的 `.cargo/config.toml` 与 tasks.json 未改动其用法）；
+  用户参考库 `wchlink-rs` 是烧录器（`info/flash/read/erase/reset`，**无 gdbserver**），
+  `PROTOCOL.md` 可作 CH-Link 私有协议参考。
+
+### 12.2 工具与版本
+
+| 工具 | 版本/路径 | 用途 |
+|---|---|---|
+| riscv-none-elf-gdb | `/home/teze/toolchains/common/riscv-none-elf-gcc-14.2.0-2/bin/riscv-none-elf-gdb`，GNU gdb (xPack) 15.1 | launch.json `miDebuggerPath` |
+| wlink | 0.1.3（`cargo install wlink --locked`） | flash runner；**无 gdbserver** |
+| ch32rv | 0.31.3（`cargo install ch32rv --locked`） | `ch32rv gdb` GDB 服务器 + `ch32rv flash` |
+| WCH-Link | `1a86:8010`，WCH-Link(CH549)，serial `BC493E69FAB2`，firmware 2.12 (v32, raw `020c`)，riscv mode | 实机探针 |
+
+> 本机无 `libudev.pc`（只装了运行时 `libudev.so.1`）；wlink 0.1.3 无条件依赖 libudev-sys，
+> 安装时用临时 `libudev.pc` + `PKG_CONFIG_PATH/LIBRARY_PATH` 指向 `/tmp/udev-pc` 绕过（不改系统）。
+> ch32rv 走 nusb，不需要该 shim。git 全局代理指向不可达的 `127.0.0.1:7897`，
+> cargo/git 使用隔离 HOME（`/tmp/ch32-cubemx-clean-home` + 空 proxy `.gitconfig`）访问 crates.io。
+
+### 12.3 实机只读核实输出摘要（未执行任何 flash/erase/load）
+
+```text
+$ lsusb
+Bus 003 Device 003: ID 1a86:8010 QinHeng Electronics WCH-Link
+
+$ ch32rv probe list
+ADDRESS                 MODE   USB        TOPOLOGY  MODEL            PORTS         FIRMWARE
+wchlink://BC493E69FAB2  riscv  1a86:8010  3-2.2     WCH-Link(CH549)  /dev/ttyACM0  2.12 (v32, raw 020c)
+
+$ ch32rv probe info
+model:    WCH-Link(CH549)
+mode:     riscv
+firmware: 2.12 (WCH v32, raw 020c, riscv firmware)
+
+$ ch32rv target info
+ch32rv: error[target-no-response]: no target detected on the debug pins
+  hint: check target wiring/power/BOOT; ... (exit 20)
+
+$ wlink -v status
+[INFO] Connected to WCH-Link v2.12(v32) (WCH-Link-CH549)
+Error: WCH-Link underlying protocol error: 0x55 [0x81, 0x55, 0x01, 0x01]  (exit 1)
+
+$ ch32rv gdb --listen 127.0.0.1:3333
+ch32rv: error[attach-failed]: probe replied with error (reason 0x55): [81, 55, 01, 01]
+```
+
+**核实层级（诚实标注）**：
+- 探针层：**通过**——USB 枚举、RISC-V 模式、固件版本、serial 均读到。
+- 目标层：**未响应**（无目标板/未上电/未接线），`target info` 与 `wlink status` 均报 `0x55`。
+- GDB 服务器层：`ch32rv gdb` 的 attach 发生在 `TcpListener::bind` 之前（源码 `cli/src/cmd_gdb.rs`），
+  目标无响应时进程在 attach 阶段退出，**本机未观察到监听端口，也未能完成
+  `target remote` + halt/读寄存器**。服务器能力依据 ch32rv 0.31.3 的 CLI/源码/文档核实，
+  **不宣称已实机连通目标**；接上可响应目标后按 launch.json 即可复测。
+
+### 12.4 生成产物设计（src/model/codegen/ideConfig.ts）
+
+- `launch.json`：`type: cppdbg`、`request: attach`（attach 不触发 load）、
+  `name: Debug (ch32rv gdbserver)`、`miDebuggerServerAddress: localhost:3333`、
+  `miDebuggerPath: riscv-none-elf-gdb`（假设在 PATH，README 说明可改绝对路径）、
+  `runToEntryPoint: main`、`cwd: ${workspaceFolder}`。
+- `program`：
+  - 单核：`target/<chip.target>/release-debug/<package>`（Cargo 产物无 `.elf` 后缀；
+    `release-debug` = `debug=2, strip=false`，GDB 可读符号）；
+  - 双核：`target/<主核 target>/release/<package>-<主核 id>`（xtask 只构建 release）。
+- `preLaunchTask`：单核 `构建 (release-debug)`；双核 `xtask: 构建`（均与 tasks.json label 一致）。
+- tasks.json 追加：`gdbserver (ch32rv)` = `ch32rv gdb --reset-halt`（`isBackground`，常驻专用终端；
+  **每次只服务一个 GDB 会话**，断开后需重新运行）；单核追加
+  `烧录 (ch32rv)` = `ch32rv flash target/<target>/release-debug/<package>`（接受 ELF/HEX/BIN/UF2）。
+- **不写** `postRemoteConnectCommands`：ch32rv 无 `monitor`、无 vFlash，写
+  `monitor reset halt` / `load` 会报 unsupported。三步流：构建 → `烧录 (ch32rv)`（写 flash，用户发起）
+  → `gdbserver (ch32rv)` → F5。
+- `request: attach` 的 cppdbg 会话未在本机实际拉起（无 VSCode 图形会话、目标也无响应）；
+  attach 语义本身不执行 `load`，且服务器端也不提供 vFlash。接上目标后需复测该字段。
+
+### 12.5 安全注意
+
+- GDB attach 本身不改写 flash；但断点可能改写 RAM、HW trigger 或 flash page（无 trigger 的核），
+  flash 断点有磨损且中断会话可能残留 `ebreak`（ch32rv 会尽力还原）。
+- `ch32rv flash`、`wlink flash`、GDB `load` 都会写 flash。本次核实**只做** `probe list/info`、
+  `target info`、`wlink status` 与 `ch32rv gdb` attach 尝试，未执行任何写操作。

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 应用外壳：标题栏 + 标签页条 + 图标栏 + 工作区 + 状态栏
+// 应用外壳：标题栏 +（图标栏 | 标签页条 + 工作区）+ 状态栏（M10.1a 对齐 MX2 左栏贯通布局）
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { CircleCheck, CircleCloseFilled, InfoFilled, WarningFilled } from '@element-plus/icons-vue'
@@ -179,7 +179,9 @@ async function onDrop(e: DragEvent) {
 }
 
 onMounted(() => {
-  store.restore()
+  // M10：恢复成功 = 已打开工程，回到 Pinout 旧 UX；无存档则保持 Home 空态
+  // （restore 内部 loadConfig 已置 projectOpened，故此处 setView 不会被守卫拦下）。
+  if (store.restore()) store.setView('pinout')
   // 应用级自动保存（M4.1）：dirty 变化 2s 防抖写 localStorage；服务层幂等，HomeView 重复挂载无副作用。
   startAutosave(
     () => store.config,
@@ -256,6 +258,8 @@ function onKeydown(e: KeyboardEvent) {
       @menu="onMenu"
     />
     <input ref="fileInput" type="file" accept=".json,.cube.json,application/json" style="display: none" @change="onFileChange" />
+    <!-- M10 对照原版特写修正：标签底板全宽（藏青覆盖左栏上方），左栏白底自标签栏下方开始；
+         首标签缩进左栏宽度（TabStrip padding-left），标签不与左栏列相交 -->
     <TabStrip :health-badges="healthBadges" />
     <div class="app-body">
       <IconRail @action="onMenu" />
@@ -265,6 +269,8 @@ function onKeydown(e: KeyboardEvent) {
         <ClockView v-else-if="store.activeView === 'clock'" />
         <PeripheralsView v-else-if="store.activeView === 'peripherals'" />
         <ProjectSettingsView v-else-if="store.activeView === 'project-settings'" />
+        <!-- 文档模型：所有标签都关闭（activeView=null）时显示占位 -->
+        <div v-else class="workspace-empty">没有打开的标签页——从左侧图标栏或菜单打开视图</div>
       </main>
     </div>
     <StatusBar
@@ -421,9 +427,20 @@ function onKeydown(e: KeyboardEvent) {
 .workspace {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+/* 文档模型空工作区：所有标签关闭后的居中提示 */
+.workspace-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mx-text-muted);
+  font-size: 13px;
+  background: var(--mx-surface);
 }
 /* 视图切换：根视图挂载时 140ms 淡入 + 4px 上移（v-if 切换即重新挂载） */
 .workspace > * {

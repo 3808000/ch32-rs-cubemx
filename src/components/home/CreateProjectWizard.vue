@@ -1,15 +1,21 @@
 <script lang="ts">
 // 创建工程向导的纯函数（M9.2）：工程名门禁、建议名规范化、存储位置预览、创建载荷。
-// 随组件导出，供 tests/createWizard.test.ts 直接验证；不推断任何磁盘/网络能力。
+// M10：桌面端第二步改为真实磁盘位置（默认 projects_root()，可 Change… 选择目录），
+// 自动路径为 <location>/<projectDirName(name)>/cube.json；浏览器仍只读 localStorage 预览。
+// 随组件导出，供 tests/createWizard.test.ts / tests/diskLibrary.test.ts 直接验证。
 import { isDesktopApp } from '@/services/desktop'
+import { joinFsPath, projectDirName } from '@/services/recentProjects'
 
 /** 当前工程在浏览器 localStorage 的单槽键（与 projectStorage 服务一致）。 */
 export const PROJECT_STORAGE_SLOT = 'ch32-rs-cubemx:project'
 
-/** 创建载荷：HomeView 收到后依次 setProjectName → switchDevice → 跳 Pinout。 */
+/** 创建载荷：HomeView 收到后依次 setProjectName → switchDevice → 跳 Pinout。
+ *  桌面端额外携带 location（存储位置父目录），由父视图拼出工程目录。 */
 export interface CreateProjectPayload {
   chip: string
   name: string
+  /** 桌面端存储位置（父目录）；浏览器不携带 */
+  location?: string
 }
 
 /** 第二步创建门禁：工程名 trim 后必须非空（空/纯空白禁用 Create project）。 */
@@ -42,7 +48,7 @@ export interface StoragePreview {
 }
 
 /**
- * 生成存储位置与自动路径预览。
+ * 生成存储位置与自动路径预览（M9 纯函数契约，保留给浏览器分支与既有测试）。
  * @param desktop 是否桌面端（isDesktopApp）；当前两分支都落 localStorage，仅文案不同
  * @param name 工程名；空则显示 <name> 占位
  */
@@ -63,14 +69,31 @@ export function storagePreview(desktop: boolean, name = ''): StoragePreview {
   }
 }
 
-/** 创建载荷构建：门禁不通过（未选芯片 / 空名）返回 null；名称去除首尾空白。 */
+/** 桌面端工程目录：<location>/<projectDirName(name)>。 */
+export function desktopProjectDir(location: string, name: string): string {
+  return joinFsPath(location, projectDirName(name))
+}
+
+/** 桌面端自动 cube.json 路径：<location>/<projectDirName(name)>/cube.json。 */
+export function desktopProjectFile(location: string, name: string): string {
+  return joinFsPath(desktopProjectDir(location, name), 'cube.json')
+}
+
+/**
+ * 创建载荷构建：门禁不通过（未选芯片 / 空名）返回 null；名称去除首尾空白。
+ * @param location 桌面端存储位置（父目录）；为空时不写入载荷（浏览器契约保持 chip/name 两键）
+ */
 export function createProjectPayload(
   chip: string | null,
   rawName: string,
+  location?: string,
 ): CreateProjectPayload | null {
   const name = (rawName ?? '').trim()
   if (!chip || !wizardNameGate(name)) return null
-  return { chip, name }
+  const payload: CreateProjectPayload = { chip, name }
+  const dir = (location ?? '').trim()
+  if (dir) payload.location = dir
+  return payload
 }
 
 /** 当前运行环境是否桌面端（供模板直接调用，避免重复导入服务）。 */
@@ -90,6 +113,7 @@ import ChipPicker, {
   canContinueSelection,
   selectionLineCount,
 } from '@/components/home/ChipPicker.vue'
+import { pickFolderNative, projectsRootNative } from '@/services/desktop'
 
 const props = withDefaults(
   defineProps<{
@@ -113,22 +137,41 @@ const projectName = ref('')
 /** 用户是否手改过名称：手改后切换芯片不再覆盖。 */
 const nameTouched = ref(false)
 
-/** 桌面端判定（当前两种环境都落 localStorage，仅文案不同）。 */
+/** 桌面端判定（浏览器保持只读 localStorage 预览，桌面端落磁盘工程库）。 */
 const isDesktop = wizardIsDesktop()
 
-/** 存储位置 & 自动路径预览（随工程名联动）。 */
-const storage = computed(() => storagePreview(isDesktop, projectName.value))
+/** 浏览器存储位置 & 自动路径预览（随工程名联动，M9 只读语义）。 */
+const browserStorage = computed(() => storagePreview(false, projectName.value))
 
-/** 第二步 Create 门禁：已选芯片 + 名称非空。 */
+/** 桌面端存储位置（父目录，可编辑）；默认 projects_root()。 */
+const location = ref('')
+const locationLoading = ref(false)
+const locationError = ref('')
+
+/** 桌面端自动 cube.json 路径（随名称/位置联动）。 */
+const autoProjectPath = computed(() => {
+  const loc = location.value.trim()
+  if (!loc) return ''
+  const name = projectName.value.trim()
+  return name ? desktopProjectFile(loc, name) : `${loc.replace(/[\\/]+$/, '')}/<name>/cube.json`
+})
+
+/** 第二步 Create 门禁：已选芯片 + 名称非空 + 桌面端存储位置非空。 */
 const createGate = computed(
-  () => canContinueSelection(selectedChip.value) && wizardNameGate(projectName.value),
+  () =>
+    canContinueSelection(selectedChip.value) &&
+    wizardNameGate(projectName.value) &&
+    (!isDesktop || location.value.trim().length > 0),
 )
 
 // 每次打开重置到第一步；初始芯片来自 Home 卡片（null）或底部表格 Continue（已选）。
 watch(
   () => props.modelValue,
   (open) => {
-    if (open) resetWizard()
+    if (open) {
+      resetWizard()
+      if (isDesktop) void ensureLocation()
+    }
   },
 )
 
@@ -137,6 +180,31 @@ function resetWizard(): void {
   selectedChip.value = props.initialChip ?? null
   nameTouched.value = false
   projectName.value = selectedChip.value ? suggestProjectName(selectedChip.value) : ''
+  location.value = ''
+  locationError.value = ''
+}
+
+/** 桌面端：预填工程库默认根目录（只读展示前先取 Rust projects_root()）。 */
+async function ensureLocation(): Promise<void> {
+  if (!isDesktop || location.value.trim()) return
+  locationLoading.value = true
+  locationError.value = ''
+  try {
+    location.value = await projectsRootNative()
+  } catch (e) {
+    locationError.value = `无法读取默认存储位置：${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    locationLoading.value = false
+  }
+}
+
+/** Change…：原生目录选择，取消则保留原值。 */
+async function changeLocation(): Promise<void> {
+  const picked = await pickFolderNative('选择工程存储位置', location.value.trim() || undefined)
+  if (picked) {
+    location.value = picked
+    locationError.value = ''
+  }
 }
 
 // 第一步换芯片：名称未被用户改过时，自动刷新建议名。
@@ -152,6 +220,7 @@ function goStep2(): void {
   if (!canContinueSelection(selectedChip.value)) return
   if (!nameTouched.value) projectName.value = suggestProjectName(selectedChip.value)
   step.value = 2
+  if (isDesktop) void ensureLocation()
 }
 
 function closeWizard(): void {
@@ -159,8 +228,16 @@ function closeWizard(): void {
 }
 
 function onCreate(): void {
-  const payload = createProjectPayload(selectedChip.value, projectName.value)
+  const payload = createProjectPayload(
+    selectedChip.value,
+    projectName.value,
+    isDesktop ? location.value : undefined,
+  )
   if (!payload) return
+  if (isDesktop && !payload.location) {
+    locationError.value = '请选择工程存储位置'
+    return
+  }
   emit('create', payload)
 }
 </script>
@@ -213,17 +290,46 @@ function onCreate(): void {
           />
           <p class="wiz-hint">必填；写入 cube.json 的 projectName，同时作为生成的 Cargo package 名。</p>
         </div>
-        <div class="wiz-row">
-          <span class="wiz-label">存储位置</span>
-          <div class="wiz-value">
-            <code>{{ storage.location }}</code>
-            <span class="wiz-hint">{{ storage.note }}</span>
+        <!-- 桌面端：真实磁盘存储位置（可编辑 + Change…），自动路径随名称联动 -->
+        <template v-if="isDesktop">
+          <div class="wiz-row wiz-row-top">
+            <span class="wiz-label">存储位置</span>
+            <div class="wiz-value wiz-location">
+              <el-input
+                v-model="location"
+                class="wiz-location-input"
+                size="small"
+                placeholder="工程库根目录（默认 ~/.config/ch32-rs-cubemx/projects）"
+                :disabled="locationLoading"
+              />
+              <el-button size="small" @click="changeLocation">Change…</el-button>
+            </div>
           </div>
-        </div>
-        <div class="wiz-row">
-          <span class="wiz-label">自动路径</span>
-          <div class="wiz-value"><code>{{ storage.path }}</code></div>
-        </div>
+          <div class="wiz-row">
+            <span class="wiz-label">自动路径</span>
+            <div class="wiz-value">
+              <code>{{ autoProjectPath || '（请选择存储位置）' }}</code>
+              <span class="wiz-hint">工程目录会自动创建，cube.json 与工程库索引同步登记。</span>
+            </div>
+          </div>
+          <p v-if="locationError" class="wiz-error">{{ locationError }}</p>
+        </template>
+
+        <!-- 浏览器：M9 只读 localStorage 预览（诚实标注） -->
+        <template v-else>
+          <div class="wiz-row">
+            <span class="wiz-label">存储位置</span>
+            <div class="wiz-value">
+              <code>{{ browserStorage.location }}</code>
+              <span class="wiz-hint">{{ browserStorage.note }}</span>
+            </div>
+          </div>
+          <div class="wiz-row">
+            <span class="wiz-label">自动路径</span>
+            <div class="wiz-value"><code>{{ browserStorage.path }}</code></div>
+          </div>
+        </template>
+
         <div class="wiz-row">
           <span class="wiz-label">Selected MCU</span>
           <div class="wiz-value"><code>{{ selectedChip }}</code></div>
@@ -337,6 +443,21 @@ function onCreate(): void {
   display: flex;
   align-items: baseline;
   gap: 12px;
+}
+.wiz-row-top {
+  align-items: center;
+}
+.wiz-location {
+  flex: 1;
+  flex-wrap: nowrap;
+}
+.wiz-location-input {
+  max-width: 440px;
+}
+.wiz-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--mx-error);
 }
 .wiz-value {
   display: flex;

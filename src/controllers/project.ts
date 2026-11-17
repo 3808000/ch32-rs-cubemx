@@ -36,7 +36,15 @@ interface ProjectState {
   halRev: string
   selectedPin: string | null
   unlocked: string[] // 显式解锁的特殊引脚（NRST/SWD/OSC）
-  activeView: ViewId
+  /** 是否已打开/创建工程（M10）：false 时仅 Home 可用，左栏/标签栏其余入口禁用 */
+  projectOpened: boolean
+  /**
+   * 已打开的视图标签（M10 文档模型，浏览器式）：初始仅 ['home']，
+   * setView / 侧边栏 / 菜单打开视图时追加，closeView 关闭后移除。
+   */
+  openViews: ViewId[]
+  /** 当前激活视图；null = 所有标签均已关闭（工作区显示占位）。 */
+  activeView: ViewId | null
   /** 当前打开的外设对象页（null = Peripherals 概览/列表）。M2 对象标签页。 */
   activePeripheralId: string | null
   dirty: boolean
@@ -61,7 +69,9 @@ export const useProjectStore = defineStore('project', {
     halRev: HAL_REV,
     selectedPin: null,
     unlocked: [],
-    activeView: 'pinout',
+    projectOpened: false,
+    openViews: ['home'],
+    activeView: 'home',
     activePeripheralId: null,
     dirty: false,
     lastSavedAt: null,
@@ -123,13 +133,40 @@ export const useProjectStore = defineStore('project', {
     },
 
     setView(view: ViewId) {
+      // 未打开/创建工程时只允许 Home（M10，对齐 MX2 空态）
+      if (!this.projectOpened && view !== 'home') return
+      // 文档模型：首次打开某视图时追加标签，已存在则不重复
+      if (!this.openViews.includes(view)) this.openViews.push(view)
       this.activeView = view
+    },
+
+    /**
+     * 关闭视图标签（M10 文档模型，浏览器式）。
+     * - 空态（未打开工程）时 Home 不可关闭；
+     * - 关闭 active 标签后优先激活右邻，其次左邻，没有邻居则 activeView = null。
+     */
+    closeView(view: ViewId) {
+      if (!this.projectOpened && view === 'home') return
+      const index = this.openViews.indexOf(view)
+      if (index < 0) return
+      this.openViews.splice(index, 1)
+      if (this.activeView !== view) return
+      // splice 后 index 处即原右邻；越界则取左邻
+      this.activeView = this.openViews[index] ?? this.openViews[index - 1] ?? null
+    },
+
+    /** 标记工程已打开/创建（M10）：向导创建等不走 loadConfig 的入口调用。 */
+    markProjectOpened() {
+      this.projectOpened = true
     },
 
     /** 打开外设对象页（M2）：切到 Peripherals 视图并聚焦该实例。 */
     openPeripheral(id: string) {
+      // 空态守卫：未打开工程时不可打开外设对象页（与 setView 门禁一致）
+      if (!this.projectOpened) return
       this.activePeripheralId = id
-      this.activeView = 'peripherals'
+      // 对象页依赖 Peripherals 视图标签，经 setView 追加/激活（对象标签本身独立管理）
+      this.setView('peripherals')
     },
 
     /** 关闭外设对象页，回到 Peripherals 概览/列表。 */
@@ -313,6 +350,7 @@ export const useProjectStore = defineStore('project', {
       this.activePeripheralId = null
       this.dirty = false
       this.lastSavedAt = Date.now()
+      this.projectOpened = true
     },
 
     switchDevice(chip: string) {

@@ -65,7 +65,8 @@ fn write_files(root: String, files: Vec<FileEntry>) -> Result<usize, String> {
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败：{e}"))?;
         }
-        std::fs::write(&dest, decode(&f.contents)?).map_err(|e| format!("写入 {} 失败：{e}", f.path))?;
+        std::fs::write(&dest, decode(&f.contents)?)
+            .map_err(|e| format!("写入 {} 失败：{e}", f.path))?;
         written += 1;
     }
     Ok(written)
@@ -73,10 +74,13 @@ fn write_files(root: String, files: Vec<FileEntry>) -> Result<usize, String> {
 
 /// 递归收集目录下的普通文件（跳过 target/、.git/ 与符号链接）。
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<ReadFileEntry>) -> Result<(), String> {
-    let entries = std::fs::read_dir(dir).map_err(|e| format!("读取目录 {} 失败：{e}", dir.display()))?;
+    let entries =
+        std::fs::read_dir(dir).map_err(|e| format!("读取目录 {} 失败：{e}", dir.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("读取目录项失败：{e}"))?;
-        let file_type = entry.file_type().map_err(|e| format!("读取文件类型失败：{e}"))?;
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("读取文件类型失败：{e}"))?;
         // 不跟随符号链接，避免读到导出根目录之外的文件。
         if file_type.is_symlink() {
             continue;
@@ -97,7 +101,10 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<ReadFileEntry>) -> Resul
                 .replace('\\', "/");
             let bytes = std::fs::read(&path).map_err(|e| format!("读取 {rel} 失败：{e}"))?;
             let contents = base64::engine::general_purpose::STANDARD.encode(bytes);
-            out.push(ReadFileEntry { path: rel, contents });
+            out.push(ReadFileEntry {
+                path: rel,
+                contents,
+            });
         }
     }
     Ok(())
@@ -125,6 +132,56 @@ fn remove_file(root: String, path: String) -> Result<(), String> {
     }
 }
 
+/// 工程库根目录：`$HOME/.config/ch32-rs-cubemx/projects`（不存在则创建）。
+fn projects_root_path() -> Result<PathBuf, String> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| "无法确定用户主目录（HOME 未设置）".to_string())?;
+    let root = PathBuf::from(home)
+        .join(".config")
+        .join("ch32-rs-cubemx")
+        .join("projects");
+    std::fs::create_dir_all(&root).map_err(|e| format!("创建工程库目录失败：{e}"))?;
+    Ok(root)
+}
+
+/// 返回工程库根目录（索引文件固定为其同级的 projects.json）。
+#[tauri::command]
+fn projects_root() -> Result<String, String> {
+    Ok(projects_root_path()?.to_string_lossy().to_string())
+}
+
+/// 读取 UTF-8 文本文件（工程库 cube.json）；不存在时返回清晰错误。
+#[tauri::command]
+fn read_text_file(path: String) -> Result<String, String> {
+    let file = PathBuf::from(&path);
+    if !file.is_file() {
+        return Err(format!("文件不存在：{path}"));
+    }
+    std::fs::read_to_string(&file).map_err(|e| format!("读取文件失败：{path}：{e}"))
+}
+
+/// 递归删除工程目录。路径守卫：必须严格位于工程库根目录之下，防止误删用户目录。
+#[tauri::command]
+fn remove_dir(path: String) -> Result<(), String> {
+    let root = projects_root_path()?;
+    // canonicalize 同时解析符号链接/`..`，守卫比较以真实路径为准
+    let root = std::fs::canonicalize(&root).map_err(|e| format!("工程库根目录不可用：{e}"))?;
+    let target = PathBuf::from(&path);
+    if !target.exists() {
+        return Ok(());
+    }
+    let target =
+        std::fs::canonicalize(&target).map_err(|e| format!("解析工程目录失败：{path}：{e}"))?;
+    if target == root || !target.starts_with(&root) {
+        return Err(format!(
+            "拒绝删除：{path} 不在工程库目录 {} 之下",
+            root.display()
+        ));
+    }
+    std::fs::remove_dir_all(&target).map_err(|e| format!("删除工程目录失败：{path}：{e}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -133,7 +190,10 @@ pub fn run() {
             write_file,
             write_files,
             read_folder,
-            remove_file
+            remove_file,
+            projects_root,
+            read_text_file,
+            remove_dir
         ])
         .run(tauri::generate_context!())
         .expect("error while running ch32-rs-CubeMX");

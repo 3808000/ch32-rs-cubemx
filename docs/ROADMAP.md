@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-16）：M1–M9 九个里程碑核心项全部完成并推送。** 测试 380→920，23 个子智能体分域并行 + 主控基座/接线/集成/实机取证。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件/桌面构建的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-17）：M1–M10 十个里程碑核心项全部完成并推送。** 测试 380→986，26 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件目标的项（见各里程碑「暂缓/待核实」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -179,6 +179,26 @@
 | 9.3 | 设置页 General 名称/路径只读化（创建时定；改名走工程库 rename） | `views/ProjectSettingsView.vue` | 浏览器只读+提示 | W |
 
 **M9 验收门禁**：882+ 测试（新增 ≥20）；verify:build 三芯片；浏览器 Home→向导→创建→Pinout→设置只读→生成 全链路；推送。
+
+---
+
+## M10（v0.11）空态门禁 + 桌面磁盘工程库 + 实机调试配置 ✅ 已完成（2026-11-17）
+
+> **落地状态**：4 项完成。986 测试全绿（920→986：projectGate 13 / tabDocuments 20 / diskLibrary 16 / ideConfig 17）、verify:build 3/3、Tauri release 构建成功（podman fedora，2m08s）+ 二进制 smoke 存活、浏览器验收（空态仅 Home 无 ×/侧栏开标签才追加/× 关闭右邻激活/全关占位/标签条对照原版特写：底板全宽+首标签缩进左栏宽+左栏白底自标签栏下+白签蓝字灰×上圆角 6）。
+> **10.1 布局修正记录**：X 初版把标签栏整体移到左栏右侧（过度修正）；对照用户提供的 MX2 特写后由主控改回**底板全宽、首标签缩进左栏宽度、左栏自标签栏下方开始**（MX2 真实结构），× 补键盘可达（role=button+tabindex+Enter/Space）。
+> **10.3 核实层级（诚实）**：探针层通过（WCH-Link v2.12 枚举/serial/firmware），目标层未响应（debug pins 无目标）；launch.json 依 ch32rv 文档能力生成（attach/无 monitor/无 load），不宣称实机连通目标；wlink 0.1.3 无 gdbserver 源码核实。
+
+> 来源：用户指示（未开工程左栏仅 Home 可点；标签栏最左不与左栏相交）+ M4.1/M4.5 暂缓项落地（用户已插 WCH-Link，可实机核实调试链；参考库 /home/teze/CH32/wchlink-rs 为烧录器，无 gdbserver）。
+> 契约（主控预置）：store.projectOpened（初始 false）+ setView 空态守卫 + loadConfig 置 true + markProjectOpened()；初始 activeView='home'。
+
+| # | 任务 | 改动落点 | 验收 | 并行域 |
+|---|---|---|---|---|
+| 10.1 | 空态门禁 + 布局：左栏贯通标题栏下、标签栏居其右不相交；未开工程左栏仅 Home 可点、标签栏仅 Home；Ctrl+Tab 序列适配 | `App.vue`、`IconRail.vue`、`TabStrip.vue`、`useHotkeys.ts` | 浏览器空态/开工程两态验收 | X |
+| 10.2 | 桌面磁盘工程库：Tauri projects_root/read_text_file/remove_dir（路径守卫）+ 索引 projects.json + 桌面 autosave 落盘 + 向导第二步真实路径可编辑+Change + Home 磁盘库/最近 + 空态「打开当前工程」禁用 | `src-tauri/lib.rs`、`services/{projectStorage,recentProjects,desktop}.ts`、`CreateProjectWizard.vue`、`HomeView.vue` | 单测 ≥10；podman 构建；桌面 smoke best-effort | Y |
+| 10.3 | launch.json：wlink 0.1.3 **无 gdbserver**（源码核实）→ 裁决改 **ch32rv 0.31.3** `ch32rv gdb`:3333；实机核实层级=探针层通过（WCH-Link v2.12 枚举/serial）、**目标层未响应**（debug pins 无目标，诚实标注不宣称连通）；vscode 档生成 launch.json（cppdbg **attach**、无 monitor/load——ch32rv 不支持 vFlash）+ tasks「烧录 (ch32rv)」「gdbserver (ch32rv)」三步流 | `model/codegen/ideConfig.ts` + 模板 + tests/ideConfig.test.ts(17) + HAL notes §12 | ✅ 966 测试绿；核实证据入 HAL notes | Z |
+| 10.4 | **标签文档模型**（用户指示）：标签栏仅渲染已打开视图（初始仅 Home；侧边栏/菜单打开才追加）；全标签浏览器式 ×（active 常显/inactive hover）；样式按 MX2 修正（36px 连续标签/仅上圆角白签齐平/健康角标圆点替代 inline 徽标）；activeView 可 null + 占位 | `controllers/project.ts`、`TabStrip.vue`、`IconRail.vue`、`useHotkeys.ts`、`App.vue` | 单测 ≥10；浏览器两态+关闭/重开验收 | X2 |
+
+**M10 验收门禁**：920+ 测试；verify:build 三芯片；浏览器空态/布局/向导桌面分支（浏览器回归）；Tauri 构建；推送。
 
 ---
 
