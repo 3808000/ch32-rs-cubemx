@@ -343,7 +343,8 @@ ch32rv: error[attach-failed]: probe replied with error (reason 0x55): [81, 55, 0
 
 **核实层级（诚实标注）**：
 - 探针层：**通过**——USB 枚举、RISC-V 模式、固件版本、serial 均读到。
-- 目标层：**未响应**（无目标板/未上电/未接线），`target info` 与 `wlink status` 均报 `0x55`。
+- 目标层：本次**未响应**（当时未接目标板），`target info` 与 `wlink status` 均报 `0x55`。
+  → 后续接入 CH32V203C8T6 后目标层已补跑通过，见 **§12.7**（本节保留当时原始输出作历史取证）。
 - GDB 服务器层：`ch32rv gdb` 的 attach 发生在 `TcpListener::bind` 之前（源码 `cli/src/cmd_gdb.rs`），
   目标无响应时进程在 attach 阶段退出，**本机未观察到监听端口，也未能完成
   `target remote` + halt/读寄存器**。服务器能力依据 ch32rv 0.31.3 的 CLI/源码/文档核实，
@@ -366,8 +367,10 @@ ch32rv: error[attach-failed]: probe replied with error (reason 0x55): [81, 55, 0
 - **不写** `postRemoteConnectCommands`：ch32rv 无 `monitor`、无 vFlash，写
   `monitor reset halt` / `load` 会报 unsupported。三步流：构建 → `烧录 (ch32rv)`（写 flash，用户发起）
   → `gdbserver (ch32rv)` → F5。
-- `request: attach` 的 cppdbg 会话未在本机实际拉起（无 VSCode 图形会话、目标也无响应）；
-  attach 语义本身不执行 `load`，且服务器端也不提供 vFlash。接上目标后需复测该字段。
+- `request: attach` 的 cppdbg 会话未在本机实际拉起（无 VSCode 图形会话）；
+  attach 语义本身不执行 `load`，且服务器端也不提供 vFlash。
+  **GDB Remote 协议层已在 CH32V203C8T6 实机连通**（`target remote` + 读寄存器/内存 + detach，见 §12.7）；
+  VSCode cppdbg 图形会话本身仍未拉起过，该字段语义依据协议层核实。
 
 ### 12.5 安全注意
 
@@ -392,4 +395,58 @@ ch32rv: error[attach-failed]: probe replied with error (reason 0x55): [81, 55, 0
 **结论**：CH582M 属 CH58x（BLE）系，与 CH32V 系调试协议/ID 不同；当前开源链（ch32rv/wlink/wchlink/openocd 0.12）
 均不支持，`target-no-response` 是**支持矩阵问题而非接线问题**。CH58x 调试需 WCH MRS/LinkUtility 自带 gdbserver
 （未安装）；且本工具 CH582 代码生成仍被 `halBackend=ch58x-hal` 守卫拦截（独立里程碑）。
-**目标层核实待 CH32V 系目标板**（V003/V203/V307/H417 等）接入后补跑；launch.json 模板能力依据不变（§12.4）。
+**目标层核实已补跑**：用户随后接入 CH32V203C8T6，halt/读寄存器/读 Flash/gdb attach 全链路只读通过，见 **§12.7**。
+launch.json 模板能力依据不变（§12.4）。
+
+### 12.7 CH32V203C8T6 目标层只读核实（2026-11-17，全链路通过）
+
+用户将 CH-LINK 接到 CH32V203C8T6 目标板后补跑。**全程只读：未执行任何 flash/erase/load/write。**
+
+```text
+$ ch32rv target info --chip CH32V203C8T6
+target:   connected (identified)
+family:   CH32V20x        family byte: 0x05
+chip id:  0x20310500      uid: ccaaabcd371ebea7
+flash:    64 KiB          sram: 20 KiB (DB)
+sku:      CH32V203C8T6 (verified on silicon)
+debug:    2-wire (SWDIO/DAT=PA13, SWCLK=PA14)
+
+$ ch32rv dbg halt
+halted at 0x0002b714
+$ ch32rv dbg regs          # 31 GPR + dpc 全部读到（值随机，见下）
+$ ch32rv read --range 0x00000000+64 --format hex-dump
+00000000  39 e3 39 e3 39 e3 ...   # 全片重复 0xe339 图案
+$ ch32rv dbg resume
+resumed
+
+$ ch32rv gdb --chip CH32V203C8T6 --listen 127.0.0.1:3333 --no-flash
+gdb: listening on 127.0.0.1:3333
+gdb: --no-flash: vFlash (load) is not offered
+gdb: client connected from 127.0.0.1:57974
+gdb: attached, 0 hardware breakpoint slot(s) (no trigger module; ...)
+gdb: client disconnected                     # detach 后进程正常退出 (exit 0)
+
+$ riscv-none-elf-gdb -nx -batch -ex 'target remote 127.0.0.1:3333' \
+    -ex 'info registers pc sp' -ex 'x/8xw 0x0' -ex 'detach'
+pc  0x14032    sp  0x92a12462
+0x0: 0xe339e339 0xe339e339 ...               # 与 ch32rv read 逐字节一致
+[Inferior 1 (process 1) detached]
+# detach 后 target info 仍 connected (identified)
+```
+
+**核实层级（诚实标注）**：
+- 探针层：**通过**（同 §12.3）。
+- 目标层：**通过**——SKU 硅片级确认（`verified on silicon`）、halt/regs/resume、Flash 读取均成功。
+- GDB 服务器层：**通过**——`ch32rv gdb` 监听 3333，`riscv-none-elf-gdb` `target remote` attach、
+  读寄存器/内存、detach 干净退出；`--no-flash` 下服务器明确不提供 vFlash。
+  这正是 launch.json（cppdbg attach → localhost:3333）的协议层等价验证。
+- VSCode cppdbg 图形会话：仍未拉起（本机无 VSCode 图形会话），不宣称已验证 IDE 层。
+
+**现场观察（不臆造）**：
+1. 该板 Flash 内容为重复 `0xe339` 图案，**不是有效固件镜像**（首字应指向 SRAM 0x2000xxxx 的初始 SP）；
+   GPR 值随机、pc 落在图案区与此一致——核心在执行无效内容。调试链路本身不受影响；
+   烧录有效固件后即可正常断点调试（烧录由用户发起，本次未写）。
+2. **V203 经 WCH-Link 无硬件断点槽**（gdbserver 明示 `0 hardware breakpoint slot(s), no trigger module`）：
+   软件断点会改写 flash page（约 2 s/页，有磨损）。调试时建议 GDB 侧
+   `set breakpoint always-inserted on` + `set remotetimeout 10`（gdbserver 输出原话建议）。
+   此结论与 §12.5 安全注意一致，launch.json/tasks.json 模板无需改动。

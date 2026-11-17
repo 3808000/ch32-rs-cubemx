@@ -69,7 +69,7 @@
 ## 7. 测试与门禁现状（2026-11-16 工程化重构后）
 
 - 单元测试：**986 个用例全绿**（48 文件；M9 新增 chipPicker +28 / createWizard 13；M10 新增 projectGate 13 / tabDocuments 20 / diskLibrary 16 / ideConfig 17）。
-- M10（v0.11）：空态门禁（projectOpened + setView 守卫 + 左栏/标签栏仅 Home）；标签文档模型（openViews/activeView 可 null/浏览器式 ×/角标圆点/样式对照 MX2 特写：底板全宽+首标签缩进左栏宽）；桌面磁盘工程库（Tauri projects_root/read_text_file/remove_dir 路径守卫 + projects.json 索引 + 桌面 autosave 落盘 + 向导真实路径可编辑/Change + Home 磁盘库，podman 构建+smoke 通过）；launch.json（ch32rv gdb:3333 attach，wlink 无 gdbserver 源码核实，目标层未响应诚实标注，HAL notes §12）。
+- M10（v0.11）：空态门禁（projectOpened + setView 守卫 + 左栏/标签栏仅 Home）；标签文档模型（openViews/activeView 可 null/浏览器式 ×/角标圆点/样式对照 MX2 特写：底板全宽+首标签缩进左栏宽）；桌面磁盘工程库（Tauri projects_root/read_text_file/remove_dir 路径守卫 + projects.json 索引 + 桌面 autosave 落盘 + 向导真实路径可编辑/Change + Home 磁盘库，podman 构建+smoke 通过）；launch.json（ch32rv gdb:3333 attach，wlink 无 gdbserver 源码核实；CH32V203C8T6 实机目标层只读核实通过：halt/regs/读 Flash/gdb attach，HAL notes §12.7；V203 无硬件断点槽，软件断点改写 flash page）。
 - M9（v0.10）：芯片选择链路对齐 MX2 创建向导——ChipPicker 选中门禁/全列排序（容量列数值序）/逐列过滤/分页/Columns/Export CSV；两步 CreateProjectWizard（名称必填门禁+只读存储预览+MCU 回显+纯本地秒建）；设置页 General 名称/路径只读（创建时定，改名走工程库）。实机取证见 ANALYSIS-MX2-CHIPFLOW-GAP.md。
 - M8（v0.09）：主题对齐 MX2（白左栏/藏青标签底板/白 raised 选中签，变量化+对比度采样）；类别级冲突策略（safe/update/custom 三档 + 逐组下拉，resolveGroupDefaults + inspect/write groupDefaults 管线，逐文件决议优先，user_code 硬保护，随 cube.json 保存）；M4.7 SignalsSelector（搜索/分组/多 remap 档/当前徽标）+ PinMode RESERVED 全链路（reserved 态/生成跳过/RESERVED_PIN_IN_USE）。
 - M7（v0.08）：生成决议入页（对齐 CubeMX2 实机取证）——CodegenDialog/CheckDialog 删除，useGenerationFlow composable + PreflightPanel 页内检查 + Project settings 唯一决议中心（选项/门禁/预览决议/结果报告全页内），Pinout 导出按钮跳转 settings。
