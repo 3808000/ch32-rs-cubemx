@@ -23,6 +23,8 @@ export interface ChipPin {
   special?: SpecialKind
   ft?: boolean // 5V 容忍
   adc?: string[] // 可用 ADC 通道（原始通道名 ADC_INn）
+  /** HAL 未实现该引脚的驱动能力（如 ch58x-hal 的 PB17 无 Pin impl）；填写原因，配置即报 HAL_PIN_UNSUPPORTED */
+  halUnsupported?: string
 }
 
 /** 多核芯片的单核描述（单核芯片不填 ChipData.cores） */

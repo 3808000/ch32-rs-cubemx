@@ -450,3 +450,81 @@ pc  0x14032    sp  0x92a12462
    软件断点会改写 flash page（约 2 s/页，有磨损）。调试时建议 GDB 侧
    `set breakpoint always-inserted on` + `set remotetimeout 10`（gdbserver 输出原话建议）。
    此结论与 §12.5 安全注意一致，launch.json/tasks.json 模板无需改动。
+
+## 13. ch58x-hal 后端核实（M11，2026-11-17）
+
+真相源：`reference/ch58x-hal` @ `611954e40cc4a562f0c4756ab4c0a935af6158df`（ch58x-hal 0.0.2，edition 2021）。
+4 份只读调研报告逐字核实，施工契约见 `docs/CH58X_BACKEND_CONTRACT.md`（含集成期修正 D15）。
+
+### 13.1 与 ch32-hal 的关键差异（生成器必须遵守）
+
+| 维度 | ch58x-hal 事实 | 证据 |
+|---|---|---|
+| entry | HAL **不 re-export** entry；`#[qingke_rt::entry]`，qingke-rt 0.5.0 必须直依赖（highcode feature 恒开，向量表在 RAM 0x20000000） | src/lib.rs:30（`// pub mod rt;`）、Cargo.toml:25 |
+| init | `hal::init(Config{clock,low_power,enable_dcdc})` 内部 freeze 时钟 + take 外设 | src/lib.rs:127-167 |
+| 时钟 | 480MHz 固定 PLL ÷ div（6 具名档 60/80/48/32/24/20）；`ClockSrc::{PLL(u8),HSE(u8),Clock32K}` pub；无 AHB/APB 分频；HSE 硬编码 32MHz；div 5 位（32 截断为 0） | src/sysctl.rs:8-9,34-49,70-98,168 |
+| GPIO | `Output::new(pin,Level,OutputDrive::{_5mA,_20mA})` / `Input::new(pin,Pull)`；**无 Speed/OpenDrain/通用 AF**；**PB17 无 Pin impl**（peripherals 有声明） | src/gpio.rs:165-181,394-408；src/peripherals.rs:39 |
+| UART | `Uart::new::<const REMAP: bool>(peri,tx,rx,Config)` → Result；Config 非 non_exhaustive 四字段；**仅阻塞**（async write 被注释）；固定引脚表 UART0-3×2 档 | src/uart.rs:43-58,252-261,499-517 |
+| SPI | 仅 SPI0；Config non_exhaustive（polarity/bit_order/frequency，**无 phase**）；无 CS 管理（NSS 需软件 Output）；`blocking_read` 有 FIFO 空跳过 bug | src/spi.rs:31-49,61-90,275-279,355-358 |
+| I2C | 单实例 I2C；7-bit 地址（内部左移）；`transaction()` 是 todo!()（调用即 panic） | src/i2c.rs:92-100,234,440 |
+| ADC | 14 外部通道 ch0-13；Config{clk:SamplingClock,pga_gain:Gain} non_exhaustive；固定 12-bit；**Vbat 通道不可信**（enable_vbat 空操作且与温度共用 ch15） | src/adc.rs:8-49,123-159,212-214 |
+| 不存在 | DMA 驱动（仅 NoDma）、Timer/PWM 驱动（timer.rs 10 行）、async 外设（全仓无 embedded_hal_async impl）、SPI1、bind_interrupts | src/dma.rs:1-5、src/timer.rs:1-10 |
+| embassy | feature **不可关**（gpio.rs:14 无条件 use embassy_sync）；时间驱动 SysTick hclk/8（tick 32768）；`hal::embassy::init()` 必须在 hal::init 之后；executor 由应用直依赖 embassy-executor 0.7（nightly + impl_trait_in_assoc_type） | src/gpio.rs:14、src/embassy/mod.rs:3-10、examples/embassy-blinky.rs:54-59 |
+| 构建 | -C link-arg=-Tlink.x；memory.x（448K/32K）由 HAL build.rs 提供；device.x 由 ch58x PAC 0.4.0 rt feature 提供；libISP583.a 无条件链接；BLE 库仅 ble feature | build.rs:7-14、.cargo/config.toml |
+| non_exhaustive | crate 外**禁止结构体字面量含 FRU**（E0639，rustc 1.98 实测）→ `let mut c = Config::default(); c.field = …;`（官方 examples 模式） | examples/spi-ssd1306.rs:81-84 |
+
+### 13.2 原子指令缺陷与 target 决策（D15，真实编译阻塞）
+
+首次 CH582M cargo build 撞 `qingke 0.5.0` 的 `compile_error!`：`target_has_atomic="8"` 且未开
+`unsafe-trust-wch-atomics` 即拒绝编译（src/lib.rs:18-29）。上游核实（api.github.com）：
+**ch32-rs/qingke#9**（closed）与 ch32-hal#59——WCH QingKe LR/SC 原子指令有缺陷，embassy executor
+进入错误状态（task 标记 woken 但不在 ready 列表），维护者实测**禁用原子走 critical-section 回退后问题消失**；
+issue 结论「using portable-atomic is the accepted fix」。qingke#8 即引入该 compile_error 的 PR。
+
+决策（实测排除法）：
+- ❌ `unsafe-trust-wch-atomics`：等于信任已知坏原子指令，不采用。
+- ❌ `-C target-feature=-a`：rustc 的 `target_has_atomic` 是 target spec 静态属性，**不随该 flag 改变**（--print cfg 实测）。
+- ✅ **编译 target 用 riscv32imc-unknown-none-elf**（无 A → 无 target_has_atomic → qingke 通过 →
+  embassy-sync 自动 critical-section 回退）。CH582 硬件 RV32IMAC，IMC 代码生成是严格子集，正常执行。
+  chip.json.target 一处驱动全链路（模板/工具链/IDE 任务路径全数据驱动）；README 模板含完整说明。
+- ch58x-hal 上游 Cargo.toml 未开 trust feature 也未改 target → **上游该 commit 在标准 imac target 上当前不可编译**
+  （其 CI 用 nightly imac，qingke 0.5.0 是唯一 0.5.x，crates.io 版本列表核实）；本工具以 imc target 绕过，不修改 HAL 源码。
+
+### 13.2bis 第二个链接阻塞：`__pender`（blocking 档）
+
+imc 解决编译后，blocking 档链接报 `undefined symbol: __pender`（embassy_executor::raw::wake_task 引用）。
+根因：HAL 非可选依赖 `embassy-time-queue-utils 0.1.0` 无条件依赖 embassy-executor 0.7，默认 integrated
+queue（src/lib.rs:6-13：无 `_generic-queue` feature → queue_integrated → 引用 executor raw 符号）。
+`__pender` 由应用提供：embassy 档 `#[embassy_executor::main]` 宏生成；blocking 档无 executor → 缺符号。
+修复：blocking Cargo.toml 直依赖 `embassy-time-queue-utils = { version = "0.1.0", features = ["generic-queue-8"] }`
+（feature 统一 → queue_generic，不引用 executor 符号）；embassy 档保持 integrated。
+上游 HAL 非 embassy examples 亦无 __pender 定义（grep 全仓零命中）——与 13.2 一致，上游该 commit 当前不可直接编译。
+
+### 13.3 工具链事故记录（诚实标注）
+
+生成工程的 `rust-toolchain.toml channel="stable"` 在 rustup 1.29.3 下触发自动更新（stable 1.98.1 → 1.100.0），
+期间 imc rust-std 组件冲突致更新回滚不完整、stable 工具链损坏（rustc 组件丢失）；`rustup update stable`
+修复至 1.100.0，imc 残留组件目录清除后重装。verify:build 以 `RUSTUP_TOOLCHAIN=<显式工具链名>` 运行避免再次触发渠道解析更新。
+
+**第二根因（verify 脚本缺陷，已修）**：隔离 HOME 方案只钉了 CARGO_HOME 未钉 RUSTUP_HOME——rustup 在
+`/tmp/ch32-cubemx-clean-home/.rustup` 新建了工具链家目录，自动更新中断后那里留下**半套 stable**，
+脚本内 cargo 随机 crate 编译失败（pin-project-lite/futures-core/embedded-io 等，手动同目录重编却成功）。
+修复：verify-build.mjs 隔离 HOME 分支补 `env.RUSTUP_HOME ??= realHome/.rustup`（与 CARGO_HOME 同理），
+残缺临时家目录已清除。**最终门禁以 stable 1.100.0 / nightly 1.102.0 为准**（此前 1.98 的通过记录保留作历史）。
+
+### 13.4 生成能力矩阵（CH582M，M11）
+
+可生成：GPIO 输入/输出（驱动电流档）、UART0-3 阻塞、SPI0（MODE_0/3 语义、软件 CS）、I2C 阻塞、
+ADC 14 通道单次采样、RTC 只读建议（本期未建模）、时钟 6 预设 + 显式 PLL(div)、embassy 档（GPIO async + Timer）。
+不生成（诚实标注于 README）：BLE、async 外设、DMA、TMR/PWM、SPI1、OpenDrain、PB17、Vbat/温度内部通道、
+EXTI/中断绑定代码、launch.json/gdbserver（CH58x 不在 ch32rv/wlink 支持矩阵，§12.6；烧录走 wchisp USB ISP）。
+debugPrint：warning 忽略（featureWarnings → README/报告）。
+
+### 13.5 验证状态
+
+- 单元：ch58xCodegen 70 + ch58xData 7 + halUnsupportedPin 6 + exportBackend 6 + chipPicker 更新（全仓 1075+）。
+- validate:device：4 芯片 0 错 0 警（CH582M 6 预设全可复现）。
+- 浏览器验收：CH582M 向导秒建 → 11 引脚（GPIO/UART0/SPI0 含 NSS/I2C/ADC）→ 20MHz 新预设 →
+  blocking/embassy 双档页内生成 + ZIP 导出（78 文件含 vendor/ch58x-hal）→ 设置页 rev/target/工具链后端感知。
+- verify:build（修复 RUSTUP_HOME 后，显式工具链名，离线）：**V003 ✓ / V203 ✓ / H417 ✓ / CH582M blocking ✓ / CH582M embassy ✓**
+  （stable 1.100.0 / nightly 1.102.0；CH582M entry 含 GPIO/UART/SPI/I2C/ADC 全外设）。

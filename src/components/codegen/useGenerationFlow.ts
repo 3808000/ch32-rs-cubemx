@@ -39,20 +39,32 @@ export interface PendingFolder {
   inspection: FolderExportInspection
 }
 
-/** 生成子项清单（页内复选框；与 CubeMX2 的 General Setup 决议同位）。 */
-export const GENERATION_ITEMS: { key: keyof CodegenSelection; label: string; desc: string }[] = [
-  { key: 'projectSkeleton', label: '工程骨架', desc: 'Cargo.toml / rust-toolchain / .cargo / build.rs / target json' },
-  { key: 'vendorHal', label: '内嵌 HAL 源码', desc: 'vendor/ch32-hal 完整库（path 依赖，便于查阅代码）' },
-  { key: 'clock', label: '时钟配置', desc: 'generated/clock.rs' },
-  { key: 'pins', label: 'GPIO 引脚', desc: 'generated/pins.rs' },
-  { key: 'exti', label: 'EXTI', desc: 'generated/exti.rs（有配置时）' },
-  { key: 'usart', label: 'USART', desc: 'generated/usart.rs' },
-  { key: 'spi', label: 'SPI', desc: 'generated/spi.rs' },
-  { key: 'i2c', label: 'I2C', desc: 'generated/i2c.rs' },
-  { key: 'adc', label: 'ADC', desc: 'generated/adc.rs' },
-  { key: 'readme', label: 'README', desc: '说明文档' },
-  { key: 'htmlReport', label: 'HTML 报告', desc: 'report.html 单文件工程报告（浏览器直接打开）' },
-]
+export interface GenerationItem {
+  key: keyof CodegenSelection
+  label: string
+  desc: string
+}
+
+/**
+ * 生成子项清单（页内复选框；与 CubeMX2 的 General Setup 决议同位）。
+ * vendorHal 文案随芯片 HAL 后端变化（M11：ch32-hal / ch58x-hal），其余项后端无关。
+ */
+export function generationItemsFor(halBackend?: string): GenerationItem[] {
+  const hal = halBackend ?? 'ch32-hal'
+  return [
+    { key: 'projectSkeleton', label: '工程骨架', desc: 'Cargo.toml / rust-toolchain / .cargo / build.rs / target json' },
+    { key: 'vendorHal', label: '内嵌 HAL 源码', desc: `vendor/${hal} 完整库（path 依赖，便于查阅代码）` },
+    { key: 'clock', label: '时钟配置', desc: 'generated/clock.rs' },
+    { key: 'pins', label: 'GPIO 引脚', desc: 'generated/pins.rs' },
+    { key: 'exti', label: 'EXTI', desc: 'generated/exti.rs（有配置时）' },
+    { key: 'usart', label: 'USART', desc: 'generated/usart.rs' },
+    { key: 'spi', label: 'SPI', desc: 'generated/spi.rs' },
+    { key: 'i2c', label: 'I2C', desc: 'generated/i2c.rs' },
+    { key: 'adc', label: 'ADC', desc: 'generated/adc.rs' },
+    { key: 'readme', label: 'README', desc: '说明文档' },
+    { key: 'htmlReport', label: 'HTML 报告', desc: 'report.html 单文件工程报告（浏览器直接打开）' },
+  ]
+}
 
 export function useGenerationFlow() {
   const store = useProjectStore()
@@ -139,7 +151,12 @@ export function useGenerationFlow() {
       summary: { create: files.length, update: 0, unchanged: 0, delete: 0, conflict: 0 },
       warnings: confirmedWarnings(),
       notes: [
-        ...(selection.vendorHal ? ['ZIP 内含 vendor/ch32-hal 完整 HAL 源码。'] : []),
+        ...(selection.vendorHal
+          ? [
+              // M11：按芯片 HAL 后端标注实际内嵌目录（ch32-hal / ch58x-hal）
+              `ZIP 内含 vendor/${store.deviceData.chip.halBackend ?? 'ch32-hal'} 完整 HAL 源码。`,
+            ]
+          : []),
         ...(selection.htmlReport ? ['report.html 为单文件工程报告，浏览器直接打开即可查阅。'] : []),
       ],
     }

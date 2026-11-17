@@ -2,11 +2,14 @@
 // 由 scripts/verify-build.mjs 调用：npx vite-node scripts/verify-build-entry.ts -- --chip CH32V003F4P6 --out <dir>
 import fs from 'node:fs'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { generateProject } from '@/model/codegen'
 import { getDeviceData } from '@/model/device'
 import { mergeClockConfig } from '@/model/clock'
 import type { PinAssignment, ProjectConfig } from '@/model/types'
 import { HAL_REV } from '@/model/codegen/halRev'
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 function argOf(name: string, fallback: string): string {
   const i = process.argv.indexOf(name)
@@ -17,6 +20,8 @@ const chip = argOf('--chip', 'CH32V003F4P6')
 const out = argOf('--out', '')
 const embassy = process.argv.includes('--embassy')
 const halDir = process.env.CH32_HAL_DIR ?? ''
+// ch58x-hal 后端用 CH58X_HAL_REV 常量（config.hal.rev 不适用），本地路径默认 ../reference/ch58x-hal
+const ch58xHalDir = process.env.CH58X_HAL_DIR ?? path.resolve(root, '../reference/ch58x-hal')
 const halRev = process.env.CH32_HAL_REV ?? HAL_REV
 
 if (!out) {
@@ -25,6 +30,7 @@ if (!out) {
 }
 
 const data = getDeviceData(chip)
+const isCh58x = data.chip.halBackend === 'ch58x-hal'
 
 // ---- 按芯片数据自适应构造测试配置（不写死任何引脚名）----
 const ioPins = data.chip.pins.filter((p) => p.type === 'IO' && !p.special) // 排除 NRST/SWD/OSC 等特殊脚
@@ -73,6 +79,40 @@ if (adc) {
   }
 }
 
+// SPI：第一实例第一档可用 remap（引脚必须在芯片上且未被占用）——M11 起覆盖 SPI 模板的 rustc 验证
+const spi = data.peripherals.spi[0]
+if (spi) {
+  const r = spi.remaps.find((x) => {
+    const names = [x.sck, x.mosi, x.miso].filter(Boolean)
+    return names.every((n) => ioPins.some((p) => p.name === n) && !used.has(n))
+  })
+  if (r) {
+    for (const [role, pinName] of [['sck', r.sck], ['mosi', r.mosi], ['miso', r.miso]] as const) {
+      if (!pinName) continue
+      used.add(pinName)
+      pins.push({ pin: pinName, mode: 'AF', function: `${spi.id}_${role.toUpperCase()}`, remap: r.remap, params: {} })
+    }
+    periState[spi.id] = { enabled: true, params: {}, remap: r.remap }
+  }
+}
+
+// I2C：第一实例第一档可用 remap（同上）
+const i2c = data.peripherals.i2c[0]
+if (i2c) {
+  const r = i2c.remaps.find((x) => {
+    const names = [x.scl, x.sda].filter(Boolean)
+    return names.every((n) => ioPins.some((p) => p.name === n) && !used.has(n))
+  })
+  if (r) {
+    for (const [role, pinName] of [['scl', r.scl], ['sda', r.sda]] as const) {
+      if (!pinName) continue
+      used.add(pinName)
+      pins.push({ pin: pinName, mode: 'AF', function: `${i2c.id}_${role.toUpperCase()}`, remap: r.remap, params: {} })
+    }
+    periState[i2c.id] = { enabled: true, params: {}, remap: r.remap }
+  }
+}
+
 // 时钟：优先第一预设
 const firstPreset = data.clock.presets[0]
 const pll: Record<string, number> = {}
@@ -117,15 +157,28 @@ for (const f of result.files) {
   fs.mkdirSync(path.dirname(dest), { recursive: true })
   let content = f.content
   // 非 vendor 模式（git 依赖）时可用本地 HAL 路径覆盖加速
-  if (halDir && f.path === 'Cargo.toml' && content.includes('git = ')) {
+  if (isCh58x) {
+    // ch58x-hal：Cargo.toml 中的 ch58x-hal git 行 → 本地 path（缺省 ../reference/ch58x-hal）
+    if (f.path === 'Cargo.toml' && fs.existsSync(path.join(ch58xHalDir, 'Cargo.toml')) && content.includes('ch58x-hal = { git = ')) {
+      content = content.replace(/ch58x-hal = \{ git = "[^"]+", (?:rev = "[^"]+", )?/, `ch58x-hal = { path = "${ch58xHalDir}", `)
+    }
+  } else if (halDir && f.path === 'Cargo.toml' && content.includes('git = ')) {
     content = content.replace(/ch32-hal = \{ git = "[^"]+", (?:rev = "[^"]+", )?/, `ch32-hal = { path = "${halDir}", `)
   }
   fs.writeFileSync(dest, content)
 }
 
-// vendor 模式：把完整 HAL 源码复制进 vendor/ch32-hal（与浏览器导出一致）
+// vendor 模式：把完整 HAL 源码复制进 vendor/<hal>（与浏览器导出一致）
 const cargoPath = path.join(out, 'Cargo.toml')
-if (halDir && fs.existsSync(cargoPath) && fs.readFileSync(cargoPath, 'utf8').includes('path = "vendor/ch32-hal"')) {
+if (isCh58x) {
+  if (fs.existsSync(cargoPath) && fs.readFileSync(cargoPath, 'utf8').includes('path = "vendor/ch58x-hal"') && fs.existsSync(path.join(ch58xHalDir, 'Cargo.toml'))) {
+    fs.cpSync(ch58xHalDir, path.join(out, 'vendor/ch58x-hal'), {
+      recursive: true,
+      filter: (src) => !src.includes('/.git') && !src.includes('/target'),
+    })
+    console.log(`[verify] vendor/ch58x-hal ← ${ch58xHalDir}`)
+  }
+} else if (halDir && fs.existsSync(cargoPath) && fs.readFileSync(cargoPath, 'utf8').includes('path = "vendor/ch32-hal"')) {
   fs.cpSync(halDir, path.join(out, 'vendor/ch32-hal'), {
     recursive: true,
     filter: (src) => !src.includes('/.git') && !src.includes('/target'),

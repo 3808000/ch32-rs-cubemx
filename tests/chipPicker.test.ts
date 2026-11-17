@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest'
 import {
   CHIP_COLUMNS,
   CHIP_PAGE_SIZES,
-  SUPPORTED_HAL_BACKEND,
+  SUPPORTED_HAL_BACKENDS,
   buildChipCsv,
   buildChipRows,
   canContinueSelection,
@@ -70,7 +70,8 @@ describe('buildChipRows：行构建', () => {
     expect(row.core).toContain('V2A')
     expect(row.target).toBe('riscv32ec-unknown-none-elf')
     expect(row.toolchain).toBe('nightly')
-    expect(row.halBackend).toBe(SUPPORTED_HAL_BACKEND)
+    expect(row.halBackend).toBe('ch32-hal')
+    expect(SUPPORTED_HAL_BACKENDS).toContain(row.halBackend)
     expect(row.supported).toBe(true)
   })
 
@@ -118,18 +119,20 @@ describe('生成支持徽标判定', () => {
     const chip = mkChip()
     delete chip.halBackend
     expect(chipGenerationSupported(chip)).toBe(true)
-    expect(buildChipRows([chip])[0].halBackend).toBe(SUPPORTED_HAL_BACKEND)
+    expect(buildChipRows([chip])[0].halBackend).toBe('ch32-hal')
   })
 
-  it('显式 ch32-hal 可生成；ch58x-hal 不支持', () => {
+  it('显式 ch32-hal 与 ch58x-hal 均可生成（M11）；未知后端不支持', () => {
     expect(chipGenerationSupported(mkChip({ halBackend: 'ch32-hal' }))).toBe(true)
-    expect(chipGenerationSupported(mkChip({ halBackend: 'ch58x-hal' }))).toBe(false)
+    expect(chipGenerationSupported(mkChip({ halBackend: 'ch58x-hal' }))).toBe(true)
+    expect(chipGenerationSupported(mkChip({ halBackend: 'other-hal' }))).toBe(false)
+    expect(SUPPORTED_HAL_BACKENDS).toEqual(['ch32-hal', 'ch58x-hal'])
   })
 
-  it('CH582M 标注「生成器暂不支持」但仍保留在列表中（不禁止选择）', () => {
+  it('CH582M（ch58x-hal）标注「可生成」且仍保留在列表中', () => {
     const row = rowOf('CH582M')
     expect(row.halBackend).toBe('ch58x-hal')
-    expect(row.supported).toBe(false)
+    expect(row.supported).toBe(true)
     expect(registeredRows.some((r) => r.chip === 'CH582M')).toBe(true)
   })
 })
@@ -216,10 +219,12 @@ describe('sortChipRows：全列排序三态', () => {
     ])
   })
 
-  it('布尔列按 false < true 排序', () => {
-    const asc = sortChipRows(registeredRows, 'supported', 'asc')
+  it('布尔列按 false < true 排序（合成不支持后端验证；注册芯片 M11 起全部 supported）', () => {
+    expect(registeredRows.every((r) => r.supported)).toBe(true)
+    const rows = [...registeredRows, ...buildChipRows([mkChip({ chip: 'CH58X0000000', halBackend: 'other-hal' })])]
+    const asc = sortChipRows(rows, 'supported', 'asc')
     expect(asc[0].supported).toBe(false)
-    expect(asc[0].chip).toBe('CH582M')
+    expect(asc[0].chip).toBe('CH58X0000000')
     expect(asc[asc.length - 1].supported).toBe(true)
   })
 })
@@ -258,13 +263,12 @@ describe('filterChipRowsByColumn：逐列过滤', () => {
     expect(filterChipRowsByColumn(global, { package: 'qfn48' })).toEqual([])
   })
 
-  it('数值/布尔列也参与逐列过滤', () => {
+  it('数值/布尔列也参与逐列过滤（M11 起注册芯片均 supported=true）', () => {
     expect(filterChipRowsByColumn(registeredRows, { pinCount: '128' }).map((r) => r.chip)).toEqual([
       'CH32H417QEU6',
     ])
-    expect(filterChipRowsByColumn(registeredRows, { supported: 'false' }).map((r) => r.chip)).toEqual([
-      'CH582M',
-    ])
+    expect(filterChipRowsByColumn(registeredRows, { supported: 'false' })).toEqual([])
+    expect(filterChipRowsByColumn(registeredRows, { supported: 'true' })).toEqual(registeredRows)
   })
 
   it('不修改输入行数组', () => {

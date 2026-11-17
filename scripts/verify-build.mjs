@@ -15,9 +15,10 @@ function argOf(name, fallback) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback
 }
 
-const chips = argOf('--chip', 'CH32V003F4P6,CH32V203C8T6').split(',')
+const chips = argOf('--chip', 'CH32V003F4P6,CH32V203C8T6,CH582M').split(',')
 const embassy = process.argv.includes('--embassy')
 const halDir = process.env.CH32_HAL_DIR ?? path.resolve(root, '../reference/ch32-hal')
+const hal58xDir = process.env.CH58X_HAL_DIR ?? path.resolve(root, '../reference/ch58x-hal')
 
 // cargo 1.98 会直接读取 git 全局的 http.proxy（不走 GIT_CONFIG_GLOBAL 覆盖）；
 // 本机代理可能并未运行——代理挂了时用「临时 HOME + 空 .gitconfig + CARGO_HOME 指回原位」
@@ -35,6 +36,9 @@ const realHome = env.HOME ?? os.homedir()
     fs.writeFileSync(path.join(cleanHome, '.gitconfig'), '[http]\n\tproxy = ""\n')
     env.HOME = cleanHome
     env.CARGO_HOME = env.CARGO_HOME ?? path.join(realHome, '.cargo')
+    // rustup 默认 RUSTUP_HOME=$HOME/.rustup——不钉住会在隔离 HOME 里新建空白/残缺工具链家目录
+    // （M11 事故：自动更新中断留下半套 stable，cargo 随机 crate 编译失败）。与 CARGO_HOME 同理指回原位。
+    env.RUSTUP_HOME = env.RUSTUP_HOME ?? path.join(realHome, '.rustup')
     console.log(`[verify:build] 本机代理 ${proxy} 不可达 → 使用隔离 HOME（${cleanHome}）禁用 git 代理回退`)
   }
 }
@@ -50,6 +54,7 @@ function proxyAlive(proxyUrl) {
   }
 }
 if (fs.existsSync(halDir)) env.CH32_HAL_DIR = halDir
+if (fs.existsSync(hal58xDir)) env.CH58X_HAL_DIR = hal58xDir
 
 let failed = 0
 for (const chip of chips) {

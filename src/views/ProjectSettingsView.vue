@@ -10,22 +10,28 @@ import { computed, reactive } from 'vue'
 import { Expand, Fold, FolderOpened, Menu, Promotion } from '@element-plus/icons-vue'
 import type { ConflictPolicyMode, ConflictResolution, FileGroup } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
-import { HAL_GIT } from '@/model/codegen/halRev'
+import { HAL_GIT, CH58X_HAL_GIT, CH58X_HAL_REV } from '@/model/codegen/halRev'
 import { storagePreview, wizardIsDesktop } from '@/components/home/CreateProjectWizard.vue'
 import CollapsiblePanel from '@/components/common/CollapsiblePanel.vue'
 import PreflightPanel from '@/components/codegen/PreflightPanel.vue'
 import ExportPlanPreview from '@/components/codegen/ExportPlanPreview.vue'
 import ConflictRules from '@/components/codegen/ConflictRules.vue'
 import GenerationReport from '@/components/codegen/GenerationReport.vue'
-import { useGenerationFlow, GENERATION_ITEMS } from '@/components/codegen/useGenerationFlow'
+import { useGenerationFlow, generationItemsFor } from '@/components/codegen/useGenerationFlow'
 
 const store = useProjectStore()
 
 // ---- General（M9：名称与存储位置创建时设定，此处只读） ----
 const chip = computed(() => store.deviceData.chip)
-const toolchain = computed(() => (chip.value.nightly ? 'nightly + rust-src' : 'stable'))
-const halRevShort = computed(() => store.halRev.slice(0, 12))
-const halRevUrl = computed(() => `${HAL_GIT.replace(/\.git$/, '')}/commit/${store.halRev}`)
+const toolchain = computed(() => {
+  // M11：ch58x 工具链随运行时档（embassy 需 nightly：impl_trait_in_assoc_type），blocking 用 stable
+  if (isCh58x.value) return runtime.value === 'embassy' ? 'nightly' : 'stable'
+  return chip.value.nightly ? 'nightly + rust-src' : 'stable'
+})
+/** M11：HAL rev 显示后端感知——ch58x 工程生成物用 CH58X_HAL_REV（config.hal.rev 是 ch32 口径，不适用）。 */
+const effectiveHalRev = computed(() => (isCh58x.value ? CH58X_HAL_REV : store.halRev))
+const halRevShort = computed(() => effectiveHalRev.value.slice(0, 12))
+const halRevUrl = computed(() => `${(isCh58x.value ? CH58X_HAL_GIT : HAL_GIT).replace(/\.git$/, '')}/commit/${effectiveHalRev.value}`)
 const storage = computed(() => storagePreview(wizardIsDesktop(), store.projectName))
 
 // ---- Runtime（M6：运行时一等公民） ----
@@ -34,6 +40,8 @@ const storage = computed(() => storagePreview(wizardIsDesktop(), store.projectNa
 type RuntimeKind = 'blocking' | 'embassy' | 'rtic'
 const runtime = computed<RuntimeKind>(() => (store.features.embassy ? 'embassy' : 'blocking'))
 const embassySupported = computed(() => !(chip.value.unsupportedFeatures ?? []).includes('embassy'))
+/** M11：ch58x-hal 后端能力边界（数据驱动，仅该后端显示额外标注）。 */
+const isCh58x = computed(() => (chip.value.halBackend ?? 'ch32-hal') === 'ch58x-hal')
 
 function setRuntime(kind: RuntimeKind) {
   if (kind === 'rtic') return
@@ -70,7 +78,8 @@ const {
   finishReport,
 } = useGenerationFlow()
 
-const generationItems = GENERATION_ITEMS
+// 子项文案随芯片 HAL 后端变化（M11：vendor/<hal> 目录名）
+const generationItems = computed(() => generationItemsFor(chip.value.halBackend))
 
 // ---- Advanced ----
 const groupPolicies: { group: string; paths: string; policy: string }[] = [
@@ -239,14 +248,14 @@ function onGenerate() {
               <div class="ps-label">Rust toolchain</div>
               <div class="ps-value">
                 {{ toolchain }}
-                <span class="ps-note">{{ chip.nightly ? 'build-std=core（自定义 target）' : '稳定版 target' }}</span>
+                <span class="ps-note">{{ isCh58x ? (runtime === 'embassy' ? 'embassy 档需 nightly（impl_trait_in_assoc_type）' : '标准 rustup target') : (chip.nightly ? 'build-std=core（自定义 target）' : '稳定版 target') }}</span>
               </div>
             </div>
             <div class="ps-row">
               <div class="ps-label">HAL revision</div>
               <div class="ps-value">
                 <a class="ps-link" :href="halRevUrl" target="_blank" rel="noopener"><code>{{ halRevShort }}</code></a>
-                <span class="ps-note">{{ store.halRev }}</span>
+                <span class="ps-note">{{ effectiveHalRev }}</span>
               </div>
             </div>
             <div class="ps-row">
@@ -272,9 +281,21 @@ function onGenerate() {
                 <span class="ps-note">
                   {{
                     runtime === 'embassy'
-                      ? '生成 embassy 异步工程：main.rs 使用 #[embassy_executor::main]，外设按 async API 初始化'
-                      : '生成阻塞式工程：main.rs 使用 #[entry]，外设按 blocking API 初始化'
+                      ? isCh58x
+                        ? '生成 embassy 异步工程：GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 按阻塞 API 初始化'
+                        : '生成 embassy 异步工程：main.rs 使用 #[embassy_executor::main]，外设按 async API 初始化'
+                      : isCh58x
+                        ? '生成阻塞式工程：main.rs 使用 #[qingke_rt::entry]，外设按 blocking API 初始化'
+                        : '生成阻塞式工程：main.rs 使用 #[entry]，外设按 blocking API 初始化'
                   }}
+                </span>
+              </div>
+            </div>
+            <div v-if="isCh58x" class="ps-row">
+              <div class="ps-label"></div>
+              <div class="ps-value">
+                <span class="ps-note">
+                  ch58x-hal 后端：embassy 档提供 GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 仍为阻塞驱动（HAL 无异步外设实现）。BLE 协议栈本期不生成。
                 </span>
               </div>
             </div>
@@ -287,14 +308,20 @@ function onGenerate() {
             <div class="ps-row">
               <div class="ps-label">rtic</div>
               <div class="ps-value">
-                <span class="ps-note">ch32-hal 尚未提供 RTIC 支持，待 HAL 上游核实后再开放（不臆造生成路径）。</span>
+                <span class="ps-note">{{ isCh58x ? 'ch58x-hal' : 'ch32-hal' }} 尚未提供 RTIC 支持，待 HAL 上游核实后再开放（不臆造生成路径）。</span>
               </div>
             </div>
             <div class="ps-row">
               <div class="ps-label">调试打印</div>
               <div class="ps-value">
                 <el-switch :model-value="store.features.debugPrint" size="small" @change="setDebugPrint($event === true)" />
-                <span class="ps-note">main.rs 内生成 println!（经 ch32-hal 的调试串口输出）</span>
+                <span class="ps-note">
+                  {{
+                    isCh58x
+                      ? 'ch58x-hal 后端暂未提供调试打印：生成时按警告忽略，不阻塞生成'
+                      : 'main.rs 内生成 println!（经 ch32-hal 的调试串口输出）'
+                  }}
+                </span>
               </div>
             </div>
           </div>

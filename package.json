@@ -15,6 +15,7 @@
     "validate:device": "node scripts/validate-device-data.mjs",
     "verify:build": "node scripts/verify-build.mjs",
     "vendor:hal": "node scripts/build-hal-vendor.mjs",
+    "vendor:hal58x": "node scripts/build-hal58x-vendor.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build"
   },

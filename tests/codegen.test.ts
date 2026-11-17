@@ -401,18 +401,18 @@ describe('generateProject 双核（CH32H417QEU6）', () => {
 })
 
 describe('generateProject 后端守卫', () => {
-  it('halBackend 非 ch32-hal → 阻止导出（数据驱动，不按芯片名分支）', () => {
-    const ch58Data: DeviceData = {
+  it('未知 halBackend → 阻止导出（数据驱动，不按芯片名分支；M11 起 ch58x-hal 已接入）', () => {
+    const unknownData: DeviceData = {
       ...data,
-      chip: { ...data.chip, chip: 'CH582M', halBackend: 'ch58x-hal' },
+      chip: { ...data.chip, chip: 'FOO123', halBackend: 'foo-hal' },
     }
-    const r = generateProject(baseConfig({ chip: 'CH582M' }), ch58Data)
+    const r = generateProject(baseConfig({ chip: 'FOO123' }), unknownData)
     expect(r.files).toEqual([])
     expect(r.errors).toEqual([
       {
         code: 'TARGET_FEATURE_UNSUPPORTED',
         level: 'error',
-        message: '该芯片使用 ch58x-hal 后端，当前代码生成仅支持 ch32-hal',
+        message: '该芯片使用 foo-hal 后端，当前代码生成仅支持 ch32-hal / ch58x-hal',
       },
     ])
   })

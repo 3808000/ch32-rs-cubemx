@@ -15,6 +15,7 @@ import { renderCubeFile } from './cubefile'
 import { renderReadme } from './readme'
 import { renderHtmlReport } from './htmlReport'
 import { generateDualCoreProject } from './workspace'
+import { generateCh58xProject } from './ch58x'
 import { render } from './render'
 import { withFileGroups } from './fileGroup'
 import * as T from './templates'
@@ -38,16 +39,20 @@ export function generateProject(
 ): CodegenResult {
   const sel: CodegenSelection = { ...DEFAULT_SELECTION, ...(selection ?? {}) }
 
-  // 数据驱动后端守卫：仅支持 ch32-hal（如 CH58x 芯片会标其它 halBackend）
-  const backend = (data.chip as { halBackend?: string }).halBackend
-  if (backend && backend !== 'ch32-hal') {
+  // 数据驱动后端分流（M11）：ch32-hal（缺省）走下方原管线；ch58x-hal 走独立后端；
+  // 其它未知后端诚实阻止导出。
+  const backend = data.chip.halBackend ?? 'ch32-hal'
+  if (backend === 'ch58x-hal') {
+    return generateCh58xProject(config, data, sel)
+  }
+  if (backend !== 'ch32-hal') {
     return {
       files: [],
       errors: [
         {
           code: 'TARGET_FEATURE_UNSUPPORTED',
           level: 'error',
-          message: `该芯片使用 ${backend} 后端，当前代码生成仅支持 ch32-hal`,
+          message: `该芯片使用 ${backend} 后端，当前代码生成仅支持 ch32-hal / ch58x-hal`,
         },
       ],
     }

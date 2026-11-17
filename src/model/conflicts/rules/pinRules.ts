@@ -1,4 +1,4 @@
-// 引脚与信号级规则：引脚存在性 / 可配置性 / 特殊引脚锁定 / 重复配置 /
+// 引脚与信号级规则：引脚存在性 / 可配置性 / HAL 后端不支持 / 特殊引脚锁定 / 重复配置 /
 // 标签重名 / AF 信号重复与 remap 合法性 / ADC 通道重复。
 import { peripheralOfSignal, remapValuesFor } from '@/model/device'
 import type { ConflictContext } from './context'
@@ -19,6 +19,7 @@ export function runPinRules(ctx: ConflictContext): void {
 
   // ---- 引脚级基础规则 ----
   const seenPins = new Map<string, number>()
+  const reportedHalUnsupported = new Set<string>()
   for (const a of pins) {
     const chipPin = pinByName.get(a.pin)
     if (!chipPin) {
@@ -26,6 +27,17 @@ export function runPinRules(ctx: ConflictContext): void {
       continue
     }
     seenPins.set(a.pin, (seenPins.get(a.pin) ?? 0) + 1)
+    // HAL 后端未实现该引脚的驱动能力（数据层 halUnsupported）：只要有分配即拦截，未分配不报。
+    // 同一引脚重复分配只报一次（DUPLICATE_PIN 另行负责重复计数）。
+    if (chipPin.halUnsupported && !reportedHalUnsupported.has(a.pin)) {
+      reportedHalUnsupported.add(a.pin)
+      push({
+        code: 'HAL_PIN_UNSUPPORTED',
+        level: 'error',
+        message: `引脚 ${a.pin} 的 HAL 后端不支持：${chipPin.halUnsupported}`,
+        pins: [a.pin],
+      })
+    }
     if (chipPin.type !== 'IO') {
       push({ code: 'PIN_NOT_CONFIGURABLE', level: 'error', message: `${a.pin} 是 ${chipPin.type} 引脚，不可配置`, pins: [a.pin] })
     }

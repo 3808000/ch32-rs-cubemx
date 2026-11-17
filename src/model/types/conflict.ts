@@ -27,6 +27,7 @@ export type ConflictCode =
   | 'IRQ_PRIORITY_DUPLICATE'
   | 'IRQ_EMBASSY_NOT_ENABLED'
   | 'RESERVED_PIN_IN_USE'
+  | 'HAL_PIN_UNSUPPORTED'
 
 export interface Conflict {
   code: ConflictCode

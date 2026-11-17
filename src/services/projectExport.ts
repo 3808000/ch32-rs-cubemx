@@ -50,12 +50,33 @@ export const GENERATOR = { name: 'ch32-rs-CubeMX', version: '0.1.0' } as const
 export interface PreparedExport {
   /** 生成的工程文件（已按 includeMain 过滤 main.rs） */
   files: GeneratedFile[]
-  /** vendor/ch32-hal 内嵌源码（二进制条目） */
+  /** vendor/<halBackend> 内嵌源码（二进制条目；ch32-hal 或 ch58x-hal） */
   vendorEntries: { path: string; data: Uint8Array }[]
   /** 导出快照（用于 diff 预览） */
   snapshot: Record<string, string>
   /** 生成时使用的配置（manifest 的 configHash 来源） */
   config: ProjectConfig
+}
+
+/**
+ * 芯片 HAL 后端 → 浏览器内嵌 vendor zip 文件名（纯函数，供单测）。
+ * 缺省视为 ch32-hal（与 ChipData.halBackend 注释一致）；未知后端抛错（诚实失败）。
+ * 注意：prepareExport 内先调 generateProject，未知后端已被其守卫拦下，实际不会走到抛错分支。
+ */
+export function backendVendorZip(backend?: string): string {
+  switch (backend ?? 'ch32-hal') {
+    case 'ch32-hal':
+      return 'ch32-hal.zip'
+    case 'ch58x-hal':
+      return 'ch58x-hal.zip'
+    default:
+      throw new Error(`未知 HAL 后端：${backend}（仅支持 ch32-hal / ch58x-hal）`)
+  }
+}
+
+/** zip 对应的 vendor 生成脚本（npm run …），用于加载失败提示。 */
+function vendorScriptFor(zipName: string): string {
+  return zipName === 'ch58x-hal.zip' ? 'vendor:hal58x' : 'vendor:hal'
 }
 
 /** 生成工程内容并解包 vendor HAL 源码（ZIP 与目录导出共用）。 */
@@ -76,10 +97,16 @@ export async function prepareExport(
 
   const vendorEntries: { path: string; data: Uint8Array }[] = []
   if (selection.vendorHal) {
-    const resp = await fetch(`${import.meta.env.BASE_URL}vendor/ch32-hal.zip`)
-    if (!resp.ok) throw new Error(`HAL 源码包加载失败：${resp.status}（先运行 npm run vendor:hal）`)
+    // M11：按芯片 HAL 后端选 zip（ch32-hal / ch58x-hal），失败提示对应 npm script
+    const zipName = backendVendorZip(data.chip.halBackend)
+    const resp = await fetch(`${import.meta.env.BASE_URL}vendor/${zipName}`)
+    if (!resp.ok) {
+      throw new Error(
+        `HAL 源码包加载失败：${resp.status}（先运行 npm run ${vendorScriptFor(zipName)}）`,
+      )
+    }
     const halZip = await JSZip.loadAsync(await resp.arrayBuffer())
-    // zip 内路径已含 ch32-hal/ 前缀 → 统一写为 vendor/ch32-hal/...
+    // zip 内路径已含 ch32-hal/ 或 ch58x-hal/ 前缀 → 统一写为 vendor/<hal 目录>/...
     for (const e of Object.values(halZip.files).filter((x) => !x.dir)) {
       vendorEntries.push({ path: `vendor/${e.name}`, data: await e.async('uint8array') })
     }

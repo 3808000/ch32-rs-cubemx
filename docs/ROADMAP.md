@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-17）：M1–M10 十个里程碑核心项全部完成并推送。** 测试 380→986，26 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（V003/V203/H417 三芯片端到端 cargo 编译）/ 浏览器验收。剩余为低优先 P2 与需硬件目标的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-17）：M1–M11 十一个里程碑核心项全部完成并推送。** 测试 380→1077，33 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（M11 起 V003/V203/H417/CH582M 四芯片端到端 cargo 编译 + CH582M embassy 档）/ 浏览器验收。剩余为低优先 P2 与需硬件目标的项（见各里程碑「暂缓/待核实」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -199,6 +199,25 @@
 | 10.4 | **标签文档模型**（用户指示）：标签栏仅渲染已打开视图（初始仅 Home；侧边栏/菜单打开才追加）；全标签浏览器式 ×（active 常显/inactive hover）；样式按 MX2 修正（36px 连续标签/仅上圆角白签齐平/健康角标圆点替代 inline 徽标）；activeView 可 null + 占位 | `controllers/project.ts`、`TabStrip.vue`、`IconRail.vue`、`useHotkeys.ts`、`App.vue` | 单测 ≥10；浏览器两态+关闭/重开验收 | X2 |
 
 **M10 验收门禁**：920+ 测试；verify:build 三芯片；浏览器空态/布局/向导桌面分支（浏览器回归）；Tauri 构建；推送。
+
+---
+
+## M11（v0.12）CH58x 后端立项 —— 「第二 HAL 后端，数据驱动分流」 ✅ 已完成（2026-11-17）
+
+> **落地状态**：ch58x-hal 后端全链路接入。1077 测试全绿（986→1077：ch58xCodegen 72 / ch58xData 7 / halUnsupportedPin 6 / exportBackend 6 + chipPicker 更新）；verify:build 扩至 **4 芯片**（V003/V203/H417/CH582M）+ CH582M embassy 档，stable 1.100.0 / nightly 1.102.0 真实 cargo 编译通过；浏览器验收（CH582M 向导秒建→11 引脚 GPIO/UART0/SPI0 含 NSS/I2C/ADC→20MHz 新预设→blocking/embassy 双档页内生成+ZIP 78 文件含 vendor/ch58x-hal→设置页后端感知）。4 份调研子智能体 + 3 份实现子智能体（A codegen / B 数据+verify / C 导出+UI），主控契约预建+集成+两个真实编译阻塞攻坚。
+> **契约**：[CH58X_BACKEND_CONTRACT.md](CH58X_BACKEND_CONTRACT.md)（HAL @611954e 逐字核实 + D1–D16 决策）；API 真相源记录 [HAL_API_NOTES §13](HAL_API_NOTES.md)。
+> **两个真实编译阻塞（集成期攻坚，非臆造）**：①qingke 0.5.0 对原子 target 强制 compile_error——上游 qingke#9/ch32-hal#59 确认 WCH QingKe LR/SC 缺陷，**编译 target 改 riscv32imc**（critical-section 回退=上游认可修复；拒绝 unsafe-trust-wch-atomics；-C target-feature=-a 实测无效）；②blocking 档链接缺 `__pender`（HAL 非可选依赖 embassy-time-queue-utils 默认 integrated queue 引用 executor 符号）→ **generic-queue-8 feature 统一**。上游该 commit 在标准 imac 上当前不可编译，本工具不改 HAL 源码、以工程配置绕过。
+> **工具链事故（诚实记录）**：rustup 1.29.3 自动更新致 stable 损坏→修复 1.100.0；verify 脚本隔离 HOME 未钉 RUSTUP_HOME 致残缺工具链家目录随机编译失败→脚本已修（RUSTUP_HOME 与 CARGO_HOME 同理钉回原位）。
+
+| # | 任务 | 改动落点 | 验收 | 并行域 |
+|---|---|---|---|---|
+| 11.1 | ch58x 独立 codegen 管线：halBackend 分流；blocking/embassy 双档骨架（edition 2021/qingke-rt 0.5 直依赖/-Tlink.x/无 build.rs/memory.x）；GPIO（OutputDrive 约定映射）/UART0-3/SPI0（软件 CS/txonly/rxonly）/I2C/ADC（裸通道引脚）；时钟 6 预设+显式 PLL(div)；tasks 仅构建+wchisp（无 launch.json，CH58x 不在开源调试矩阵）；README 诚实能力边界 | `model/codegen/ch58x/**`（14 模板）、`tests/ch58xCodegen.test.ts`(72) | 生成物↔HAL 行号对照；cargo build 双档 | A |
+| 11.2 | 数据修正+通用规则+vendor+verify：clock 补 20MHz/div 2..31；PB17 halUnsupported→HAL_PIN_UNSUPPORTED 通用规则；build-hal58x-vendor.mjs→public/vendor/ch58x-hal.zip（0.92MB，**入 git 与 ch32-hal.zip 同等待遇**）；verify 脚本 ch58x 分支+默认 4 芯片+RUSTUP_HOME 修复；entry 补 SPI/I2C 覆盖 | `data/devices/ch582m/*`、`conflicts/rules/pinRules.ts`、`scripts/*`、tests(13) | validate 4 芯片 0/0；zip 产出 | B |
+| 11.3 | 导出分流+选择器+UI 标注：backendVendorZip 纯函数按后端选 zip；ChipPicker SUPPORTED_HAL_BACKENDS（CH582M 可生成）；设置页 Runtime/rev/工具链/entry 文案后端感知（主控补 rev 显示修复）；generationItemsFor 后端感知 | `services/projectExport.ts`、`ChipPicker.vue`、`ProjectSettingsView.vue`、`useGenerationFlow.ts`、tests(6+更新) | 浏览器双档生成+导出 | C |
+
+**M11 验收门禁**：1077 测试；tsc/eslint/validate/build；verify:build 4 芯片 + CH582M embassy（显式工具链名，离线）；浏览器全链路；ch32 生成物快照不变；推送。
+
+**暂缓/待核实**：CH58x BLE 协议栈生成（需 ble feature + LSE + 厂商库，独立里程碑）；CH58x 调试（MRS gdbserver 调研）；Timer/PWM/DMA（HAL 无驱动，待上游）；Vbat/温度内部通道（HAL enable_vbat 空操作不可信）；引脚参数 UI 后端感知（speed 标签仍 ch32 口径，生成映射已文档化）。
 
 ---
 

@@ -4,8 +4,11 @@
 // 随组件导出，供 tests/chipPicker.test.ts 直接验证；数据全部来自已注册芯片的 chip.json，不引入任何外部数据。
 import type { ChipData } from '@/model/types'
 
-/** 生成器当前支持的 HAL 后端；其余后端（如 ch58x-hal）尚未接入，诚实标注但不禁止选择。 */
-export const SUPPORTED_HAL_BACKEND = 'ch32-hal'
+/** 生成器当前支持的 HAL 后端（M11 起 ch58x-hal 已接入）；其余后端诚实标注但不禁止选择。 */
+export const SUPPORTED_HAL_BACKENDS: readonly string[] = ['ch32-hal', 'ch58x-hal']
+
+/** halBackend 缺省时的后端（与 ChipData 注释一致）。 */
+const DEFAULT_HAL_BACKEND = 'ch32-hal'
 
 /** 对比表一行：字段全部派生自 ChipData，不做任何臆造。 */
 export interface ChipRow {
@@ -60,7 +63,7 @@ export type ChipSortDir = 'asc' | 'desc' | null
 
 /** 生成支持判定：halBackend 缺省视为 ch32-hal（与 ChipData 注释一致）。 */
 export function chipGenerationSupported(chip: ChipData): boolean {
-  return (chip.halBackend ?? SUPPORTED_HAL_BACKEND) === SUPPORTED_HAL_BACKEND
+  return SUPPORTED_HAL_BACKENDS.includes(chip.halBackend ?? DEFAULT_HAL_BACKEND)
 }
 
 /** 构建对比行，并按芯片名做确定性排序（码点序，与输入顺序无关）。 */
@@ -75,7 +78,7 @@ export function buildChipRows(devices: readonly ChipData[]): ChipRow[] {
       core: d.core,
       target: d.target,
       toolchain: d.nightly ? ('nightly' as const) : ('stable' as const),
-      halBackend: d.halBackend ?? SUPPORTED_HAL_BACKEND,
+      halBackend: d.halBackend ?? DEFAULT_HAL_BACKEND,
       supported: chipGenerationSupported(d),
     }))
     .sort((a, b) => (a.chip < b.chip ? -1 : a.chip > b.chip ? 1 : 0))
@@ -603,7 +606,7 @@ defineExpose({ focusSearch })
         </template>
         <template #default="{ row }">
           <el-tag v-if="row.supported" size="small" type="success">可生成</el-tag>
-          <el-tooltip v-else content="该芯片的 HAL 后端尚未接入代码生成，仍可配置引脚与时钟" placement="top">
+          <el-tooltip v-else :content="`${row.halBackend} 后端尚未接入代码生成，仍可配置引脚与时钟`" placement="top">
             <el-tag size="small" type="warning">生成器暂不支持</el-tag>
           </el-tooltip>
         </template>
