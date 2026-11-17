@@ -1,6 +1,7 @@
 // 项目状态（Pinia）。配置模型见 types.ts；所有芯片差异来自数据层。
 import { defineStore } from 'pinia'
 import type {
+  BleConfig,
   ClockConfig,
   Conflict,
   ConflictPolicy,
@@ -13,6 +14,7 @@ import type {
   PinParams,
   ProjectConfig,
 } from '@/model/types'
+import { DEFAULT_BLE_CONFIG } from '@/model/types/project'
 import { getDeviceData } from '@/model/device'
 import { mergeClockConfig } from '@/model/clock'
 import { checkConflicts } from '@/model/conflicts'
@@ -32,7 +34,9 @@ interface ProjectState {
   interrupts: InterruptConfig[] // M3 NVIC/PFIC
   dma: DmaConfig[] // M3 DMA 通道分配
   conflictPolicy: ConflictPolicy // M8 类别级冲突策略（缺省 safe 安全网）
-  features: { embassy: boolean; debugPrint: boolean }
+  features: { embassy: boolean; debugPrint: boolean; ble: boolean } // M12：ble 开关与 embassy 互锁
+  /** BLE 协议栈配置（M12）：数据驱动保存，任意芯片均保留；仅 ch58x 后端生成。 */
+  ble: BleConfig
   halRev: string
   selectedPin: string | null
   unlocked: string[] // 显式解锁的特殊引脚（NRST/SWD/OSC）
@@ -65,7 +69,8 @@ export const useProjectStore = defineStore('project', {
     interrupts: [],
     dma: [],
     conflictPolicy: { mode: 'safe' },
-    features: { embassy: false, debugPrint: true },
+    features: { embassy: false, debugPrint: true, ble: false },
+    ble: { ...DEFAULT_BLE_CONFIG },
     halRev: HAL_REV,
     selectedPin: null,
     unlocked: [],
@@ -98,7 +103,11 @@ export const useProjectStore = defineStore('project', {
         dma: this.dma,
         // safe 为缺省语义：不写入 cube.json，保持旧工程产物逐字节不变
         ...(this.conflictPolicy.mode !== 'safe' ? { conflictPolicy: this.conflictPolicy } : {}),
-        features: this.features,
+        // BLE（M12）：未启用时不写 features.ble/ble，保持无 BLE 工程产物逐字节不变
+        features: this.features.ble
+          ? { embassy: this.features.embassy, debugPrint: this.features.debugPrint, ble: true }
+          : { embassy: this.features.embassy, debugPrint: this.features.debugPrint },
+        ...(this.features.ble ? { ble: this.ble } : {}),
         hal: { rev: this.halRev },
         unlockedPins: [...this.unlocked],
       }
@@ -293,8 +302,17 @@ export const useProjectStore = defineStore('project', {
       this.markDirty()
     },
 
-    setFeatures(f: Partial<{ embassy: boolean; debugPrint: boolean }>) {
-      this.features = { ...this.features, ...f }
+    /** 合并 BLE 配置（M12）：partial 覆盖 + dirty（字段合法性由 UI/冲突规则守卫）。 */
+    setBle(partial: Partial<BleConfig>) {
+      this.ble = { ...this.ble, ...partial }
+      this.markDirty()
+    },
+
+    setFeatures(f: Partial<{ embassy: boolean; debugPrint: boolean; ble: boolean }>) {
+      const next = { ...this.features, ...f }
+      // D2 运行时互锁：BLE 协议栈使用 embassy_sync/异步执行器，开启 BLE 必须 embassy 运行时
+      if (next.ble) next.embassy = true
+      this.features = next
       this.markDirty()
     },
 
@@ -340,7 +358,9 @@ export const useProjectStore = defineStore('project', {
       this.interrupts = Array.isArray(cfg.interrupts) ? cfg.interrupts : []
       this.dma = Array.isArray(cfg.dma) ? cfg.dma : []
       this.conflictPolicy = cfg.conflictPolicy ?? { mode: 'safe' }
-      this.features = { embassy: false, debugPrint: true, ...(cfg.features ?? {}) }
+      this.features = { embassy: false, debugPrint: true, ble: false, ...(cfg.features ?? {}) }
+      // BLE 配置：缺省/旧工程回退 DEFAULT_BLE_CONFIG；导入允许保持不一致（embassy 关闭）由规则报错兜底
+      this.ble = cfg.ble ? { ...DEFAULT_BLE_CONFIG, ...cfg.ble } : { ...DEFAULT_BLE_CONFIG }
       this.halRev = cfg.hal?.rev ?? HAL_REV
       // 旧工程缺 unlockedPins 时置空；运行时数据可能被手改，过滤掉非字符串
       this.unlocked = Array.isArray(cfg.unlockedPins)
@@ -363,6 +383,9 @@ export const useProjectStore = defineStore('project', {
       this.dma = []
       this.conflictPolicy = { mode: 'safe' }
       this.clock = null
+      // BLE 与芯片后端耦合：换芯片回到缺省配置并关闭开关
+      this.ble = { ...DEFAULT_BLE_CONFIG }
+      this.features = { ...this.features, ble: false }
       this.unlocked = []
       this.selectedPin = null
       this.activePeripheralId = null

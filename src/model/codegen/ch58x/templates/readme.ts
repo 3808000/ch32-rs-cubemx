@@ -5,7 +5,11 @@ export const README_TPL = `# <%- projectName %>
 
 > **上游警示（ch58x-hal README 原话）**：该 HAL “is under random and active development. **DO NOT USE in production.**” 本工程用于评估与原型；量产请自行评估风险。
 >
+<% if (!ble) { -%>
 > 本期**不生成 BLE 代码**（不启用 \`ble\` feature，也不链接 \`LIBCH58xBLE.a\`）。
+<% } else { -%>
+> 本工程**启用 BLE 协议栈**（Cargo features \`["embassy", "ble"]\`，链接 \`LIBCH58xBLE.a\`）；能力边界见下方「BLE 协议栈」节。
+<% } -%>
 
 ## 工程概览
 
@@ -17,6 +21,9 @@ export const README_TPL = `# <%- projectName %>
 | 工具链 | <%- embassy ? 'nightly（impl_trait_in_assoc_type）' : 'stable' %> |
 | 目标 triple | <%- target %> |
 | 时钟 | <%- clockSummary %> |
+<% if (ble) { -%>
+| BLE | 启用（\`features = ["embassy", "ble"]\`，LSE 32.768kHz 强制） |
+<% } -%>
 | HAL 源码 | <%- vendorHal ? 'vendor/ch58x-hal（path 依赖，可跳转阅读）' : 'git + 锁定 rev' %> |
 
 ## 文件清单
@@ -48,13 +55,22 @@ CH582 硬件是 RV32IMAC，但本工程刻意用 **riscv32imc** 编译：WCH Qin
 embassy 档需要 nightly 工具链（\`rust-toolchain.toml\` 已指定）；首次构建会自动下载 \`<%- target %>\` target。已生成 \`embassy-executor\` 0.7 / \`embassy-time\` 0.4 依赖，并在 \`main.rs\` 的 \`hal::init\` 之后调用 \`hal::embassy::init()\`。
 <% } -%>
 
-## 烧录（wchisp，CH58x USB ISP）
+## 调试与烧录（MRS OpenOCD / wchisp）
+
+CH58x 不在 WCH-Link / wlink / ch32rv（ch32-hal 生态开源工具）支持范围内。调试/烧录使用 **MounRiver Studio 随附的 WCH fork OpenOCD**（\`openocd-wch\`，支持 wlinke + sdi）：勾选 VSCode 配置时生成 \`launch.json\`（cppdbg attach localhost:3333，\`riscv-none-elf-gdb\`）与任务 \`构建\` / \`gdbserver (MRS OpenOCD)\` / \`烧录 (MRS OpenOCD)\`，\`wchisp\` 任务保留为备用烧录路径（USB ISP）。
+
+一次性环境准备：
+
+\`\`\`bash
+ln -s ~/mrs-openocd/bin/openocd ~/.local/bin/openocd-wch
+export MRS_OPENOCD_CFG=~/mrs-openocd/bin/wch-riscv.cfg
+\`\`\`
+
+**两线调试前提**：芯片的 CFG_DEBUG_EN（两线调试）必须已开启（Windows WCHISPTool，或 BOOT 模式下 wchisp 配置）；否则 attach 报 \`WCH-Link failed to connect with riscv chip\`。代码生成与编译不依赖该开关。
 
 \`\`\`bash
 wchisp flash target/<%- target %>/release/<%- packageName %>
 \`\`\`
-
-CH58x 不在 WCH-Link / wlink / ch32rv（ch32-hal 生态开源工具）支持范围内：**本工程不生成 \`launch.json\`、也不生成 gdbserver/调试任务**。需要调试时请使用 WCH MRS（MounRiver Studio）；VSCode 配置只包含构建（\`cargo build --release\`）与 \`wchisp\` 烧录两个任务。
 
 ## 时钟
 
@@ -64,7 +80,28 @@ ch58x-hal 只提供 PLL 时钟源（固定 **480MHz VCO ÷ div**，div 合法 2.
 - 非预设 PLL 分频生成 \`config.clock.mux = hal::sysctl::ClockSrc::PLL(div);\`；
 - HSE/CK32K 源本期**不生成**（HSE 直连 32MHz 需要 div=1，HAL 明确 assert 拒绝；CK32K 未建模），会在生成期报 \`CLOCK_PRESET_UNAVAILABLE\`。
 
-\`enable_lse()\` 本期不生成（无 LSE UI 建模），32K 低频域默认 **LSI**。
+\`enable_lse()\` <%- ble ? '已追加（BLE 强制 LSE 32.768kHz）' : '本期不生成（无 LSE UI 建模），32K 低频域默认 **LSI**' %>。
+<% if (ble) { -%>
+
+## BLE 协议栈（ch58x-hal + WCH BLE 库）
+
+本工程生成 \`src/generated/ble.rs\`（\`config()\` + \`run(spawner)\`），\`src/main.rs\` 末尾调用 \`generated::ble::run(&spawner).await\`。
+
+初始化顺序：\`hal::init\` → \`hal::embassy::init\` → \`ble::init\` → \`GAPRole::*_init\` → \`GGS_AddService\` + \`GATTServApp::add_service\` → （peripheral）\`register_service\` → \`*StartDevice\`。TMOS 泵是独立 \`#[highcode]\` 任务，每 **300µs** 调一次 \`TMOS_SystemProcess()\`（不可省）。
+
+生成模板的硬约束：**TmosEvent 单订阅者**（多消费者/Clone 会 double free）；**不使用 \`core::sync::atomic\`**（imc target 无原子，跨任务状态走 \`embassy_sync::Channel\`）；notify 的 \`pValue\` 必须 \`GATT_bm_alloc\`。
+
+### BLE 诚实边界（D12）
+
+- **MTU 固定 23**（\`BufMaxLen=27\`，src/ble/mod.rs:171-183）：单包有效负载 20 字节，长特征值需自行分片。
+- **TX 功率固定 6dBm**（\`LL_TX_POWEER_6_DBM\`，src/ble/mod.rs:174）。
+- **无 SNV**：绑定信息不落 flash，复位后需重新配对（src/ble/mod.rs:188）。
+- **central 角色不开放**：上游 HAL 无 central 示例，本生成器只提供 peripheral / broadcaster / observer。
+- **配对参数为缺省值**：\`WAIT_FOR_REQ\` + bonding=true + MITM=false + \`IO_CAP_DISPLAY_ONLY\`、passkey 000000（对齐上游 ble-blinky 的 \`common_init\`）；复杂配对/GATT 表请写入用户区。
+- **RTC 被 BLE 占用**：BLE 使用 LSE 与 RTC 时基，工程不生成 RTC 配置。
+- **旧工程启用 BLE**：\`src/main.rs\` 是用户区、生成器永不覆盖；需手动在末尾加一行 \`generated::ble::run(&spawner).await;\`（并确保 \`features.embassy = true\`），或重新生成工程。
+- **两线调试前提**：用 MRS OpenOCD \`cppdbg\` attach 调试 BLE 前，芯片的 CFG_DEBUG_EN（两线调试）必须已开启（Windows WCHISPTool，或 BOOT 模式下 wchisp 配置）；否则报 \`WCH-Link failed to connect with riscv chip\`。**代码生成与编译不依赖该开关**。
+<% } -%>
 
 ## embassy 档的异步能力边界
 
@@ -78,7 +115,7 @@ blocking 档使用 stable 工具链；GPIO/UART/SPI/I2C/ADC 均为阻塞 API（c
 
 ## 本期未生成 / HAL 能力边界（诚实标注）
 
-- **BLE**：未生成，未启用 \`ble\` feature，未链接 \`LIBCH58xBLE.a\`。
+- **BLE**：<% if (ble) { %>已生成（\`src/generated/ble.rs\`，\`features = ["embassy", "ble"]\`，链接 \`LIBCH58xBLE.a\`）；能力边界见上方「BLE 协议栈」节<% } else { %>未生成，未启用 \`ble\` feature，未链接 \`LIBCH58xBLE.a\`<% } %>。
 - **async UART/SPI/I2C/ADC**：不存在（HAL 无 embedded-hal-async 实现）。
 - **DMA**：HAL 只有 \`dma::NoDma\` 占位类型，无 DMA 驱动；工程中的 DMA 配置被忽略。
 - **定时器 / PWM 驱动**：\`timer.rs\` 仅是类型占位，无驱动 API。

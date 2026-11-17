@@ -8,9 +8,10 @@
 // 与冲突决议选项。
 import { computed, reactive } from 'vue'
 import { Expand, Fold, FolderOpened, Menu, Promotion } from '@element-plus/icons-vue'
-import type { ConflictPolicyMode, ConflictResolution, FileGroup } from '@/model/types'
+import type { BleConfig, ConflictPolicyMode, ConflictResolution, FileGroup } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
 import { HAL_GIT, CH58X_HAL_GIT, CH58X_HAL_REV } from '@/model/codegen/halRev'
+import { BLE_NAME_BUDGET } from '@/model/conflicts/rules/bleRules'
 import { storagePreview, wizardIsDesktop } from '@/components/home/CreateProjectWizard.vue'
 import CollapsiblePanel from '@/components/common/CollapsiblePanel.vue'
 import PreflightPanel from '@/components/codegen/PreflightPanel.vue'
@@ -43,15 +44,106 @@ const embassySupported = computed(() => !(chip.value.unsupportedFeatures ?? []).
 /** M11：ch58x-hal 后端能力边界（数据驱动，仅该后端显示额外标注）。 */
 const isCh58x = computed(() => (chip.value.halBackend ?? 'ch32-hal') === 'ch58x-hal')
 
+// ---- BLE（M12，仅 ch58x-hal 后端显示；数据驱动写 store.ble） ----
+const BLE_GAP_NAME_MAX = 248
+const bleEnabled = computed(() => store.features.ble)
+const bleNameBytes = computed(() => new TextEncoder().encode(store.ble.deviceName ?? '').length)
+const bleNameBudget = computed(() => BLE_NAME_BUDGET[store.ble.role])
+const bleNameTooLong = computed(
+  () => bleNameBytes.value > bleNameBudget.value || bleNameBytes.value > BLE_GAP_NAME_MAX,
+)
+
 function setRuntime(kind: RuntimeKind) {
   if (kind === 'rtic') return
   if (kind === 'embassy' && !embassySupported.value) return
+  // BLE 互锁（M12）：BLE 协议栈依赖 embassy 执行器，BLE 开启时不允许切回 blocking
+  if (kind === 'blocking' && bleEnabled.value) {
+    store.notify('BLE 已启用：协议栈需 embassy 运行时，无法切换到 blocking', 'warning')
+    return
+  }
   store.setFeatures({ embassy: kind === 'embassy' })
   store.notify(kind === 'embassy' ? '运行时已切换为 embassy（async）' : '运行时已切换为 blocking（阻塞）', 'info')
 }
 
 function setDebugPrint(v: boolean) {
   store.setFeatures({ debugPrint: v })
+}
+
+// ---- BLE（M12，仅 ch58x-hal 后端显示；数据驱动写 store.ble） ----
+const bleRoleOptions: { value: BleConfig['role']; label: string; desc: string }[] = [
+  { value: 'peripheral', label: 'peripheral', desc: '可连接从机：广播 + 简单 GATT 服务（read/notify + write）' },
+  { value: 'broadcaster', label: 'broadcaster', desc: '只广播不连接：adv 短名 + 厂商数据 + 扫描响应完整名' },
+  { value: 'observer', label: 'observer', desc: '只扫描不连接：打印对端地址/RSSI 并周期重扫' },
+]
+
+const bleMacSourceOptions: { value: BleConfig['macSource']; label: string; desc: string }[] = [
+  { value: 'factory', label: '出厂 MAC（推荐）', desc: 'use_factory_mac_address()，读取 ISP ROM 中的唯一地址' },
+  { value: 'default', label: 'HAL 固定值', desc: '11:22:33:44:55:66（Config::default，仅调试用，多设备会撞址）' },
+  { value: 'custom', label: '自定义', desc: '按人读序生成 MacAddress::from_msb' },
+]
+
+const bleRoleDesc = computed(() => bleRoleOptions.find((o) => o.value === store.ble.role)?.desc ?? '')
+const bleMacSourceDesc = computed(
+  () => bleMacSourceOptions.find((o) => o.value === store.ble.macSource)?.desc ?? '',
+)
+
+function setBleEnabled(v: boolean) {
+  // 开启自动打开 embassy（setFeatures 内互锁兜底）
+  store.setFeatures({ ble: v, ...(v ? { embassy: true } : {}) })
+  store.notify(
+    v
+      ? 'BLE 已启用：运行时已切换为 embassy（需 LSE 32.768kHz 晶振；PA10/PA11 不可再用）'
+      : 'BLE 已停用（embassy 运行时保持不变）',
+    v ? 'warning' : 'info',
+  )
+}
+
+function setBleRole(role: BleConfig['role']) {
+  store.setBle({ role })
+}
+
+function setBleName(name: string) {
+  store.setBle({ deviceName: name })
+}
+
+function setAdvInterval(v: number | undefined) {
+  if (typeof v === 'number' && Number.isFinite(v)) store.setBle({ advIntervalMs: v })
+}
+
+function setScanMs(v: number | undefined) {
+  if (typeof v === 'number' && Number.isFinite(v)) store.setBle({ scanMs: v })
+}
+
+function setMacSource(source: BleConfig['macSource']) {
+  store.setBle({ macSource: source })
+}
+
+function setCustomMac(mac: string) {
+  store.setBle({ mac: mac })
+}
+
+function setActiveScan(v: boolean) {
+  store.setBle({ activeScan: v })
+}
+
+/** UUID16 输入显示为 0xFFE0 风格；解析接受带/不带 0x 前缀的十六进制。 */
+function fmtUuid(n: number): string {
+  return `0x${(n & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`
+}
+
+function setUuid(field: 'serviceUuid16' | 'notifyUuid16' | 'writeUuid16', text: string) {
+  const n = Number.parseInt(String(text).trim().replace(/^0x/i, ''), 16)
+  if (!Number.isInteger(n) || n < 0 || n > 0xffff) {
+    store.notify(`UUID16 非法：${text}（需 0x0000–0xFFFF）`, 'warning')
+    return
+  }
+  const patch: Partial<BleConfig> =
+    field === 'serviceUuid16'
+      ? { serviceUuid16: n }
+      : field === 'notifyUuid16'
+        ? { notifyUuid16: n }
+        : { writeUuid16: n }
+  store.setBle(patch)
 }
 
 // ---- Generation（M7：一切生成决议在页内，对齐 CubeMX2，无二次弹窗） ----
@@ -155,11 +247,12 @@ function setPolicyGroupRule(group: FileGroup, value: ConflictResolution) {
 }
 
 // ---- 章节展开 / 导航 ----
-const open = reactive({ general: true, runtime: true, generation: true, preview: true, result: true, advanced: true })
+const open = reactive({ general: true, runtime: true, ble: true, generation: true, preview: true, result: true, advanced: true })
 
 function expandAll() {
   open.general = true
   open.runtime = true
+  open.ble = true
   open.generation = true
   open.preview = true
   open.result = true
@@ -169,6 +262,7 @@ function expandAll() {
 function collapseAll() {
   open.general = false
   open.runtime = false
+  open.ble = false
   open.generation = false
   open.preview = false
   open.result = false
@@ -200,6 +294,7 @@ function onGenerate() {
             <el-dropdown-menu>
               <el-dropdown-item command="general">General</el-dropdown-item>
               <el-dropdown-item command="runtime">Runtime</el-dropdown-item>
+              <el-dropdown-item v-if="isCh58x" command="ble">BLE</el-dropdown-item>
               <el-dropdown-item command="generation">Code Generation</el-dropdown-item>
               <el-dropdown-item v-if="pendingFolder" command="preview">导出预览</el-dropdown-item>
               <el-dropdown-item v-if="report" command="result">生成结果</el-dropdown-item>
@@ -274,7 +369,7 @@ function onGenerate() {
               <div class="ps-label">运行时</div>
               <div class="ps-value ps-runtime-value">
                 <el-radio-group :model-value="runtime" size="small" @change="setRuntime($event as RuntimeKind)">
-                  <el-radio-button value="blocking">blocking（阻塞）</el-radio-button>
+                  <el-radio-button value="blocking" :disabled="bleEnabled">blocking（阻塞）</el-radio-button>
                   <el-radio-button value="embassy" :disabled="!embassySupported">embassy（async）</el-radio-button>
                   <el-radio-button value="rtic" disabled>rtic</el-radio-button>
                 </el-radio-group>
@@ -295,7 +390,15 @@ function onGenerate() {
               <div class="ps-label"></div>
               <div class="ps-value">
                 <span class="ps-note">
-                  ch58x-hal 后端：embassy 档提供 GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 仍为阻塞驱动（HAL 无异步外设实现）。BLE 协议栈本期不生成。
+                  ch58x-hal 后端：embassy 档提供 GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 仍为阻塞驱动（HAL 无异步外设实现）。BLE 协议栈见下方 BLE 节。
+                </span>
+              </div>
+            </div>
+            <div v-if="bleEnabled" class="ps-row">
+              <div class="ps-label"></div>
+              <div class="ps-value">
+                <span class="ps-note ps-runtime-warn">
+                  BLE 已启用：协议栈需要 embassy 运行时（embassy_sync + 异步执行器）与 LSE 32.768kHz 晶振，blocking 已禁用。
                 </span>
               </div>
             </div>
@@ -322,6 +425,134 @@ function onGenerate() {
                       : 'main.rs 内生成 println!（经 ch32-hal 的调试串口输出）'
                   }}
                 </span>
+              </div>
+            </div>
+          </div>
+        </CollapsiblePanel>
+      </div>
+
+      <!-- BLE（M12，仅 ch58x-hal 后端；契约 D2/D3/D5/D7/D11） -->
+      <div v-if="isCh58x" id="ps-ble" class="ps-section">
+        <CollapsiblePanel v-model:open="open.ble" title="BLE">
+          <div class="ps-rows">
+            <div class="ps-row">
+              <div class="ps-label">启用 BLE</div>
+              <div class="ps-value">
+                <el-switch :model-value="bleEnabled" size="small" @change="setBleEnabled($event === true)" />
+                <span class="ps-note">开启自动切换 embassy；生成 src/generated/ble.rs 与启动代码</span>
+              </div>
+            </div>
+          </div>
+          <p class="ps-note ps-ble-note">
+            LSE 32.768kHz 晶振由 BLE 强制使用（HAL SelRTCClock 硬编码，LSI 不可用）：PA10/PA11（X32KI/X32KO）被协议栈占用，不可再分配。
+            固定 ATT MTU 23、TX 6dBm、无绑定存储（SNV）；配对策略与复杂 GATT 表留在用户区。详见 README「CH58x BLE」与契约文档。
+          </p>
+          <div class="ps-rows">
+            <div class="ps-row">
+              <div class="ps-label">GAP 角色</div>
+              <div class="ps-value ps-ble-value">
+                <el-radio-group :model-value="store.ble.role" size="small" @change="setBleRole($event as BleConfig['role'])">
+                  <el-radio-button v-for="opt in bleRoleOptions" :key="opt.value" :value="opt.value">
+                    {{ opt.label }}
+                  </el-radio-button>
+                </el-radio-group>
+                <span class="ps-note">{{ bleRoleDesc }}；central 上游无示例，本期不开放</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">设备名</div>
+              <div class="ps-value ps-ble-value">
+                <el-input
+                  :model-value="store.ble.deviceName"
+                  size="small"
+                  style="width: 240px"
+                  placeholder="CH582M"
+                  @input="setBleName($event)"
+                />
+                <span class="ps-note" :class="{ 'ps-runtime-warn': bleNameTooLong }">
+                  UTF-8 {{ bleNameBytes }} 字节（{{ store.ble.role }} 广播/扫描响应名称上限 {{ bleNameBudget }} 字节 · GAP 上限 {{ BLE_GAP_NAME_MAX }}；广播短名截断 8 字节）
+                </span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">广播间隔</div>
+              <div class="ps-value">
+                <el-input-number
+                  :model-value="store.ble.advIntervalMs"
+                  size="small"
+                  :min="20"
+                  :max="10240"
+                  :step="10"
+                  @change="setAdvInterval($event)"
+                />
+                <span class="ps-note">ms；生成换算 0.625ms 单位（TGAP_DISC_ADV_INT_MIN/MAX，范围 20–10240）</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">MAC 来源</div>
+              <div class="ps-value ps-ble-value">
+                <el-select
+                  :model-value="store.ble.macSource"
+                  size="small"
+                  style="width: 190px"
+                  @change="setMacSource($event as BleConfig['macSource'])"
+                >
+                  <el-option v-for="opt in bleMacSourceOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </el-select>
+                <span class="ps-note">{{ bleMacSourceDesc }}</span>
+                <template v-if="store.ble.macSource === 'custom'">
+                  <el-input
+                    :model-value="store.ble.mac ?? ''"
+                    size="small"
+                    style="width: 200px"
+                    placeholder="AA:BB:CC:DD:EE:FF"
+                    @change="setCustomMac($event)"
+                  />
+                  <span class="ps-note">6 段十六进制（人读序，生成 MacAddress::from_msb）</span>
+                </template>
+              </div>
+            </div>
+            <div v-if="store.ble.role === 'peripheral'" class="ps-row">
+              <div class="ps-label">GATT UUID16</div>
+              <div class="ps-value ps-ble-value">
+                <span class="ps-note">服务</span>
+                <el-input
+                  :model-value="fmtUuid(store.ble.serviceUuid16)"
+                  size="small"
+                  style="width: 96px"
+                  @change="setUuid('serviceUuid16', $event)"
+                />
+                <span class="ps-note">notify</span>
+                <el-input
+                  :model-value="fmtUuid(store.ble.notifyUuid16)"
+                  size="small"
+                  style="width: 96px"
+                  @change="setUuid('notifyUuid16', $event)"
+                />
+                <span class="ps-note">write</span>
+                <el-input
+                  :model-value="fmtUuid(store.ble.writeUuid16)"
+                  size="small"
+                  style="width: 96px"
+                  @change="setUuid('writeUuid16', $event)"
+                />
+              </div>
+            </div>
+            <div v-if="store.ble.role === 'observer'" class="ps-row">
+              <div class="ps-label">扫描</div>
+              <div class="ps-value ps-ble-value">
+                <el-input-number
+                  :model-value="store.ble.scanMs"
+                  size="small"
+                  :min="1"
+                  :max="10240"
+                  :step="100"
+                  @change="setScanMs($event)"
+                />
+                <span class="ps-note">ms 扫描窗口（生成换算 0.625ms 单位，TGAP_DISC_SCAN）</span>
+                <el-checkbox :model-value="store.ble.activeScan" size="small" @change="setActiveScan($event === true)">
+                  主动扫描（activeScan）
+                </el-checkbox>
               </div>
             </div>
           </div>
@@ -614,6 +845,13 @@ function onGenerate() {
 }
 .ps-runtime-value {
   flex-wrap: wrap;
+}
+.ps-ble-value {
+  flex-wrap: wrap;
+}
+.ps-ble-note {
+  margin: 8px 0 10px;
+  line-height: 1.6;
 }
 .ps-runtime-warn {
   color: var(--mx-warning);

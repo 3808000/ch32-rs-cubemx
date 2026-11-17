@@ -110,3 +110,23 @@ describe('CH582M ADC 14 外部通道与 HAL 映射一致', () => {
     expect(Object.fromEntries(adc.channels.map((c) => [c.channel, c.pin]))).toEqual(expected)
   })
 })
+
+describe('CH582M 默认时钟源（M12：defaultSource 数据驱动）', () => {
+  it('clock.json 显式 defaultSource=PLL（HSE 直连不可生成）', () => {
+    expect(clock.defaultSource).toBe('PLL')
+  })
+  it('defaultClock 落在 PLL 且命中 60MHz 预设（新建工程即可生成）', async () => {
+    const { defaultClock, matchPreset } = await import('@/model/clock')
+    const d = defaultClock(clock)
+    expect(d.source).toBe('PLL')
+    const f = computeClock(clock, d)
+    expect(f.sysclkMhz).toBe(60)
+    expect(matchPreset(clock, d)?.id).toBe('60MHZ_PLL')
+  })
+  it('ch32 芯片无 defaultSource 时行为不变（第一个非 PLL 源）', async () => {
+    const { defaultClock } = await import('@/model/clock')
+    const v003 = getDeviceData('CH32V003F4P6')
+    expect(v003.clock.defaultSource).toBeUndefined()
+    expect(defaultClock(v003.clock).source).toBe('HSI')
+  })
+})

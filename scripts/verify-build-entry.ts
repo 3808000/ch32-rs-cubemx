@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { generateProject } from '@/model/codegen'
 import { getDeviceData } from '@/model/device'
 import { mergeClockConfig } from '@/model/clock'
+import { DEFAULT_BLE_CONFIG } from '@/model/types'
 import type { PinAssignment, ProjectConfig } from '@/model/types'
 import { HAL_REV } from '@/model/codegen/halRev'
 
@@ -19,6 +20,8 @@ function argOf(name: string, fallback: string): string {
 const chip = argOf('--chip', 'CH32V003F4P6')
 const out = argOf('--out', '')
 const embassy = process.argv.includes('--embassy')
+// --ble：ch58x 专属（BLE ⇒ embassy，契约 D2），非 ch58x 后端直接报错退出（诚实失败而非静默忽略）
+const ble = process.argv.includes('--ble')
 const halDir = process.env.CH32_HAL_DIR ?? ''
 // ch58x-hal 后端用 CH58X_HAL_REV 常量（config.hal.rev 不适用），本地路径默认 ../reference/ch58x-hal
 const ch58xHalDir = process.env.CH58X_HAL_DIR ?? path.resolve(root, '../reference/ch58x-hal')
@@ -31,6 +34,11 @@ if (!out) {
 
 const data = getDeviceData(chip)
 const isCh58x = data.chip.halBackend === 'ch58x-hal'
+
+if (ble && !isCh58x) {
+  console.error(`--ble 仅对 ch58x-hal 后端有效（${chip} 的 halBackend=${data.chip.halBackend ?? 'ch32-hal（缺省）'}）`)
+  process.exit(2)
+}
 
 // ---- 按芯片数据自适应构造测试配置（不写死任何引脚名）----
 const ioPins = data.chip.pins.filter((p) => p.type === 'IO' && !p.special) // 排除 NRST/SWD/OSC 等特殊脚
@@ -140,8 +148,10 @@ const config: ProjectConfig = {
   naming: { prefix: '' },
   clock,
   peripherals: periState,
-  features: { embassy, debugPrint: true },
+  features: { embassy: embassy || ble, debugPrint: true, ...(ble ? { ble: true } : {}) },
   hal: { rev: halRev },
+  // --ble：features.ble=true + 缺省 BLE 配置（peripheral / 出厂 MAC / 100ms / FFE0-2）
+  ...(ble ? { ble: DEFAULT_BLE_CONFIG } : {}),
 }
 
 const result = generateProject(config, data)

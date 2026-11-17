@@ -28,6 +28,12 @@ export type ConflictCode =
   | 'IRQ_EMBASSY_NOT_ENABLED'
   | 'RESERVED_PIN_IN_USE'
   | 'HAL_PIN_UNSUPPORTED'
+  | 'BLE_REQUIRES_EMBASSY'
+  | 'BLE_LSE_PIN_IN_USE'
+  | 'BLE_ADC_SHARED'
+  | 'BLE_LOG_SERIAL_UNAVAILABLE'
+  | 'BLE_NAME_TOO_LONG'
+  | 'BLE_MAC_INVALID'
 
 export interface Conflict {
   code: ConflictCode

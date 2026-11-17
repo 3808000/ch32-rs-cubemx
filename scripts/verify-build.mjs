@@ -17,6 +17,7 @@ function argOf(name, fallback) {
 
 const chips = argOf('--chip', 'CH32V003F4P6,CH32V203C8T6,CH582M').split(',')
 const embassy = process.argv.includes('--embassy')
+const ble = process.argv.includes('--ble')
 const halDir = process.env.CH32_HAL_DIR ?? path.resolve(root, '../reference/ch32-hal')
 const hal58xDir = process.env.CH58X_HAL_DIR ?? path.resolve(root, '../reference/ch58x-hal')
 
@@ -64,6 +65,7 @@ for (const chip of chips) {
   // 1. vite-node 运行浏览器同一份生成逻辑
   const entryArgs = [path.join(root, 'node_modules/vite-node/vite-node.mjs'), path.join(root, 'scripts/verify-build-entry.ts'), '--chip', chip, '--out', tmp]
   if (embassy) entryArgs.push('--embassy')
+  if (ble) entryArgs.push('--ble')
   const gen = spawnSync(process.execPath, entryArgs, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   process.stdout.write(gen.stdout ?? '')
   if (gen.status !== 0) {

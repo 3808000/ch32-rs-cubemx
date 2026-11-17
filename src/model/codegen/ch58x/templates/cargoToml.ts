@@ -15,15 +15,19 @@ harness = false
 [dependencies]
 <% if (vendorHal) { -%>
 # 完整 ch58x-hal 源码由导出层内嵌到 vendor/ch58x-hal，便于直接查阅/跳转
-# default-features=false + embassy：gpio.rs 无条件使用 embassy_sync（src/gpio.rs:14），且不启用 BLE
-ch58x-hal = { path = "vendor/ch58x-hal", default-features = false, features = ["embassy"] }
+# default-features=false + <%- ble ? 'embassy/ble：gpio.rs 无条件使用 embassy_sync（src/gpio.rs:14）；' + 'ble feature 额外链接 vendor/LIBCH58xBLE.a（build.rs:9-11）' : 'embassy：gpio.rs 无条件使用 embassy_sync（src/gpio.rs:14），且不启用 BLE' %>
+ch58x-hal = { path = "vendor/ch58x-hal", default-features = false, features = <%- halFeatures %> }
 <% } else { -%>
 # ch58x-hal 未发布 crates.io：git 依赖并锁定 rev（升级 rev 前须重新核对 API）
-ch58x-hal = { git = "<%- halGit %>", rev = "<%- halRev %>", default-features = false, features = ["embassy"] }
+ch58x-hal = { git = "<%- halGit %>", rev = "<%- halRev %>", default-features = false, features = <%- halFeatures %> }
 <% } -%>
 # ch58x-hal 不 re-export entry：qingke-rt 必须是直接依赖（禁止 0.8.x，与本 HAL 的 qingke 0.5 代不匹配）
 qingke-rt = { version = "0.5.0", features = ["highcode"] }
 panic-halt = "0.2.0"
+<% if (ble) { -%>
+# BLE 模板禁用原子类型（imc target 无原子能力）：共享状态走 Channel，需要直接依赖 embassy-sync
+embassy-sync = "0.6.2"
+<% } -%>
 <% if (embassy) { -%>
 embassy-executor = { version = "0.7.0", features = ["nightly", "arch-riscv32", "executor-thread"] }
 embassy-time = "0.4.0"

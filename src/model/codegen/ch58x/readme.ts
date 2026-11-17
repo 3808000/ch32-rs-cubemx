@@ -15,7 +15,8 @@ const FILE_DESCS: Record<string, string> = {
   '.gitignore': 'Git 忽略规则（构建产物 target/）',
   'cube.json': 'ch32-rs-CubeMX 配置回读（可重新导入）',
   '.vscode/settings.json': 'rust-analyzer 目标配置（可选生成）',
-  '.vscode/tasks.json': '构建 + wchisp 烧录任务（可选生成；无调试配置）',
+  '.vscode/tasks.json': '构建 + MRS OpenOCD gdbserver/烧录 + wchisp 备用任务（可选生成）',
+  '.vscode/launch.json': 'cppdbg attach localhost:3333（MRS OpenOCD，可选生成）',
   'report.html': 'HTML 单文件工程报告（generated 组）',
   'src/main.rs': '用户代码入口（不会被重新导出覆盖）',
   'src/generated/mod.rs': '生成模块聚合（init 返回 Generated）',
@@ -25,6 +26,7 @@ const FILE_DESCS: Record<string, string> = {
   'src/generated/spi.rs': 'SPI0 初始化 + 软件 NSS',
   'src/generated/i2c.rs': 'I2C 初始化（阻塞）',
   'src/generated/adc.rs': 'ADC 初始化（通道=裸引脚单例）',
+  'src/generated/ble.rs': 'BLE 协议栈脚手架（config/run + GATT/广播/扫描 + TMOS 泵）',
 }
 
 export function renderReadme(
@@ -34,6 +36,7 @@ export function renderReadme(
   embassy: boolean,
   files: GeneratedFile[],
   warnings: string[],
+  ble = false,
 ): GeneratedFile {
   const cfg = mergeClockConfig(data.clock, config.clock)
   const f = computeClock(data.clock, cfg)
@@ -49,6 +52,7 @@ export function renderReadme(
       packageName: sanitizePackageName(config.projectName),
       halRev: CH58X_HAL_REV,
       embassy,
+      ble,
       vendorHal: sel.vendorHal,
       clockSummary,
       warnings,

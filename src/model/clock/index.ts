@@ -208,7 +208,8 @@ export function defaultClock(spec: ClockData): ClockConfig {
   const pllDefaults: Record<string, number> = {}
   for (const p of spec.pll.params) pllDefaults[p.key] = p.default
   // 不能写死 'HSI'：CH582M 等芯片只有 HSE + PLL，写死会导致默认 SYSCLK=0
-  const defaultSource = spec.sources.find((s) => !s.pll)?.id ?? spec.sources[0]?.id ?? ''
+  // M12：defaultSource 数据驱动优先（CH582M 指定 PLL——HSE 直连需 div=1 被 HAL assert 拒绝，不可生成）
+  const defaultSource = spec.defaultSource ?? spec.sources.find((s) => !s.pll)?.id ?? spec.sources[0]?.id ?? ''
   return {
     source: defaultSource,
     hxtalMhz: hse?.hxtal?.default,

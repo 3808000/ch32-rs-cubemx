@@ -13,7 +13,7 @@ mod generated;
 
 <% if (embassy) { -%>
 #[embassy_executor::main(entry = "qingke_rt::entry")]
-async fn main(_spawner: embassy_executor::Spawner) -> ! {
+async fn main(<%- ble ? 'spawner' : '_spawner' %>: embassy_executor::Spawner) -> ! {
     let p = <% if (clockUsed) { %>hal::init(generated::clock::config())<% } else { %>hal::init(hal::Config::default())<% } %>;
     // 必须在 hal::init 之后、任何 Timer/spawn 之前（src/embassy/mod.rs:4-11）
     hal::embassy::init();
@@ -26,11 +26,16 @@ fn main() -> ! {
     // —— 用户代码区（生成器永不覆盖本文件）——
     let g = generated::init(p);
     let _ = &g;
+<% if (ble) { -%>
+    // BLE 协议栈（generated/ble.rs）：初始化 + 角色启动 + TMOS 泵，永不返回
+    generated::ble::run(&spawner).await;
+<% } else { -%>
     loop {
         // TODO: 你的逻辑
 <% if (embassy) { -%>
         embassy_time::Timer::after_millis(1000).await; // 异步延时示例，可删
 <% } -%>
     }
+<% } -%>
 }
 `

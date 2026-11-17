@@ -56,6 +56,8 @@ export interface ClockData {
   chip: string
   sysclkMaxMhz: number
   sources: ClockSource[]
+  /** 默认时钟源（M12）：缺省=第一个非 PLL 源；CH582M 等「仅 PLL 可生成」芯片显式指定 PLL，避免新建工程默认落在不可生成源 */
+  defaultSource?: string
   pll: {
     outMaxMhz: number
     sourceOptions: string[]

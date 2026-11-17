@@ -615,19 +615,28 @@ describe('selection 开关与文件组', () => {
     expect(JSON.parse(contentOf(r, 'cube.json'))).toEqual(cfg)
   })
 
-  it('ideConfig=vscode：只有 tasks.json/settings.json，无 launch.json；两项任务', () => {
+  it('ideConfig=vscode：M12 三件套 + 五项任务（MRS OpenOCD 调试链）', () => {
     const r = gen(baseConfig({ projectName: 'My Ch582' }), { ideConfig: 'vscode' })
     const paths = r.files.map((f) => f.path)
     expect(paths).toContain('.vscode/settings.json')
     expect(paths).toContain('.vscode/tasks.json')
-    expect(paths).not.toContain('.vscode/launch.json')
+    expect(paths).toContain('.vscode/launch.json')
     const tasks = JSON.parse(contentOf(r, '.vscode/tasks.json'))
     expect(tasks.version).toBe('2.0.0')
-    expect(tasks.tasks.map((t: { label: string }) => t.label)).toEqual(['构建', '烧录 (wchisp)'])
+    expect(tasks.tasks.map((t: { label: string }) => t.label)).toEqual([
+      '构建',
+      '构建 (release-debug)',
+      'gdbserver (MRS OpenOCD)',
+      '烧录 (MRS OpenOCD)',
+      '烧录 (wchisp)',
+    ])
     expect(tasks.tasks[0].command).toBe('cargo')
     expect(tasks.tasks[0].args).toEqual(['build', '--release'])
-    expect(tasks.tasks[1].command).toBe('wchisp')
-    expect(tasks.tasks[1].args).toEqual(['flash', 'target/riscv32imc-unknown-none-elf/release/my-ch582'])
+    expect(tasks.tasks[4].command).toBe('wchisp')
+    expect(tasks.tasks[4].args).toEqual(['flash', 'target/riscv32imc-unknown-none-elf/release/my-ch582'])
+    const launch = JSON.parse(contentOf(r, '.vscode/launch.json'))
+    expect(launch.configurations[0].request).toBe('attach')
+    expect(launch.configurations[0].miDebuggerServerAddress).toBe('localhost:3333')
     expect(contentOf(r, '.vscode/settings.json')).toContain('rust-analyzer.cargo.target')
   })
 
@@ -652,13 +661,15 @@ describe('README 诚实标注（§6）', () => {
     expect(readme()).toContain('DO NOT USE in production')
   })
 
-  it('BLE 未生成 + wchisp 烧录 + MRS 调试 + 无 launch.json', () => {
+  it('非 BLE 工程 README：BLE 未生成 + wchisp 备用 + MRS 调试链（M12 起含 launch.json）', () => {
     const c = readme()
-    expect(c).toContain('不生成 BLE')
+    expect(c).toContain('不生成 BLE 代码')
     expect(c).toContain('LIBCH58xBLE')
     expect(c).toContain('wchisp flash target/riscv32imc-unknown-none-elf/release/ch582-demo')
     expect(c).toContain('MRS')
-    expect(c).toContain('不生成 `launch.json`')
+    expect(c).toContain('launch.json')
+    expect(c).toContain('cppdbg attach localhost:3333')
+    expect(c).toContain('两线调试')
   })
 
   it('声明 HAL 能力边界（async 外设/DMA/Timer/SPI1/开漏/Speed/AF/PB17/Vbat/transaction）', () => {

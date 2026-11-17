@@ -3,6 +3,7 @@
 // - 导出 ZIP 内的文件名固定为 cube.json；
 // - 单独下载时使用 <projectName>.cube.json，便于与普通 JSON 区分。
 import type {
+  BleConfig,
   ClockConfig,
   ConflictResolution,
   FileGroup,
@@ -12,6 +13,7 @@ import type {
   PinGroup,
   ProjectConfig,
 } from '@/model/types'
+import { DEFAULT_BLE_CONFIG } from '@/model/types/project'
 import { hasDevice } from '@/model/device'
 import { HAL_REV } from '@/model/codegen/halRev'
 import { isDesktopApp, saveFileNative } from '@/services/desktop'
@@ -79,6 +81,47 @@ function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback
 }
 
+/** BLE 配置的合法枚举（与 types 的 BleConfig 保持一致）。 */
+const BLE_ROLES: readonly BleConfig['role'][] = ['peripheral', 'broadcaster', 'observer']
+const BLE_MAC_SOURCES: readonly BleConfig['macSource'][] = ['factory', 'custom', 'default']
+
+/** BLE 数值边界（广播间隔按 BLE 规范 20..10240ms；UUID16 为 0..0xFFFF）。 */
+export const BLE_ADV_INTERVAL_MIN_MS = 20
+export const BLE_ADV_INTERVAL_MAX_MS = 10240
+export const BLE_SCAN_MIN_MS = 1
+export const BLE_SCAN_MAX_MS = 10240
+
+function intInRange(value: unknown, min: number, max: number, fallback: number): number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max ? value : fallback
+}
+
+/**
+ * 宽松解析 cube.json 的 ble 节（M12，契约 D1）。
+ * - 结构性非法（role/macSource 不在枚举内）→ 丢弃整个 ble，保留其余配置；
+ * - 单字段缺失/越界 → 回退 DEFAULT_BLE_CONFIG 对应值（不拒绝导入）；
+ * - mac 仅在字符串时保留（格式合法性与 custom 约束由 BLE_MAC_INVALID 冲突规则负责）。
+ */
+export function parseBleConfig(raw: unknown): BleConfig | undefined {
+  if (!isRecord(raw)) return undefined
+  if (!BLE_ROLES.includes(raw.role as BleConfig['role'])) return undefined
+  if (!BLE_MAC_SOURCES.includes(raw.macSource as BleConfig['macSource'])) return undefined
+
+  const d = DEFAULT_BLE_CONFIG
+  const ble: BleConfig = {
+    role: raw.role as BleConfig['role'],
+    deviceName: typeof raw.deviceName === 'string' ? raw.deviceName : d.deviceName,
+    advIntervalMs: intInRange(raw.advIntervalMs, BLE_ADV_INTERVAL_MIN_MS, BLE_ADV_INTERVAL_MAX_MS, d.advIntervalMs),
+    macSource: raw.macSource as BleConfig['macSource'],
+    serviceUuid16: intInRange(raw.serviceUuid16, 0, 0xffff, d.serviceUuid16),
+    notifyUuid16: intInRange(raw.notifyUuid16, 0, 0xffff, d.notifyUuid16),
+    writeUuid16: intInRange(raw.writeUuid16, 0, 0xffff, d.writeUuid16),
+    scanMs: intInRange(raw.scanMs, BLE_SCAN_MIN_MS, BLE_SCAN_MAX_MS, d.scanMs),
+    activeScan: typeof raw.activeScan === 'boolean' ? raw.activeScan : d.activeScan,
+  }
+  if (typeof raw.mac === 'string') ble.mac = raw.mac
+  return ble
+}
+
 /**
  * 解析 cube.json 文本。
  * 兼容旧工程：仅校验 version 与 chip，其余字段缺失时按 store.loadConfig 的默认策略补全。
@@ -138,6 +181,14 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
     }
   }
 
+  // features：ble 仅在显式 true 时写出，保持旧工程（无 BLE）的 features 形状不变。
+  const featuresOut: ProjectConfig['features'] = {
+    embassy: features.embassy === true,
+    // 与 store.loadConfig 一致：debugPrint 缺省为 true
+    debugPrint: features.debugPrint !== false,
+  }
+  if (features.ble === true) featuresOut.ble = true
+
   // 已知字段覆盖规范化结果；未知字段（未来版本新增）原样保留。
   const config = {
     ...raw,
@@ -151,11 +202,7 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
     peripherals: isRecord(raw.peripherals)
       ? (raw.peripherals as Record<string, PeripheralState>)
       : {},
-    features: {
-      embassy: features.embassy === true,
-      // 与 store.loadConfig 一致：debugPrint 缺省为 true
-      debugPrint: features.debugPrint !== false,
-    },
+    features: featuresOut,
     hal: { rev: asString(hal.rev).trim() || HAL_REV },
     // 旧工程无该字段时为空数组；非数组/混入非字符串时忽略非法项（宽容导入，不报错）
     unlockedPins: (Array.isArray(raw.unlockedPins) ? raw.unlockedPins : []).filter(
@@ -200,6 +247,18 @@ export function parseProjectFile(text: string): ProjectFileParseResult {
   } else {
     delete config.conflictPolicy
   }
+
+  // BLE 配置（M12）：宽松解析。
+  // - features.ble=true 但缺 ble 节 → 补 DEFAULT_BLE_CONFIG（手工编辑/旧版本工程的兜底）；
+  // - ble 节结构非法（role/macSource 非枚举）→ 丢弃该节，其余配置照常导入；
+  // - features.ble 未开启且无 ble 节 → 不写该字段（旧工程往返逐字节不变）。
+  const bleRaw = raw.ble
+  const ble =
+    bleRaw === undefined && features.ble === true
+      ? { ...DEFAULT_BLE_CONFIG }
+      : parseBleConfig(bleRaw)
+  if (ble) config.ble = ble
+  else delete config.ble
 
   return { config }
 }

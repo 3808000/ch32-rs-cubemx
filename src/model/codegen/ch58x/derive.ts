@@ -5,6 +5,7 @@ import { labelToIdent } from '@/model/conflicts'
 import { computeClock, matchPreset, mergeClockConfig } from '@/model/clock'
 import { enabledUsage, type PeripheralUsage } from '@/model/peripherals'
 import { identWithPrefix, pinIdent } from '../util'
+import { BLE_ADV_PAYLOAD_MAX, BLE_NAME_MAX_BYTES, bleAdvPayloadBytes, bleScanRspPayloadBytes, buildBlePlan } from './ble'
 
 /** Generated 聚合字段：名字 / 类型 / init 表达式（不含字段名与冒号）。 */
 export interface ModField {
@@ -207,13 +208,115 @@ export function generationErrors(config: ProjectConfig, data: DeviceData, usages
   return out
 }
 
+// ---------- BLE 生成期校验（M12，契约 D2/D3/D5/D7） ----------
+//
+// B2 的 bleRules 是冲突链的第一道闸；这里是 codegen 侧的纵深防御（按 code 去重，
+// 规则已报过的不重复报），保证即使规则链未注册也不会生成非法 BLE 工程。
+
+/** BLE 日志串口：上游 5 个示例固定 UART1/PA9（ble-blinky.rs:692-695）。 */
+export const BLE_LOG_UART = 'UART1'
+export const BLE_LOG_PIN = 'PA9'
+/** LSE 32.768kHz 晶振引脚（X32KI/X32KO）：BLE 强制 LSE，不可被用户占用。 */
+export const BLE_LSE_PINS = ['PA10', 'PA11'] as const
+
+/**
+ * BLE 日志串口是否可用（D5）：UART1 未启用且 PA9 未被任何引脚配置占用。
+ * 不可用时 BLE 功能不受影响（hal::println 在无默认串口时静默），只是没有日志输出。
+ */
+export function bleLogSerialAvailable(config: ProjectConfig, usages: PeripheralUsage[]): boolean {
+  if (!(config.features?.ble ?? false)) return false
+  const uart1Used = enabledUsage(usages, 'usart').some((u) => u.id === BLE_LOG_UART)
+  const pa9Used = (config.pins ?? []).some((a) => a.pin === BLE_LOG_PIN)
+  return !uart1Used && !pa9Used
+}
+
+/**
+ * BLE 生成期错误兜底（D2/D3/D7）：
+ * - BLE 必须 embassy（src/ble/mod.rs:5-6 无条件 use embassy_sync）；
+ * - 设备名 UTF-8 >248 或广播/扫描响应负载 >31 字节 → BLE_NAME_TOO_LONG（不截断，直接阻止）；
+ * - custom MAC 非 6 段 hex → BLE_MAC_INVALID；
+ * - PA10/PA11（LSE 晶振）被占用 → BLE_LSE_PIN_IN_USE。
+ * @param existingCodes 冲突链已报出的 code 集合（避免重复条目）
+ */
+export function bleGenerationErrors(
+  config: ProjectConfig,
+  existingCodes: ReadonlySet<string> = new Set(),
+): Conflict[] {
+  const out: Conflict[] = []
+  if (!(config.features?.ble ?? false)) return out
+  const push = (c: Conflict) => {
+    if (!existingCodes.has(c.code)) out.push(c)
+  }
+
+  if (!(config.features?.embassy ?? false)) {
+    push({
+      code: 'BLE_REQUIRES_EMBASSY',
+      level: 'error',
+      message:
+        'BLE 协议栈要求 embassy 运行时：ch58x-hal 的 ble 模块无条件使用 embassy_sync（src/ble/mod.rs:5-6），' +
+        'Cargo features 必须是 ["embassy", "ble"]。请启用 embassy 运行时或关闭 BLE',
+    })
+  }
+
+  const plan = buildBlePlan(config)
+  const nameLen = plan.nameBytes.length
+  const advLen = bleAdvPayloadBytes(plan)
+  const rspLen = bleScanRspPayloadBytes(plan)
+  if (nameLen > BLE_NAME_MAX_BYTES || advLen > BLE_ADV_PAYLOAD_MAX || rspLen > BLE_ADV_PAYLOAD_MAX) {
+    const roleHint =
+      plan.role === 'peripheral'
+        ? 'peripheral 的扫描响应还需携带 Tx power 段，完整名最多 26 字节'
+        : plan.role === 'broadcaster'
+          ? 'broadcaster 的扫描响应只放完整名，最多 29 字节'
+          : ''
+    push({
+      code: 'BLE_NAME_TOO_LONG',
+      level: 'error',
+      message:
+        `BLE 设备名超出广播包容量：UTF-8 ${nameLen} 字节（GAP 上限 ${BLE_NAME_MAX_BYTES}），` +
+        `广播负载 ${advLen}/31 字节、扫描响应负载 ${rspLen}/31 字节。${roleHint}；` +
+        '广播/扫描响应 TLV 不会截断生成（避免设备名三处不一致），请缩短设备名',
+    })
+  }
+
+  if (plan.macSource === 'custom' && !plan.macBytes) {
+    push({
+      code: 'BLE_MAC_INVALID',
+      level: 'error',
+      message: `自定义 BLE MAC 格式非法："${config.ble?.mac ?? ''}"；需要 6 段十六进制（人读序，如 AA:BB:CC:DD:EE:FF）`,
+    })
+  }
+
+  for (const pin of BLE_LSE_PINS) {
+    if ((config.pins ?? []).some((a) => a.pin === pin)) {
+      push({
+        code: 'BLE_LSE_PIN_IN_USE',
+        level: 'error',
+        pins: [pin],
+        message:
+          `${pin} 是 LSE 32.768kHz 晶振引脚（X32KI/X32KO）；BLE 强制 LSE（ble/init 硬编码 SelRTCClock=0，` +
+          'src/ble/mod.rs:190），启用 BLE 时该引脚不能用作 GPIO 或其他外设',
+      })
+    }
+  }
+
+  return out
+}
+
 // ---------- 警告（不阻止导出；供 README / HTML 报告展示） ----------
 //
 // 注意：CodegenResult.errors 的任何条目都会阻止导出（services/projectExport 按 length 判定），
 // 因此 warning 级提示不放进 errors（verify-build 默认 debugPrint:true，绝不能阻断构建），
 // 而是通过本函数交给 README/报告做诚实标注。
 
-export function featureWarnings(config: ProjectConfig): Conflict[] {
+/** featureWarnings 的上下文：usages/logSerial 仅在 BLE 工程里有意义（可选，保持旧调用兼容）。 */
+export interface FeatureWarningContext {
+  usages?: PeripheralUsage[]
+  /** BLE 日志串口是否可用（bleLogSerialAvailable）；undefined=不评估 */
+  logSerial?: boolean
+}
+
+export function featureWarnings(config: ProjectConfig, ctx: FeatureWarningContext = {}): Conflict[] {
   const out: Conflict[] = []
   if (config.features?.debugPrint) {
     out.push({
@@ -242,6 +345,26 @@ export function featureWarnings(config: ProjectConfig): Conflict[] {
       code: 'TARGET_FEATURE_UNSUPPORTED',
       level: 'warning',
       message: 'ch58x 不生成 EXTI 代码（GPIO 中断按端口聚合，data/exti.json 无 pin→通道映射）；请关闭引脚上的 EXTI 开关',
+    })
+  }
+  // D5：BLE 日志串口被占用 → 不生成 UartTx/set_default_serial，BLE 功能不受影响
+  if ((config.features?.ble ?? false) && ctx.logSerial === false) {
+    out.push({
+      code: 'BLE_LOG_SERIAL_UNAVAILABLE',
+      level: 'warning',
+      message:
+        `BLE 日志串口不可用：UART1 已启用或 ${BLE_LOG_PIN} 已被占用，未生成 UartTx/set_default_serial；` +
+        'BLE 功能不受影响，hal::println 在无默认串口时静默',
+    })
+  }
+  // D7：BLE 温度采样回调会临时借用 ADC（ble/mod.rs:230-254 temperature_raw）
+  if ((config.features?.ble ?? false) && ctx.usages && enabledUsage(ctx.usages, 'adc').length > 0) {
+    out.push({
+      code: 'BLE_ADC_SHARED',
+      level: 'warning',
+      message:
+        'BLE 的温度采样回调（temperature_raw）会临时 steal ADC 并恢复寄存器，与用户 ADC 共享外设；' +
+        'BLE 开启时 ADC 读数可能被短暂抢占，请评估采样时序',
     })
   }
   return out

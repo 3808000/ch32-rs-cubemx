@@ -19,6 +19,10 @@ export function renderSkeletonFiles(
   }
 
   const packageName = sanitizePackageName(config.projectName)
+  // D8：BLE 档 HAL features 恒为 ["embassy", "ble"]（ble 必须与 embassy 同开，src/ble/mod.rs:5-6）；
+  // 非 BLE 档保持 ["embassy"]（M11 行为逐字不变）。
+  const ble = config.features?.ble ?? false
+  const halFeatures = ble ? '["embassy", "ble"]' : '["embassy"]'
   const files: GeneratedFile[] = [
     {
       path: 'Cargo.toml',
@@ -28,6 +32,8 @@ export function renderSkeletonFiles(
         halGit: CH58X_HAL_GIT,
         halRev: CH58X_HAL_REV,
         embassy,
+        ble,
+        halFeatures,
       }),
     },
     {

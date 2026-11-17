@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-17）：M1–M11 十一个里程碑核心项全部完成并推送。** 测试 380→1077，33 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（M11 起 V003/V203/H417/CH582M 四芯片端到端 cargo 编译 + CH582M embassy 档）/ 浏览器验收。剩余为低优先 P2 与需硬件目标的项（见各里程碑「暂缓/待核实」标注）。
+> **总体进度（2026-11-18）：M1–M12 十二个里程碑核心项全部完成并推送。** 测试 380→1222，39 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（M12 起六路：V003/V203/H417/CH582M blocking/embassy/BLE）/ 浏览器验收。剩余为低优先 P2 与需硬件操作的项（见各里程碑「暂缓/待核实」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -218,6 +218,26 @@
 **M11 验收门禁**：1077 测试；tsc/eslint/validate/build；verify:build 4 芯片 + CH582M embassy（显式工具链名，离线）；浏览器全链路；ch32 生成物快照不变；推送。
 
 **暂缓/待核实**：CH58x BLE 协议栈生成（需 ble feature + LSE + 厂商库，独立里程碑）；CH58x 调试（MRS gdbserver 调研）；Timer/PWM/DMA（HAL 无驱动，待上游）；Vbat/温度内部通道（HAL enable_vbat 空操作不可信）；引脚参数 UI 后端感知（speed 标签仍 ch32 口径，生成映射已文档化）。
+
+---
+
+## M12（v0.13）CH58x BLE 协议栈生成 + 调试链 —— 「第二后端的功能纵深」 ✅ 已完成（2026-11-18）
+
+> **落地状态**：BLE 三角色（peripheral 含简单 GATT 服务 / broadcaster / observer）数据驱动生成；1222 测试全绿（1098→1222）；verify:build 六路全过（V003/V203/H417/CH582M blocking/embassy/**--ble**，BLE 厂商库真实链接编译）；浏览器验收（BLE 节全参数 + 运行时互锁 + 新建工程默认 PLL 直接生成 + ZIP 75 文件 0 冲突）。6 个子智能体（3 调研 + 3 实现）+ 主控契约/集成/默认时钟修复。
+> **契约**：[CH58X_BLE_CONTRACT.md](CH58X_BLE_CONTRACT.md)（src/ble/* 逐字核实 + D1–D12）；事实与实机状态 [HAL_API_NOTES §14](HAL_API_NOTES.md)。
+> **调试链突破**：MRS V3.0.0 Linux 自带 WCH fork OpenOCD（wlinke+sdi+wch_riscv，CH58x 支持）已部署用户目录；CH-LINK RV 模式即配。只读 attach 失败=芯片两线调试（CFG_DEBUG_EN）待开启（需 ISP/BOOT 硬件操作，用户决策）；**生成/编译不依赖该开关**。IDE 生成 launch.json + openocd-wch 任务链（D9）。
+> **集成修复**：ClockData.defaultSource 数据驱动（CH582M 默认 PLL——旧默认 HSE 不可生成会阻止新建工程导出）；ch58x README/ide 旧断言同步 M12。
+> **插曲（用户报告）**：Pinout/Clock 画布无法拖动/区域聚焦 → 光标锚定缩放 + 背景拖动平移（f17a3d7）；时钟卡片左对齐死区 → safe center 居中 + 跨溢出锚定补偿（0eae042）。
+
+| # | 任务 | 改动落点 | 验收 | 并行域 |
+|---|---|---|---|---|
+| 12.1 | BLE codegen：generated/ble.rs 三角色脚手架（TMOS 泵/单订阅者/无原子/GATT 6 属性/CCCD/notify/断连恢复/名称三处同步/单位换算）；main.rs 用户区 hook；cargo ble features + embassy-sync；LSE 追加 | `model/codegen/ch58x/{ble,derive,clock,cargo,index}.ts` + templates、tests(70) | 生成物↔HAL 行号对照；--ble cargo 通过 | A2 |
+| 12.2 | BLE 冲突规则（6 码）+ cube.json 宽松解析 + store 互锁 + 设置页 BLE 节（角色/名称字节计数/间隔/MAC/UUID16/observer）+ Runtime 互锁 | `conflicts/rules/bleRules.ts`、`projectFile.ts`、`controllers/project.ts`、`ProjectSettingsView.vue`、tests(38) | 规则正反用例；UI 互锁实测 | B2 |
+| 12.3 | ch58x IDE 调试链：launch.json cppdbg attach + openocd-wch gdbserver/烧录任务 + release-debug 构建任务 + wchisp 备用；verify --ble | `ch58x/ide.ts` + templates、`scripts/verify-build*`、tests(13) | 六路 verify；任务逐字 | C2 |
+
+**M12 验收门禁**：1222 测试；tsc/eslint/validate/build；verify 六路；浏览器 BLE 全链路；ch32 快照不变；推送。
+
+**暂缓/待核实**：central 角色（上游无示例）；配对策略/复杂 GATT 表/扫描过滤留用户区；MTU>23/TX 功率配置（HAL 硬编码）；CH582M 两线调试开启（用户硬件操作后补实机 attach/烧录核实）；BLE 实机射频验证（需调试口或 ISP 烧录后观察广播）。
 
 ---
 

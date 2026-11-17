@@ -528,3 +528,32 @@ debugPrint：warning 忽略（featureWarnings → README/报告）。
   blocking/embassy 双档页内生成 + ZIP 导出（78 文件含 vendor/ch58x-hal）→ 设置页 rev/target/工具链后端感知。
 - verify:build（修复 RUSTUP_HOME 后，显式工具链名，离线）：**V003 ✓ / V203 ✓ / H417 ✓ / CH582M blocking ✓ / CH582M embassy ✓**
   （stable 1.100.0 / nightly 1.102.0；CH582M entry 含 GPIO/UART/SPI/I2C/ADC 全外设）。
+
+## 14. CH58x BLE 协议栈与调试链（M12，2026-11-18）
+
+契约：docs/CH58X_BLE_CONTRACT.md（src/ble/* 2909 行 + 5 示例逐字核实）。生成能力与边界以契约 D1–D12 为准，此处只记关键事实与实机状态。
+
+### 14.1 BLE 关键事实（生成器已编码）
+
+- ble+embassy feature 强耦合；**LSE 强制**（SelRTCClock=0 硬编码，mod.rs:190）→ 时钟生成追加 `.enable_lse()`；PA10/PA11（X32KI/X32KO，板级约定）被占 → error。
+- init 顺序：hal::init → hal::embassy::init → ble::init → GAPRole_*_init → GGS_AddService + GATTServApp::add_service → register_service → *StartDevice；TMOS 泵 300µs #[highcode] 独立 task。
+- **TmosEvent 单订阅者**（Clone+Drop 双 deallocate → 多订阅 double free）；**imc 无原子** → 模板禁 core::sync::atomic，状态走 embassy-sync Channel。
+- 硬编码：ATT_MTU 23 / TX 6dBm / 1+3 连接 / 无 SNV；central 无上游示例不开放；gapbondmgr.rs 死文件（GAPBondMgr_* 走 ffi）。
+- 设备名三处同步（GGS + scan-rsp + adv TLV）；名称预算 peripheral 26 / broadcaster 29 字节（扫描响应 31B 上限），短名截断 8 字节。
+- BLE temperature_raw steal ADC → BLE_ADC_SHARED warning；RTC 被 BLE 占用不生成 RTC 配置。
+- **默认时钟源数据驱动**（M12 集成修复）：ClockData.defaultSource 可选字段；CH582M 指定 PLL（HSE 直连需 div=1 被 HAL assert 拒绝，旧默认 HSE 导致新建工程生成被阻止）。ch32 芯片无该字段行为不变。
+
+### 14.2 调试链：MRS OpenOCD 唯一可行路径（实机只读核实）
+
+- ch32rv 0.31.4 仍无 CH58x（源码 0 命中）；probe-rs CH58x PR #4534 关闭未合并；开源 openocd fork 均无 sdi/wlinke。
+- **MRS V3.0.0 Linux 包自带 WCH fork OpenOCD**（0.11.0+dev-snapshot 2026-10-21，v2.10；wlinke 驱动 + sdi transport + wch_riscv target；strings 含 CH58x；WCH-Link-CH549 RV 模式无 CH58x 排除提示）。已部署用户目录 `/home/teze/mrs-openocd/`（无 sudo，可逆）。
+- **只读 attach 实测失败**（6000/400 kHz 两档）：`WCH-Link failed to connect with riscv chip`，官方提示两线调试未开启（CFG_DEBUG_EN）或物理链路。探针层 OK。**未做任何写操作**。开启需 ISP/BOOT：Windows WCHISPTool（官方）或 Linux wchisp BOOT 模式（config set unimplemented；config reset 效果待硅片验证，需用户授权）——**待用户硬件操作**。
+- IDE 生成（D9）：launch.json cppdbg attach 3333 + tasks `openocd-wch -f ${env:MRS_OPENOCD_CFG}`（gdbserver/烧录）+ wchisp 备用；README 两条 setup（symlink + export）与两线调试前提诚实标注。
+- **代码生成与编译不依赖两线调试开关**：CH582M --ble 真实 cargo build 通过（LIBCH58xBLE.a 链接）。
+
+### 14.3 M12 验证状态
+
+- 1222 测试全绿（+124：ch58xBleCodegen 70 / bleRules 23 / bleProjectFile 15 / ideConfig ch58x 13 / 默认时钟 3）；tsc/eslint/validate/build ✓。
+- verify:build：V003/V203/H417/CH582M blocking/embassy/**--ble** 全过（stable 1.100 / nightly 1.102）。
+- 浏览器验收：BLE 节（角色/名称字节计数/广播间隔/MAC 三来源/UUID16/observer 参数）+ 运行时互锁（BLE⇒embassy、blocking 禁用）+ 新建工程默认 PLL 直接生成 + ZIP 75 文件 0 冲突。
+- 开发期 HMR _artifact_ 记录：autosave 单例闭包绑定旧 store 实例，HMR 重置 store 后继续写旧工程快照——仅 dev 环境出现（生产 store 不重建），验收以干净 reload 为准；不视为产品缺陷，留观。

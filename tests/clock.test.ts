@@ -305,10 +305,11 @@ describe('defaultClock / mergeClockConfig', () => {
 describe('defaultClock 数据驱动默认源（无 HSI 芯片）', () => {
   const spec582 = getDeviceData('CH582M').clock
 
-  it('CH582M 只有 HSE+PLL：默认源回退到第一个非 PLL 源 HSE，SYSCLK=32MHz', () => {
+  it('CH582M defaultSource=PLL（M12）：默认 60MHz 命中预设，新建工程即可生成', () => {
     const d = defaultClock(spec582)
-    expect(d.source).toBe('HSE')
-    expect(computeClock(spec582, d).sysclkMhz).toBe(32)
+    expect(d.source).toBe('PLL')
+    expect(computeClock(spec582, d).sysclkMhz).toBe(60)
+    expect(matchPreset(spec582, d)?.id).toBe('60MHZ_PLL')
   })
 
   it('CH582M 默认配置无 error（不再出现 SYSCLK 为 0）', () => {
@@ -317,10 +318,10 @@ describe('defaultClock 数据驱动默认源（无 HSI 芯片）', () => {
     expect(errors).toEqual([])
   })
 
-  it('mergeClockConfig 在无 HSI 芯片下沿用 HSE 默认源且不报 error', () => {
+  it('mergeClockConfig 沿用 defaultSource=PLL 且命中预设、不报 error（M12）', () => {
     const m = mergeClockConfig(spec582, { ahb: 1 })
-    expect(m.source).toBe('HSE')
-    expect(matchPreset(spec582, m)).toBeNull()
+    expect(m.source).toBe('PLL')
+    expect(matchPreset(spec582, m)?.id).toBe('60MHZ_PLL')
     expect(validateClock(spec582, m).filter((i) => i.level === 'error')).toEqual([])
   })
 

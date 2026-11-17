@@ -5,6 +5,7 @@
     { "id": "HSE", "label": "外部 32MHz 晶振", "freqMhz": 32 },
     { "id": "PLL", "label": "PLL (480MHz VCO)", "pll": true }
   ],
+  "defaultSource": "PLL",
   "pll": {
     "outMaxMhz": 80,
     "sourceOptions": ["HSE"],
