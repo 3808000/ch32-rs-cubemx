@@ -64,6 +64,45 @@
 - **D11a 接入缓冲+垂直进入**：routeEdge 出/入锚点各加 STUB=14 水平缓冲段；末段必须水平垂直进入左缘锚点；`grazes()` 拒绝与簇边界重合的竖/横段（GRAZE=3）；走廊/通道在缓冲段之间错开。测试：七芯片首末段水平 ≥10px + 不擦边。
 - **D11b 外设并联均衡列**：外设实例每列 ≤2 卡（>2 拆 ⌈n/2⌉ 列）、所有外设列顶边对齐同一 y（并联带）、列距 230/行距 128；分组框跨列单框包围；画布高度目标 ≤800px（解决「USART 出界」=画布过高视口外溢，坐标本身未越界）。
 
+## D12 MX2 主干重构（2026-11-18 用户裁决，取代 D11b 的左右均衡列）
+
+> 用户参照 CubeMX2 时钟树截图裁决：输入 LSI/LSE/HSE/HSI 左列竖排；主干 System Mux→System Clock→AHB Prescaler→HCLK 水平；**输出右列上下并联竖排**（MX2：To Power / To AHB bus,core,memory and DMA / To FCLK / Cortex System Timer / APBx Prescaler→To APBx Peripherals / To TIMx / USB）；**外设（SPI/I2C/USART/ADC）上下并联竖排**（「并联是上下并联不是左右」）。图二外设区=peri 卡单列竖排、按类别分组框上下堆叠。
+
+**WCH 诚实映射**：MX2「To Power」在 WCH 无独立时钟域（PWR 挂 APB1）→ 不造假行；DMA/存储器并入 CORE 行标签；「Cortex clock/System timer」→ RISC-V 内核=HCLK、SysTick 按 HAL 事实（见下表）。CORE/SYSTICK 用 **aux 仅显示派生行**（不生成、不进配置）。
+
+**模板坐标（七芯片统一，G 域照此迭代）**：
+- 源列 x=40 竖排：HSI y≈58、HSE y≈140、displayOnly LSI/LSE y≈220/300（ch582 按其 sources/aux 现状）。
+- PLL x=300 y≈60；SYSCLK x=600 y=240；AHB x=880，y=SYSCLK.y+muxH/2−22（muxH=24+行数×16；保证主干同 y 水平直连）。
+- **输出竖列 E**：读数卡右对齐 E_RIGHT=1400（readout x=1296；div 簇 x=1188；ADC mux x=1200）。行序顶→底、行距 76、起 y=60：CORE(H417=V5F) → SYSTICK(H417=V3F) → (H417 第三行 SYSTICK) → APB1 → TIM1 → APB2 → TIM2 → USB(若建模) → ADC。分组框 g-out 包围（label「总线 / 内核输出」）。
+- **外设竖列 F** x=1560 单列上下并联：类别序 usart→spi→i2c→adc，卡距 120（PERI_H96+24），起 y=60；分组框 g-usart/g-spi/g-i2c/g-adc 上下堆叠（x=1544 w=222，y=顶−30，h=n×120−24+48，组间距 24）。**禁止左右多列**。
+- aux 带左下 y≥400、右缘 ≤1012（RTC/IWDG/AWU/MCO/USBPRE/ADCPRE/PLL2/3/USBHS/CK32KSEL 全保留）；g-aux 不与 g-sources/g-pll/g-sys/g-out 重叠。
+- **lanes 干线共享**：AHB→E 各行的边 lanes=0（同走廊竖段共线=MX2 竖直干线观感）；APB1→peri=0、APB2→peri=1、ADC→P-ADC=2（E/F 间三条平行干线）。
+- 画布宽 ≤1850；高度=外设列底+36（接受竖排带来的高度，fit-zoom 全览）。
+
+**aux  schema 扩展（E 域）**：`AuxClockDomain += deriveDiv?: number; group?: string`。readout 且 fixedMhz=null 且单输入 → inMhz=输入节点 outMhz、outMhz=输入 outMhz÷(deriveDiv??1)（model.ts aux 段，主节点已推入后查表）；group 缺省 'g-aux'，CORE/SYSTICK/V5F/V3F 用 'g-out'（groupOrder 增补）。validate 5c：deriveDiv 正数、group 若给须存在于 diagram.groups 且包围该节点。
+
+**逐芯片 SYSTICK/CORE 事实（HAL 逐字，note 必引）**：
+| 芯片 | SYSTICK deriveDiv | 证据 |
+|---|---|---|
+| V003 | 1 | delay/impl_qingke_v2_v4.rs：set_stclk(Stclk::HCLK)，P_US=hclk/1e6（QingKe V2） |
+| V103/V203 | 8 | delay/impl_qingke_v3.rs：P_US=sysclk/8/1e6（QingKe V3） |
+| V307 | 1 | impl_qingke_v2_v4.rs（QingKe V4）STCLK=HCLK |
+| X035 | 1 | delay/impl_systick_v4x7.rs：set_stclk(Stclk::HCLK) |
+| H417 | 1 | delay/impl_systick_v3f_v5f.rs：RM §4.6 两计数器均 V3F HCLK 域；V5F=SYSCLK÷1、V3F=AHB÷1（deriveDiv=1，group g-out） |
+| CH582 | 8 | ch58x-hal systick.rs：hclk_div8 |
+CORE（除 H417）：{kind:readout, label:'内核 / DMA / 存储器', inputs:[{id:'AHB',label:'HCLK'}], deriveDiv:1, group:'g-out', note:'MX2 To AHB bus,core,memory and DMA / To FCLK 对应行；RISC-V 内核=HCLK；仅显示不生成'}。SYSTICK label='系统定时器 SysTick'，fixedDivLabel='÷8' 或 '÷1 (STCLK=HCLK)'。CH582 无 USB 时钟建模 → 无 USB 行（note 诚实）。
+
+**测试（E 域）**：七芯片结构断言——peri 单列同 x、y 递增且类别块连续；E 列右缘=1400 且行序递增；源列同 x；CORE outMhz==hclk、SYSTICK==hclk÷deriveDiv；既有缓冲/擦边/不穿块/aux 元数据断言保留（fallout scoped）。README 快照仅「仅显示域」增 CORE/SYSTICK 行（主控审查 diff）。
+
+## D12bis 坐标基线实测补记（G 域落地后主控核，2026-11-18 夜）
+
+- 1 参数 PLL 簇宽 284：PLL x=300 与 SYSCLK x=600 间距 16 < 2×STUB → pll-sys 缓冲退化 8px 违反 D11a。基线修正：**PLL x=290~292**（V003/V203/CH582）或 **SYSCLK x=620**（V307/H417）；X035 SYSCLK 单 mux 行（muxH44）→ AHB y=240。
+- USBPRE 放 PLL 右缘外 x=600~620（V103 两参数 PLL 右缘 668 → x=600 走 y232 通道）；ADCPRE 最右 ≤1100。
+- lanes pll-usb 逐芯片实测：V203 −8、V103 −10、V307 +11、H417 无 USB 行；补充通道 lanes（apb1-tim1/apb2-tim2=0、apb2-adc=6、aux-MCO-PLL/aux-USBPRE-PLL=−8）纯为通道间距质量。
+- 外设组框 h=n×120+24、组间 24 → 跨组卡距 168（组内 120）；画布高=外设列底+36：V003 696 / X035 1032 / CH582 1032 / V103 1176 / V203 1416 / V307 2016 / H417 2376（18 卡竖排自然结果，fit-zoom 全览，接受）。
+- H417/CH582 peripheralClocks 无 usb → 无 USB 行（diagram 写未知节点会 validate 失败）；H417 不建 CORE（V5F/V3F 即内核行）。
+- model 归组：TIM1/TIM2/ADC 域/USB/APB1/APB2 → g-out（g-tim/g-usb 退役）；回退列式测试过滤 g-out aux（CORE/SYSTICK 坐标仅对 diagram 竖列有意义）。
+
 ## D5 模型（E 域）
 
 tree/model.ts：kind 默认（源=osc；SYSCLK/ADC 域=mux；PLL=pll；AHB/APB=div（options 单档→readout）；TIM/USB=readout；P-*=peri）；diagram.nodes[id].kind 覆盖优先；aux 节点/边按 D4；displayOnly 源排除 control options + 边 active=false；`ClockNodeModel` 增 `kind: ClockNodeKind` + `displayOnly?: boolean`（tree/model.ts，types 的 kind 类型 import）。computeClock/validateClock/solvePll/resolveClockIssues/matchPreset/mergeClockConfig **零改动**（aux 无配置）。

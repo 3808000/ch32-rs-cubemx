@@ -80,6 +80,10 @@ export interface AuxClockDomain {
   fixedDivLabel?: string
   /** 诚实边界注记（HAL todo!()/无驱动/BLE 占用/模型合成语义） */
   note?: string
+  /** D12：readout 单输入派生分频（fixedMhz=null 时 outMhz=输入 outMhz÷deriveDiv，缺省 1）；如 SYSTICK ÷8 */
+  deriveDiv?: number
+  /** D12：分组框归属覆盖（缺省 g-aux）；CORE/SYSTICK/V5F/V3F 入 g-out 输出竖列 */
+  group?: string
 }
 
 export interface ClockParamSpec {

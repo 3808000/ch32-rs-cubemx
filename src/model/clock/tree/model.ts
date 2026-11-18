@@ -98,7 +98,7 @@ export interface ClockNodeModel {
   hint?: string
   /** 布局列（0 sources 1 PLL 2 system 3 buses 4 TIM 5 USART 6 SPI 7 I2C 8 ADC 9 USB） */
   column: number
-  /** 分组容器 id（g-sources/g-pll/g-sys/g-tim/g-adc/g-usart/g-spi/g-i2c/g-usb；''=不进分组框） */
+  /** 分组容器 id（g-sources/g-pll/g-sys/g-out/g-adc/g-usart/g-spi/g-i2c；''=不进分组框） */
   group: string
   badge?: ClockNodeBadge
   /** 外设节点对应的 peripherals.json 实例 id（USB 域节点='USB'） */
@@ -428,7 +428,8 @@ export function buildClockModel(
   const timMode = spec.timerClock ?? 'apb_x2'
   const tim1Max = timMode === 'sysclk' ? spec.sysclkMaxMhz : spec.apb1.maxMhz * 2
   const tim2Max = timMode === 'sysclk' ? spec.sysclkMaxMhz : spec.apb2.maxMhz * 2
-  groupLabels['g-tim'] = `TIM Max ${tim1Max} MHz`
+  // D12：TIM/USB/ADC 域并入 MX2 右列输出竖排（g-out）；TIM 上限读数卡自带 max 行
+  groupLabels['g-out'] = '总线 / 内核输出'
   groupLabels['g-adc'] = spec.adc.maxMhz !== undefined ? `ADC Max ${spec.adc.maxMhz} MHz` : 'ADC'
 
   // ---------- 节点 ----------
@@ -568,8 +569,8 @@ export function buildClockModel(
   // 总线
   nodes.push(
     busNode('AHB', 'AHB', 'ahb', spec.ahb, freqs.sysclkMhz, freqs.hclkMhz, cfg, issues, COL_SYSTEM, 'g-sys'),
-    busNode('APB1', 'APB1', 'apb1', spec.apb1, freqs.hclkMhz, freqs.pclk1Mhz, cfg, issues, COL_BUS, ''),
-    busNode('APB2', 'APB2', 'apb2', spec.apb2, freqs.hclkMhz, freqs.pclk2Mhz, cfg, issues, COL_BUS, ''),
+    busNode('APB1', 'APB1', 'apb1', spec.apb1, freqs.hclkMhz, freqs.pclk1Mhz, cfg, issues, COL_BUS, 'g-out'),
+    busNode('APB2', 'APB2', 'apb2', spec.apb2, freqs.hclkMhz, freqs.pclk2Mhz, cfg, issues, COL_BUS, 'g-out'),
   )
 
   // 定时器域（模式由 spec.timerClock 决定：sysclk 直通 / APB 分频>1 时 ×2）
@@ -590,7 +591,7 @@ export function buildClockModel(
     control: null,
     hint: timMode === 'sysclk' ? timHint : cfg.apb1 > 1 ? '×2' : '×1',
     column: COL_TIM,
-    group: 'g-tim',
+    group: 'g-out',
   })
   const tim2Level = issueLevelOf(issues, 'TIM2')
   nodes.push({
@@ -608,7 +609,7 @@ export function buildClockModel(
     control: null,
     hint: timMode === 'sysclk' ? timHint : cfg.apb2 > 1 ? '×2' : '×1',
     column: COL_TIM,
-    group: 'g-tim',
+    group: 'g-out',
   })
 
   // ADC 域（时钟源来自 spec.adc.options；CK32M 为 CH58x 固定 32MHz 域）
@@ -649,7 +650,7 @@ export function buildClockModel(
       fixed: spec.adc.options.length <= 1 || adcLocked,
     },
     column: COL_ADC,
-    group: 'g-adc',
+    group: 'g-out',
   })
 
   // ---------- 连线（逻辑；正交折线由 layout 生成） ----------
@@ -819,7 +820,7 @@ export function buildClockModel(
       lockable: false,
       control: null,
       column: COL_USB,
-      group: PERI_GROUP.usb,
+      group: 'g-out',
       badge: 'derived',
       periId: 'USB',
       ...(list.length ? { issues: list } : {}),
@@ -834,6 +835,17 @@ export function buildClockModel(
   for (const a of spec.aux ?? []) {
     const hint = [a.fixedDivLabel, a.note].filter((s) => !!s).join(' · ')
     const fixed = a.fixedMhz ?? null
+    // D12：readout 单输入派生行（CORE/SYSTICK/V5F/V3F）——fixedMhz 优先；
+    // 否则取输入节点 outMhz ÷ deriveDiv（缺省 1），badge=derived 仅显示不生成
+    let inMhz = fixed
+    let outMhz = fixed
+    if (fixed === null && a.kind === 'readout' && a.inputs?.length === 1) {
+      const src = nodes.find((n) => n.id === a.inputs![0]!.id)
+      if (src && src.outMhz !== null) {
+        inMhz = src.outMhz
+        outMhz = src.outMhz / (a.deriveDiv ?? 1)
+      }
+    }
     const muxKind = a.kind === 'mux' || a.kind === 'pll'
     nodes.push({
       id: a.id,
@@ -846,8 +858,8 @@ export function buildClockModel(
             muxLabels: (a.inputs ?? []).map((i) => i.label),
           }
         : {}),
-      inMhz: fixed,
-      outMhz: fixed,
+      inMhz,
+      outMhz,
       maxMhz: a.maxMhz ?? null,
       issueLevel: null,
       overLimit: false,
@@ -857,7 +869,7 @@ export function buildClockModel(
       control: null,
       ...(hint ? { hint } : {}),
       column: COL_AUX,
-      group: 'g-aux',
+      group: a.group ?? 'g-aux',
       badge: 'derived',
       displayOnly: true,
     })
@@ -892,7 +904,7 @@ export function buildClockModel(
   }
 
   // ---------- 分组容器（仅保留有成员的组，顺序固定） ----------
-  const groupOrder = ['g-sources', 'g-pll', 'g-sys', 'g-tim', PERI_GROUP.adc, PERI_GROUP.usart, PERI_GROUP.spi, PERI_GROUP.i2c, PERI_GROUP.usb, 'g-aux']
+  const groupOrder = ['g-sources', 'g-pll', 'g-sys', 'g-out', PERI_GROUP.adc, PERI_GROUP.usart, PERI_GROUP.spi, PERI_GROUP.i2c, 'g-aux']
   for (const gid of groupOrder) {
     if (!nodes.some((n) => n.group === gid)) continue
     groups.push({ id: gid, label: groupLabels[gid] ?? gid })

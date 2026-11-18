@@ -613,6 +613,13 @@ function validateClockDiagram(clock, peripherals) {
       if (n.control !== null) err('clock.json', `aux.${a.id} 不可有配置控件（control=null）`)
       if (n.lockable !== false) err('clock.json', `aux.${a.id} 必须 lockable=false`)
     }
+    // D12：派生分频正数；group 覆盖须有同名分组框（成员覆盖在上面分组段已按 model.group 守门）
+    if (a.deriveDiv !== undefined && !(Number.isFinite(a.deriveDiv) && a.deriveDiv > 0)) {
+      err('clock.json', `aux.${a.id}.deriveDiv 必须为正有限数`)
+    }
+    if (a.group !== undefined && !(diagram.groups ?? []).some((g) => g && g.id === a.group)) {
+      err('clock.json', `aux.${a.id}.group=${a.group} 无同名 diagram.groups 框`)
+    }
   }
   for (const s of clock.sources ?? []) {
     if (!s.displayOnly) continue

@@ -712,4 +712,20 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 ### 16.5 收尾裁决（用户目检反馈，2026-11-18 晚）
 
 - **接入线缓冲+垂直进入**：路由重写为「出锚点右行 STUB=14 缓冲 → 走廊/通道 → 入锚点左行 14 缓冲**水平垂直进入左缘**」；新增 `grazes()` 擦边拒绝（竖/横段与簇左/右或上/下边界重合且范围相交 → 拒绝该候选改走其他走廊）——消除旧 L 路由竖段贴 mux 左缘擦行。测试锁住：七芯片每边首末段水平 ≥10px + 全边不擦边（clockTree 99 用例）。
-- **外设并联均衡列**：用户反馈「USART 出界」实测为画布过高（1076px）致常规缩放比视口外溢（坐标本身未越界）→ 七芯片 diagram 重排：外设每列 ≤2 卡均衡拆列（V203 USART 4→2×2 等）、所有外设列顶边对齐并联带、分组框/lanes 复算；画布高度 V203 1076→772 / V307→672 / H417→668 / V003→452 / X035→392 / CH582→492。validate 5c 与全量测试复绿（1496）。
+- **外设并联均衡列**：用户反馈「USART 出界」实测为画布过高（1076px）致常规缩放比视口外溢（坐标本身未越界）→ 七芯片 diagram 重排：外设每列 ≤2 卡均衡拆列（V203 USART 4→2×2 等）、所有外设列顶边对齐并联带、分组框/lanes 复算；画布高度 V203 1076→772 / V307→672 / H417→668 / V003→452 / X035→392 / CH582→492。validate 5c 与全量测试复绿（1496）。**已被 §16.6 D12 取代**（用户裁决「并联是上下并联不是左右」）。
+
+### 16.6 D12 MX2 主干重构（2026-11-18 夜，用户参照 CubeMX2 时钟树截图裁决）
+
+- **结构**：源列左竖排 → PLL → SYSCLK mux→System Clock→AHB Prescaler→HCLK 水平主干 → 右列**输出上下并联竖排**（CORE/SYSTICK/APB1/TIM1/APB2/TIM2/USB/ADC，读数卡右对齐 1400）→ 外设**单列上下并联竖排**（类别分组框上下堆叠）。MX2「To Power」WCH 无独立域不造假行；DMA/存储器并入 CORE 行标签。
+- **SysTick 逐芯片 HAL 逐字事实**（delay 实现，SYSTICK aux 行 deriveDiv 据此）：
+  | 芯片 | deriveDiv | 证据 |
+  |---|---|---|
+  | V003 | 1 | delay/impl_qingke_v2_v4.rs：`set_stclk(Stclk::HCLK)`、`P_US=hclk/1e6`（QingKe V2） |
+  | V103/V203 | 8 | delay/impl_qingke_v3.rs：`P_US=sysclk/8/1e6`（QingKe V3） |
+  | V307 | 1 | impl_qingke_v2_v4.rs（QingKe V4）`set_stclk(Stclk::HCLK)` |
+  | X035 | 1 | delay/impl_systick_v4x7.rs：`set_stclk(Stclk::HCLK)` |
+  | H417 | 1 | delay/impl_systick_v3f_v5f.rs：RM §4.6 两计数器均 **V3F HCLK** 域、`set_stclk(Stclk::HCLK)` |
+  | CH582 | 8 | ch58x-hal systick.rs：`hclk_div8` |
+- **aux schema 扩展**：`deriveDiv?: number`（readout 单输入且 fixedMhz=null → outMhz=输入 outMhz÷deriveDiv）、`group?: string`（缺省 g-aux；CORE/SYSTICK/V5F/V3F 入 g-out）。model 把 TIM1/TIM2/ADC 域/USB/APB1/APB2 归 g-out（g-tim/g-usb 退役）；validate 5c 守 deriveDiv 正数+group 同名框。仅显示不生成，codegen 零改动。
+- **坐标基线实测偏离**（走线硬约束 STUB≥10/GRAZE3 所致，G 域实测）：1 参数 PLL 簇宽 284 → PLL x=290~292 或 SYSCLK x=620（V307/H417）保 pll-sys 缓冲；USBPRE x=600~620（PLL 右缘外）；lanes pll-usb 逐芯片 −6/−8/−10/11；外设组框 h=n×120+24、组间 24（跨组卡距 168）；H417/CH582 无 USB 行（peripheralClocks 无 usb，诚实）；X035 SYSCLK 单行 → AHB y=240。
+- **验收**：1524 测试/61 文件（clockTree 127 含 28 D12 断言：peri 单列同 x/y 递增/类别连续、E 右缘 1400 行序、CORE=hclk、SYSTICK=hclk÷deriveDiv）；validate 7 芯片 0/0；verify 6/6+embassy 6/6+BLE(CH582) 1/1；七芯片 fit 截图（V203 48%/V003 84%/X035 66%/CH582 66%/V103 58%/V307 34%+77%/H417 29%+56%）结构核过；画布宽 1790、高 696(V003)~2376(H417 18 卡)。

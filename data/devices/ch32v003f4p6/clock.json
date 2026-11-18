@@ -182,82 +182,119 @@
       ],
       "fixedDivLabel": "÷2(复位)",
       "note": "RM 图 3-2（V1.9 p11）：ADCPRE 上游=HCLK（非 APB2），档 ÷2..÷128、复位 ÷2；HAL 无 API 不写"
+    },
+    {
+      "id": "CORE",
+      "kind": "readout",
+      "label": "内核 / DMA / 存储器",
+      "inputs": [
+        {
+          "id": "AHB",
+          "label": "HCLK"
+        }
+      ],
+      "deriveDiv": 1,
+      "group": "g-out",
+      "note": "MX2 To AHB bus,core,memory and DMA / To FCLK 对应行；RISC-V 内核=HCLK；仅显示不生成"
+    },
+    {
+      "id": "SYSTICK",
+      "kind": "readout",
+      "label": "系统定时器 SysTick",
+      "inputs": [
+        {
+          "id": "AHB",
+          "label": "HCLK"
+        }
+      ],
+      "deriveDiv": 1,
+      "fixedDivLabel": "÷1 (STCLK=HCLK)",
+      "group": "g-out",
+      "note": "HAL delay/impl_qingke_v2_v4.rs：set_stclk(Stclk::HCLK)（QingKe V2）；仅显示不生成"
     }
   ],
   "diagram": {
     "nodes": {
-      "LSI": {
+      "HSI": {
         "x": 40,
-        "y": 40
+        "y": 58
       },
       "HSE": {
         "x": 40,
-        "y": 116
+        "y": 138
       },
-      "HSI": {
+      "LSI": {
         "x": 40,
-        "y": 192
+        "y": 218
       },
       "PLL": {
-        "x": 300,
-        "y": 100
-      },
-      "SYSCLK": {
-        "x": 640,
+        "x": 292,
         "y": 60
       },
+      "SYSCLK": {
+        "x": 600,
+        "y": 240
+      },
       "AHB": {
-        "x": 640,
-        "y": 200
+        "x": 880,
+        "y": 254
       },
       "APB1": {
-        "x": 920,
-        "y": 90
+        "x": 1296,
+        "y": 212
       },
       "APB2": {
-        "x": 920,
-        "y": 166,
+        "x": 1296,
+        "y": 364,
         "kind": "readout"
       },
       "TIM1": {
-        "x": 1100,
-        "y": 50
+        "x": 1296,
+        "y": 288
       },
       "TIM2": {
-        "x": 1100,
-        "y": 142
+        "x": 1296,
+        "y": 440
       },
       "ADC": {
-        "x": 1260,
+        "x": 1200,
+        "y": 516
+      },
+      "CORE": {
+        "x": 1296,
         "y": 60
       },
+      "SYSTICK": {
+        "x": 1296,
+        "y": 136
+      },
       "P-USART1": {
-        "x": 1520,
+        "x": 1560,
         "y": 60
       },
       "P-SPI1": {
-        "x": 1760,
-        "y": 60
+        "x": 1560,
+        "y": 228
       },
       "P-I2C1": {
-        "x": 2000,
-        "y": 60
+        "x": 1560,
+        "y": 396
       },
       "P-ADC1": {
-        "x": 1260,
-        "y": 188
+        "x": 1560,
+        "y": 564
       },
       "IWDG": {
         "x": 40,
-        "y": 320
+        "y": 420
       },
       "MCO": {
-        "x": 190,
-        "y": 320
+        "x": 280,
+        "y": 420
       },
       "ADCPRE": {
-        "x": 440,
-        "y": 320
+        "x": 520,
+        "y": 420
       }
     },
     "groups": [
@@ -265,54 +302,38 @@
         "id": "g-sources",
         "label": "时钟源",
         "x": 24,
-        "y": 10,
+        "y": 28,
         "w": 128,
-        "h": 244
+        "h": 252
       },
       {
         "id": "g-pll",
         "label": "PLL（×2 固定）",
-        "x": 284,
-        "y": 70,
+        "x": 276,
+        "y": 30,
         "w": 316,
-        "h": 120
+        "h": 104
       },
       {
         "id": "g-sys",
         "label": "系统时钟",
-        "x": 624,
+        "x": 584,
+        "y": 210,
+        "w": 524,
+        "h": 120
+      },
+      {
+        "id": "g-out",
+        "label": "总线 / 内核输出",
+        "x": 1172,
         "y": 30,
         "w": 244,
-        "h": 232
-      },
-      {
-        "id": "g-bus",
-        "label": "APB 总线（RM 图无 APB2 预分频）",
-        "x": 904,
-        "y": 60,
-        "w": 136,
-        "h": 168
-      },
-      {
-        "id": "g-tim",
-        "label": "定时器时钟",
-        "x": 1084,
-        "y": 20,
-        "w": 136,
-        "h": 200
-      },
-      {
-        "id": "g-adc",
-        "label": "ADC 时钟",
-        "x": 1244,
-        "y": 30,
-        "w": 232,
-        "h": 272
+        "h": 548
       },
       {
         "id": "g-usart",
         "label": "USART 时钟",
-        "x": 1504,
+        "x": 1544,
         "y": 30,
         "w": 222,
         "h": 144
@@ -320,16 +341,24 @@
       {
         "id": "g-spi",
         "label": "SPI 时钟",
-        "x": 1744,
-        "y": 30,
+        "x": 1544,
+        "y": 198,
         "w": 222,
         "h": 144
       },
       {
         "id": "g-i2c",
         "label": "I2C 时钟",
-        "x": 1984,
-        "y": 30,
+        "x": 1544,
+        "y": 366,
+        "w": 222,
+        "h": 144
+      },
+      {
+        "id": "g-adc",
+        "label": "ADC 时钟",
+        "x": 1544,
+        "y": 534,
         "w": 222,
         "h": 144
       },
@@ -337,12 +366,20 @@
         "id": "g-aux",
         "label": "仅显示域（不生成）",
         "x": 24,
-        "y": 290,
-        "w": 644,
+        "y": 390,
+        "w": 724,
         "h": 136
       }
     ],
-    "lanes": {}
+    "lanes": {
+      "ahb-apb1": 0,
+      "ahb-apb2": 0,
+      "ahb-adc": 0,
+      "aux-CORE-AHB": 0,
+      "aux-SYSTICK-AHB": 0,
+      "peri-P-I2C1": 0,
+      "peri-P-ADC1": 2
+    }
   },
   "presets": [
     {
@@ -390,5 +427,5 @@
     },
     "fallback": "explicit"
   },
-  "notes": "RM 来源：《CH32V003 应用手册》V1.9 图 3-2 CH32V003 时钟树框图（印刷 p11 / PDF p13），逐元素转录见 docs/m16-rm/v003.md。V003 PLL 固定 ×2（HAL v003.rs）；HSI=24MHz；预设 48MHZ_HSE/24MHZ_HSE 硬编码 HSE=24MHz，仅当 hxtalMhz=24 时匹配。冲突/裁决（M16 D4bis）：①RM 图无 APB2 预分频器，HCLK 直扇出（PCLK1≡PCLK2≡HCLK），但 HAL v003.rs 仍写 PPRE2（undocumented）——apb2.options 保留 [1,2,4,8,16] 供 Detail/表格配置，diagram 将 APB2 kind 覆盖为 readout 并在分组标签注明；②ADC：RM 图 3-2 ADCPRE 上游=HCLK（非 APB2）、档 ÷2..÷128、复位 ÷2，故 adc 改为 source=AHB div=2（adcMhz 由 M15 的 24 纠正为 12），结案 v003.rs:20,125 FIXME；ADCPRE 为 aux 仅显示（HAL 无 API 不写）；③MCO 枚举按寄存器 4 档 SYSCLK/HSI/HSE/PLL（无 PLL÷2），图首行 HSI 实接 SYSCLK；④RM 图 HSE 标 4~25MHz，数据手册/现有数据为 4~32MHz，保留 4~32 并在 HSE hint 显示范围；⑤无 LSE/RTC；LSI 128kHz 仅显示（IWDG/PWR/GPIO 内部计时），不进 SYSCLK/PLL 可选源、不生成。M15 外设时钟源逐字取自 ch32-data family/CH32V003.yaml：USART1=HCLK、SPI1=HCLK、I2C1=PCLK1、ADC1=PCLK2（WCH 外设无内核 mux，节点仅显示固定源徽标）；无 USB 域。"
+  "notes": "RM 来源：《CH32V003 应用手册》V1.9 图 3-2 CH32V003 时钟树框图（印刷 p11 / PDF p13），逐元素转录见 docs/m16-rm/v003.md。V003 PLL 固定 ×2（HAL v003.rs）；HSI=24MHz；预设 48MHZ_HSE/24MHZ_HSE 硬编码 HSE=24MHz，仅当 hxtalMhz=24 时匹配。冲突/裁决（M16 D4bis）：①RM 图无 APB2 预分频器，HCLK 直扇出（PCLK1≡PCLK2≡HCLK），但 HAL v003.rs 仍写 PPRE2（undocumented）——apb2.options 保留 [1,2,4,8,16] 供 Detail/表格配置，diagram 将 APB2 kind 覆盖为 readout 并在分组标签注明；②ADC：RM 图 3-2 ADCPRE 上游=HCLK（非 APB2）、档 ÷2..÷128、复位 ÷2，故 adc 改为 source=AHB div=2（adcMhz 由 M15 的 24 纠正为 12），结案 v003.rs:20,125 FIXME；ADCPRE 为 aux 仅显示（HAL 无 API 不写）；③MCO 枚举按寄存器 4 档 SYSCLK/HSI/HSE/PLL（无 PLL÷2），图首行 HSI 实接 SYSCLK；④RM 图 HSE 标 4~25MHz，数据手册/现有数据为 4~32MHz，保留 4~32 并在 HSE hint 显示范围；⑤无 LSE/RTC；LSI 128kHz 仅显示（IWDG/PWR/GPIO 内部计时），不进 SYSCLK/PLL 可选源、不生成。M15 外设时钟源逐字取自 ch32-data family/CH32V003.yaml：USART1=HCLK、SPI1=HCLK、I2C1=PCLK1、ADC1=PCLK2（WCH 外设无内核 mux，节点仅显示固定源徽标）；无 USB 域。M16-D12（2026-11-18）：diagram 按 CubeMX2 主干重构——输出右列上下并联竖排（CORE/SYSTICK 派生仅显示行）、外设单列上下并联竖排；取代 D11b 左右均衡列。"
 }

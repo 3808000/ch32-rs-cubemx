@@ -220,8 +220,15 @@ describe('buildClockTree 节点', () => {
 })
 
 describe('buildClockTree 列式回退几何（真实芯片显式去 diagram）', () => {
-  const cfg = defaultClock(spec)
-  const tree = treeOf({ ...spec, diagram: undefined }, cfg)
+  // D12：CORE/SYSTICK（g-out）只为 diagram 输出竖列存在；列式回退是 M15 遗留路径，
+  // 保留 g-aux 仅显示域列断言，去掉只在竖列里有意义的 g-out aux（否则跨列包围盒与 g-aux 重叠，非 M15 语义）
+  const fallbackSpec: ClockData = {
+    ...spec,
+    diagram: undefined,
+    aux: (spec.aux ?? []).filter((a) => a.group !== 'g-out'),
+  }
+  const cfg = defaultClock(fallbackSpec)
+  const tree = treeOf(fallbackSpec, cfg)
   const byId = new Map(tree.nodes.map((n) => [n.id, n]))
 
   /** 测试侧独立按 D1/PRIM 计算期望簇尺寸 */
@@ -366,8 +373,10 @@ describe('buildClockTree 列式回退几何（真实芯片显式去 diagram）',
     expect(ids).toContain('g-sources')
     expect(ids).toContain('g-pll')
     expect(ids).toContain('g-sys')
-    expect(ids).toContain('g-tim')
-    expect(ids).toContain('g-adc')
+    // D12：APB/TIM/ADC 域/USB 并入 g-out 输出竖列；g-tim/g-adc 不再产生
+    expect(ids).toContain('g-out')
+    expect(ids).not.toContain('g-tim')
+    expect(ids).not.toContain('g-adc')
     expect(ids).not.toContain('g-usart')
     expect(ids).not.toContain('g-usb')
     expect(ids).not.toContain('g-aux')
@@ -795,13 +804,14 @@ describe('USB 时钟域节点', () => {
   const tree = buildClockTree(s, cfg, freqs, undefined, ctx)
   const usb = tree.nodes.find((n) => n.id === 'USB')!
 
-  it('column 9 / g-usb / badge derived / control null / lockable=false', () => {
+  it('column 9 / g-out / badge derived / control null / lockable=false', () => {
     expect(usb.column).toBe(9)
-    expect(usb.group).toBe('g-usb')
+    expect(usb.group).toBe('g-out')
     expect(usb.badge).toBe('derived')
     expect(usb.control).toBeNull()
     expect(usb.lockable).toBe(false)
-    expect(tree.groups.map((g) => g.id)).toContain('g-usb')
+    expect(tree.groups.map((g) => g.id)).toContain('g-out')
+    expect(tree.groups.map((g) => g.id)).not.toContain('g-usb')
   })
 
   it('频率与双行标签来自 periFreqs；PLL→USB 边存在', () => {
@@ -971,6 +981,103 @@ describe('真实 clock.json peripheralClocks：7 芯片数据驱动', () => {
   }
 })
 
+// ---------- M16 D12：输出竖列 / 外设单列（七芯片真实数据） ----------
+
+/** SYSTICK 分频（契约 D12 表，HAL Stclk 事实：V003/V307/X035/H417=HCLK÷1，V103/V203/CH582=HCLK÷8） */
+const D12_SYSTICK_DIV: Record<string, number> = {
+  CH32V003F4P6: 1,
+  CH32V103C8T6: 8,
+  CH32V203C8T6: 8,
+  CH32V307VCT6: 1,
+  CH32X035C8T6: 1,
+  CH32H417QEU6: 1,
+  CH582M: 8,
+}
+
+describe('M16 D12 输出竖列 / 外设单列（七芯片真实数据）', () => {
+  const CHIPS = [
+    'CH32V003F4P6',
+    'CH32V103C8T6',
+    'CH32V203C8T6',
+    'CH32V307VCT6',
+    'CH32X035C8T6',
+    'CH32H417QEU6',
+    'CH582M',
+  ]
+
+  function caseOf(chip: string) {
+    const d = getDeviceData(chip)
+    const cfg = defaultClock(d.clock)
+    const freqs = computeClock(d.clock, cfg)
+    const pc = d.clock.peripheralClocks!
+    const ctx = fakePeriCtx(d.peripherals, pc, freqs)
+    const tree = buildClockTree(d.clock, cfg, freqs, undefined, ctx)
+    return { d, freqs, pc, tree }
+  }
+
+  for (const chip of CHIPS) {
+    const { d, freqs, pc, tree } = caseOf(chip)
+    const byId = new Map(tree.nodes.map((n) => [n.id, n]))
+
+    it(`${chip}：peri 单列同 x、y 严格递增、类别块 usart→spi→i2c→adc 连续`, () => {
+      const peris = tree.nodes.filter((n) => n.id.startsWith('P-'))
+      expect(peris.length).toBeGreaterThan(0)
+      expect(new Set(peris.map((n) => n.x)).size).toBe(1)
+      const sorted = [...peris].sort((a, b) => a.y - b.y)
+      for (let i = 1; i < sorted.length; i++) {
+        expect(sorted[i]!.y, `${sorted[i]!.id} 行距`).toBeGreaterThan(sorted[i - 1]!.y)
+      }
+      const categoryOf = new Map<string, 'usart' | 'spi' | 'i2c' | 'adc'>()
+      for (const cat of ['usart', 'spi', 'i2c', 'adc'] as const) {
+        for (const inst of d.peripherals[cat]) categoryOf.set(inst.id, cat)
+      }
+      const order = ['usart', 'spi', 'i2c', 'adc']
+      const ranks = sorted.map((n) => order.indexOf(categoryOf.get(n.periId!)!))
+      expect(ranks.every((r) => r >= 0), '存在未归类的外设节点').toBe(true)
+      // 非降序 = 四类块连续且顺序固定（不允许花插/左右多列回流）
+      expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
+    })
+
+    it(`${chip}：输出竖列右缘 1400、行序 CORE→V3F→SYSTICK→APB1→TIM1→APB2→TIM2→USB→ADC`, () => {
+      const ids = chip === 'CH32H417QEU6' ? ['V5F', 'V3F', 'SYSTICK'] : ['CORE', 'SYSTICK']
+      ids.push('APB1', 'TIM1', 'APB2', 'TIM2')
+      if (pc.usb) ids.push('USB')
+      ids.push('ADC')
+      let prevY = -Infinity
+      for (const id of ids) {
+        const n = byId.get(id)
+        expect(n, `缺少输出竖列节点 ${id}`).toBeTruthy()
+        expect(n!.x + n!.w, `${id} 右缘`).toBe(1400)
+        expect(n!.y, `${id} 行序`).toBeGreaterThan(prevY)
+        prevY = n!.y
+      }
+    })
+
+    it(`${chip}：源 osc 同 x；CORE/SYSTICK（H417 V5F/V3F）归 g-out`, () => {
+      // 源列仅 osc（PLL 是 sources 中 pll:true 的处理器节点，位于独立列）
+      const xs = d.clock.sources.filter((s) => !s.pll).map((s) => byId.get(s.id)!.x)
+      expect(new Set(xs).size).toBe(1)
+      if (chip === 'CH32H417QEU6') {
+        expect(byId.get('V5F')!.group).toBe('g-out')
+        expect(byId.get('V3F')!.group).toBe('g-out')
+      } else {
+        expect(byId.get('CORE')!.group).toBe('g-out')
+      }
+      expect(byId.get('SYSTICK')!.group).toBe('g-out')
+    })
+
+    it(`${chip}：默认档 CORE=HCLK、SYSTICK=HCLK÷deriveDiv（H417 V5F=SYSCLK、V3F=HCLK）`, () => {
+      if (chip === 'CH32H417QEU6') {
+        expect(byId.get('V5F')!.outMhz).toBe(freqs.sysclkMhz)
+        expect(byId.get('V3F')!.outMhz).toBe(freqs.hclkMhz)
+      } else {
+        expect(byId.get('CORE')!.outMhz).toBe(freqs.hclkMhz)
+      }
+      expect(byId.get('SYSTICK')!.outMhz).toBe(freqs.hclkMhz / D12_SYSTICK_DIV[chip]!)
+    })
+  }
+})
+
 // ---------- M16：diagram 驱动布局 / aux 仅显示域 / displayOnly 源 ----------
 
 const M16_AUX: NonNullable<ClockData['aux']> = [
@@ -1031,8 +1138,8 @@ function m16Spec(): ClockData {
         { id: 'g-sources', label: 'Clock sources', x: 24, y: 10, w: 128, h: 252 },
         { id: 'g-pll', label: 'PLL', x: 244, y: 10, w: 300, h: 104 },
         { id: 'g-sys', label: 'System Clock', x: 544, y: 10, w: 228, h: 252 },
-        { id: 'g-tim', label: 'TIM', x: 1044, y: 10, w: 136, h: 228 },
-        { id: 'g-adc', label: 'ADC', x: 1284, y: 10, w: 232, h: 92 },
+        // D12：APB1/APB2/TIM1/TIM2/ADC 域同属 g-out（成员包围盒 = x 800..1500 / y 40..220）
+        { id: 'g-out', label: 'Bus / core output', x: 784, y: 10, w: 732, h: 238 },
         { id: 'g-aux', label: 'Display-only domains', x: 24, y: 290, w: 764, h: 120 },
       ],
       lanes: { 'src-HSI-sys': 0 },
@@ -1140,8 +1247,7 @@ describe('M16 diagram 驱动布局', () => {
       'g-sources',
       'g-pll',
       'g-sys',
-      'g-tim',
-      'g-adc',
+      'g-out',
       'g-aux',
     ])
     expect(tree.groups.find((g) => g.id === 'g-aux')).toMatchObject({ x: 24, y: 290, w: 764, h: 120 })

@@ -119,3 +119,11 @@
   2. 拉起 `cargo build` / `wlink` 烧录（本地进程能力）。
   3. 图表导出 PNG/SVG、应用内更新。
   4. Windows / macOS 产物（需对应平台构建）。
+
+## 10. M16-D12 时钟树 MX2 主干重构（2026-11-18 夜）
+
+- 用户参照 CubeMX2 截图裁决：输入左竖排 / SystemClock 水平主干 / 输出右列**上下并联竖排** / 外设**单列上下并联**（「并联是上下并联不是左右」，取代 D11b 左右均衡列）。
+- CORE/SYSTICK 为 aux 派生仅显示行（`deriveDiv`/`group` schema 扩展）；SysTick 逐芯片 HAL 事实：QingKe V2/V4/X035/H417=HCLK、V3/CH582=HCLK÷8（HAL notes §16.6 表）。MX2「To Power」WCH 无独立域不造假行。
+- TIM/USB/ADC/APB 归 g-out；E 列读数卡右对齐 1400；lanes 共享走廊=竖直干线观感；坐标基线实测偏离见契约 D12bis。
+- 门禁：1524 测试（clockTree 127 含 28 D12 断言）/ validate 7 芯片 0/0 / tsc/eslint/build / verify 6/6+embassy 6/6+BLE(CH582) 1/1；七芯片浏览器 fit 截图验收；clock.png 刷新（V203 48%）。
+- 教训：子代理后端瞬时故障（8 连 Model request failed）→ 主控直执 E 域小扩展后再重启子代理（用户切换 API 后恢复）；IAB 表格行/Continue 点击 actionability 失败 → evaluate dispatch MouseEvent；芯片表分页（X035/CH582 在第 2 页）→ wizard 搜索框过滤；cua drag 起点落在节点上会选中文本（截图蓝块伪影）→ 空白处起拖+removeAllRanges。
