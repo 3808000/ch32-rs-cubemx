@@ -636,7 +636,7 @@ Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）�
 - 根因：stack_init 的 SysTick `STCLK=hclk_div8`（计数率 **HCLK/8**，与 HAL SysTick 驱动 systick.rs:16 一致），而 `notify_period = clocks().hclk` **缺 /8** → 60M tick ÷ 7.5MHz = 8s。**M13「实测硅片 SysTick=HCLK」系误判**（PAC ch58x-0.4.0 核实：STCLK_A HCLK_DIV8=0/HCLK=1，CNT 为 u64 无截断环绕；§14.2ter/§14.2quater 相关表述以本节为准）。
 - 修复：`notify_period = clocks().hclk.to_Hz() / 8`（bleRs 模板 + 注释 + README + 测试断言）。
 - **实机复验（fw-notify，OpenOCD Verified OK）**：20s 窗口 **20 包，间隔 0.97–1.19s（均值 ≈0.99s）**；FFE1 读=00（新固件初值）→ FFE2 写 42 → notify 全 42（write→notify_value 路径宿主端实证）。**M14 遗留「notify 周期待实测」闭环**。
-- 连带澄清：ch58x-hal#13 的「hclk/8 速率假设错误」论点需修正——HAL 的 hclk/8 假设与硅片一致（STCLK=0 时）；该 issue 的 WFI 停计部分仍成立。待用户决定是否补评论。
+- 连带澄清：ch58x-hal#13 的「hclk/8 速率假设错误」论点需修正——HAL 的 hclk/8 假设与硅片一致（STCLK=0 时）；该 issue 的 WFI 停计部分仍成立。**更正评论已提交（用户批准，2026-11-18）**：[#13 comment](https://github.com/ch32-rs/ch58x-hal/issues/13#issuecomment-6968946706)——撤回 claim 2（附双周期实测表 + PAC 交叉核实），保留 claim 1（WFI 停计），原 61.6M/s 读数标注不可复现/不可靠；issue 标题含已撤回论点，待编辑（评论中已声明）。
 
 ### 14.3 M12 验证状态
 
