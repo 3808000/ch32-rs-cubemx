@@ -601,7 +601,7 @@ Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）�
 **生成器侧修复（未改 HAL 源码，契约 D20–D22）**：
 1. `stack_init()` 替代 `ble::init`：经公开 ffi 自建 `bleConfig_t`——**SelRTCClock 随 `ble.clock32k`（新增选项，缺省 lse=0，lsi 回退=1）**、自有 6KB 堆（与 HAL BLE_HEAP 同尺寸）、自有 embassy-sync PubSub 通道（同参数 4/2/2）+ TMOS 任务（SYS_EVENT_MSG→publish；0x2000 事件→BLE_RegInit+120s 重定时，与 HAL hal_tmos_task 等价）、srandCB=SysTick CNT（stack_init 内配自由运行：CMP=0xFFFFFFFF、CTLR 只 STE 不开中断）、tsCB=hal::ble::temperature_raw（HAL 公开）、**rcCB=None**（校准移植为后续增强）。clock.rs 同步：lse 缺省生成 `config.clock.enable_lse()`（与 SelRTCClock=0 一致）；lsi 不生成。
 2. `mac_addr_lsb()` 替代 `config()`：MacAddress 元组字段私有（mod.rs:266）无法从 ble::Config 取字节 → 生成器直接产出 LSB-first 数组（factory=hal::isp::get_mac_address()；custom=MSB 反转；default=[0x66..0x11]）。
-3. **busy-poll 连续轮询无 delay**：官方 C Main_Circulation = `while(1){TMOS_SystemProcess();}`（peripheral_main.c:40）；M13 的 delay_us(300) 取自上游 embassy Rust 示例（该示例走 SysTick Timer，在本硅片从未跑通，§14.2bis）。notify 周期最终用 **SysTick CNT**（周期=`clocks().hclk`≈1s，单次 load）；曾试 TMOS_GetSystemClock 时基——它**非纯 getter**（调 pfnTimerCBs 累加 gTmosPara，反汇编核实），每圈含一次 __udivdi3（clockGetTickValve 内），PC 采样实测占主循环 5/6 时间，弃用。连接期间 GAP/GATT 事件静默消费（阻塞 UART println 会饿死 TMOS 泵）。
+3. **busy-poll 连续轮询无 delay**：官方 C Main_Circulation = `while(1){TMOS_SystemProcess();}`（peripheral_main.c:40）；M13 的 delay_us(300) 取自上游 embassy Rust 示例（该示例走 SysTick Timer，在本硅片从未跑通，§14.2bis）。notify 周期最终用 **SysTick CNT**（周期=`clocks().hclk`≈1s，单次 load）；曾试 TMOS_GetSystemClock 时基——它**非纯 getter**（调 pfnTimerCBs 累加 gTmosPara，反汇编核实），每圈含一次 __udivdi3（clockGetTickValve 内），PC 采样实测占主循环 5/6 时间，弃用。连接期间 GAP/GATT 事件静默消费（阻塞 UART println 会饿死 TMOS 泵）。**M14 中午更正：「周期=clocks().hclk」缺 /8（STCLK=HCLK/8），实机 8s 周期裁决后已修为 hclk/8，见 §14.2quinquies。**
 
 **烧录工具链事故（诚实记录）**：`wlink flash <elf>`（无 verify）烧 M14 首版后**广播消失**；wlink dump 读外设/RAM 出现与运行态矛盾的值（CLK_SYS_CFG/pfnTimerCBs 等，halted 与 running 读一致但和固件行为不符——wlink dump 外设读可靠性存疑，本节不以其为证据）。改 **MRS OpenOCD `program <elf> verify reset exit` → Verified OK 后广播立即恢复**。结论：CH58x 烧录一律走 OpenOCD program verify（M13 流程），wlink flash 产物不可信；寄存器证据以 OpenOCD+gdb 为准。另：WCH-Link 当日多次自发 USB 掉线重枚举（内核日志可查），掉线期间 OpenOCD 读全零/attach 失败——取证前先确认探针在线。
 
@@ -611,7 +611,32 @@ Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）�
 - **发货配置**：`ble.clock32k` 缺省 **lse**（官方模组标配晶振，连接已验证）；lsi 回退保留（无晶振板，校准未移植、连接稳定性未保证，UI 有警告文案）。发货版 Rust 固件（LSE + stack_init + 连续轮询 + SysTick notify）已 OpenOCD Verified OK 烧录，广播 CH582M 正常；手机对 Rust 固件的 FFE1/FFE2 读写+notify 验证进行中。
 - 生成服务语义（手机验证判据）：读 FFE1=00 → 写 FFE2=42 → 读 FFE1=42 + notify 订阅每秒收 42（write 落 notify_value，read/notify 返回它）。
 - **上游 issue 已提交（2026-11-18）**：qingke#42（MIE 启动缺陷，含 0.8.4 v4 路径仍缺 MIE 的疑问）· ch58x-hal#13（SysTick WFI 停计 + hclk/8 速率假设错误）· ch58x-hal#14（ble::init SelRTCClock=0/rcCB=None 硬编码，建议暴露 32K 源 + 校准回调）· ch32-hal#283（v3 96MHZ_HSE 常量实为 48MHz，源码逐字核实）· ch32-hal#284（v1/v3 Div<AHBPrescaler> 对 ÷64..512 移位数错，clocks() 虚高 2×；寄存器写入路径正确）。
-- **手机对 Rust 发货固件读写成功（用户实测确认）**：CH582M 连接 → FFE0/FFE1/FFE2 发现 → FFE2 写 → FFE1 读回一致。**Rust 生成固件 BLE 全链路（广播→连接→GATT 发现→读写）实机闭环**。notify 订阅发送路径编译 verified，周期待实测确认（不宣称已验证）。
+- **手机对 Rust 发货固件读写成功（用户实测确认）**：CH582M 连接 → FFE0/FFE1/FFE2 发现 → FFE2 写 → FFE1 读回一致。**Rust 生成固件 BLE 全链路（广播→连接→GATT 发现→读写）实机闭环**。notify 订阅发送路径编译 verified，周期待实测确认（不宣称已验证）。**M14 中午更新：宿主 AX210 修复后 notify 周期实机裁决 + 修复闭环，见 §14.2quinquies。**
+
+### 14.2quinquies M14 宿主蓝牙攻坚闭环（2026-11-18 中午）：AX210 根因 + notify 周期实机裁决
+
+**背景**：§14.2quater 把宿主 GATT 卡顿定位到本机 AX210（手机对照秒级）。本轮用户指令「修复 AX210 固件/共存参数」，宿主侧根因实证闭环，并顺带裁决了 notify 周期。
+
+**宿主取证链（全部实证）**：
+1. 初始状态：BT USB（8087:0032，5-1）`power/control=auto` 且 **runtime_status=suspended**（2s 自动挂起）；内核 `Unexpected continuation frame (len 7)` 自开机累计 ×8；固件 `intel/ibt-0041-0041.sfi` 24-29.26（linux-firmware 20261019）。
+2. **btmon HCI 抓包裁决**：连接建立（45ms 间隔）→ bluez 发 ATT Exchange MTU Request(517) → DLE 协商 27 字节 → **LE PHY Update Complete → 2M** → **1ms 后**收到的 MTU 响应整包 `03 00 04 00 03 17 00`（L2CAP len=3/CID=4 + ATT opcode 03 MTU=23，恰 7 字节）被标为 **flags 0x01（continuation）**，无 start 帧 → 内核丢包 → ATT 超时 → GATT 发现卡死。**根因：AX210 在 2M PHY 切换后首个 ACL 包 PB 标志损坏**（start 帧丢失/误标）。
+3. **排除固件版本回归**：三版对照——2026-10（build 82200，原版）/ 2025-01（build 79483）/ 2024-09（build 73111），btintel 版本比对触发真实重新下载（dmesg "Firmware loaded in 1.2s"）——**三版同症状**。原固件已恢复。
+4. **排除 autosuspend 根因**：关闭后（btusb.enable_autosuspend=N + 5-1 control=on）症状仍在；保留为辅助卫生（Intel BT 挂起恢复有 HCI 错乱前科）。
+5. **coex 参数核实为 no-op**：`iwlwifi bt_coex_active=0` 仅 **dvm**（老芯片 op_mode）消费；**mvm**（AX210）源码只在 mac80211.c:461 打印警告、coex.c 不读该参数（GitHub 源码逐字核实）。配置中已移除并注释说明。
+6. **修复验证**：`btmgmt phy BR1M1SLOT LE1MTX LE1MRX` 强制 LE 1M → **GATT 发现 1.17s、FFE1 读/FFE2 写成功、零内核报错**（多次复现）。2M PHY 即触发损坏。
+
+**宿主持久化（已落地）**：
+- `/etc/systemd/system/ax210-phy-1m.service`（enabled + active）：开机 `btmgmt phy BR1M1SLOT LE1MTX LE1MRX`。代价：本机所有 LE 连接走 1M（鼠标等外设正常；LE Audio 等高吞吐场景受限——开发机可接受）。
+- `/etc/modprobe.d/ax210-bt.conf`：`options btusb enable_autosuspend=0` + 根因/边界注释。
+- 原固件备份：`/var/tmp/ax210-fw-backup/ibt-0041-0041.sfi.xz.orig`。
+- 诚实边界：这是 **workaround 而非适配器修复**——2M PHY 损坏机制未解（固件三版同症，疑硅片/驱动深层问题）；修复后 GATT 功能正常但延迟有波动（发现 1.2–4.9s、读 0.45–2.1s，手机对照秒级），疑残留 RF/宿主次级因素，不阻塞开发使用。上游报告（linux-bluetooth/Intel）待用户决定。
+
+**notify 周期实机裁决（生成器 bug #6，已修复 + 实机复验）**：
+- 20s 订阅计数：发货固件 notify 间隔 **7.98s / 8.00s**（3 包）——**不是设计的 1s**。
+- 根因：stack_init 的 SysTick `STCLK=hclk_div8`（计数率 **HCLK/8**，与 HAL SysTick 驱动 systick.rs:16 一致），而 `notify_period = clocks().hclk` **缺 /8** → 60M tick ÷ 7.5MHz = 8s。**M13「实测硅片 SysTick=HCLK」系误判**（PAC ch58x-0.4.0 核实：STCLK_A HCLK_DIV8=0/HCLK=1，CNT 为 u64 无截断环绕；§14.2ter/§14.2quater 相关表述以本节为准）。
+- 修复：`notify_period = clocks().hclk.to_Hz() / 8`（bleRs 模板 + 注释 + README + 测试断言）。
+- **实机复验（fw-notify，OpenOCD Verified OK）**：20s 窗口 **20 包，间隔 0.97–1.19s（均值 ≈0.99s）**；FFE1 读=00（新固件初值）→ FFE2 写 42 → notify 全 42（write→notify_value 路径宿主端实证）。**M14 遗留「notify 周期待实测」闭环**。
+- 连带澄清：ch58x-hal#13 的「hclk/8 速率假设错误」论点需修正——HAL 的 hclk/8 假设与硅片一致（STCLK=0 时）；该 issue 的 WFI 停计部分仍成立。待用户决定是否补评论。
 
 ### 14.3 M12 验证状态
 

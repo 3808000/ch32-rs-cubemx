@@ -93,7 +93,7 @@ ch58x-hal 只提供 PLL 时钟源（固定 **480MHz VCO ÷ div**，div 合法 2.
 - qingke-rt 0.5 启动后 \`mstatus.MIE=0\`（注释称由 mret 置位，实机未生效）→ 所有 ISR 不执行；入口显式 \`csrs mstatus, 8\` 补 MIE（放在 \`hal::init\` 之前）。
 - ch58x-hal 的 embassy SysTick 时间驱动在 CH58x 上因 **WFI 空闲停计**而饿死（空闲期 CNT 几乎不走）；BLE 档因此**不使用 embassy 执行器/Timer**，TMOS 泵改为阻塞主循环 \`loop { TMOS_SystemProcess(); … }\`。
 - **连续轮询、无 delay（M14 实机修复，§14.2quater）**：官方 C Peripheral 的 Main_Circulation 即 \`while(1){ TMOS_SystemProcess(); }\`；M13 曾按上游 Rust 示例加 \`hal::delay_us(300)\`（该示例走 embassy Timer，在本硅片上从未跑通），实机表现为广播正常但 CONNECT_IND 后链路建立失败（bluez le-connection-abort-by-local）——轮询间隙饿死连接事件的链路层处理。
-- GAP/GATT 事件用 \`embassy-sync\` 的 \`Subscriber::try_next_message_pure()\` 非阻塞轮询（单订阅者，取到即 drop，连接期间静默消费——阻塞 UART println 会饿死 TMOS 泵）；notify 周期用 **SysTick CNT**（stack_init 配自由运行，实测硅片 SysTick=HCLK，周期取 \`clocks().hclk\` ≈1s）+ \`read_char_cfg\` 判断 CCCD 订阅。不用 \`TMOS_GetSystemClock()\` 计时——它每圈调用含 64 位软除法，实测占主循环 5/6 时间。
+- GAP/GATT 事件用 \`embassy-sync\` 的 \`Subscriber::try_next_message_pure()\` 非阻塞轮询（单订阅者，取到即 drop，连接期间静默消费——阻塞 UART println 会饿死 TMOS 泵）；notify 周期用 **SysTick CNT**（stack_init 配自由运行，STCLK=HCLK/8，周期取 \`clocks().hclk / 8\` ≈1s，M14 宿主实测间隔裁决）+ \`read_char_cfg\` 判断 CCCD 订阅。不用 \`TMOS_GetSystemClock()\` 计时——它每圈调用含 64 位软除法，实测占主循环 5/6 时间。
 - 工具链因此固定 **stable**（无 nightly feature）；Cargo 没有 \`embassy-executor\`/\`embassy-time\` 直接依赖。
 
 初始化顺序：\`hal::init\` → \`stack_init\`（自建 bleConfig_t + TMOS 任务/通道，**替代 ble::init**——其硬编码 SelRTCClock=0 无法适配无晶振板）→ \`GAPRole::*_init\` → \`GGS_AddService\` + \`GATTServApp::add_service\` → （peripheral）\`register_service\` → \`*StartDevice\` → busy-poll 主循环（**连续轮询 TMOS_SystemProcess，不可加 delay**）。

@@ -196,8 +196,9 @@ fn with_state<R>(f: impl FnOnce(&mut BleState) -> R) -> R {
     critical_section::with(|_| unsafe { f(&mut STATE) })
 }
 
-// notify 周期 ≈1s：SysTick 自由运行计数（stack_init 已配置，实测硅片 SysTick=HCLK，M13 §14.2ter），
-// 周期取 hal::sysctl::clocks().hclk（随 PLL 预设自适应）。不用 TMOS_GetSystemClock——
+// notify 周期 ≈1s：SysTick 自由运行计数（stack_init 配置 STCLK=hclk_div8 → 计数率 HCLK/8，
+// 与 HAL SysTick 驱动一致；M14 宿主实测 notify 间隔 8.00s 裁决：周期必须 hclk/8，
+// 原 hclk 缺 /8 导致 8s 周期，§14.2quinquies）。周期随 PLL 预设自适应。不用 TMOS_GetSystemClock——
 // 它每圈调用含 __udivdi3（clockGetTickValve 内），实测占主循环 5/6 时间（M14 §14.2quater）。
 
 /// 读回调：offset>0 → ATT_ERR_ATTR_NOT_LONG；未知 UUID → ATT_ERR_ATTR_NOT_FOUND
@@ -311,10 +312,11 @@ unsafe fn send_notification(conn_handle: u16, value: u8) {
 /// TMOS busy-poll 主循环（peripheral）：**连续轮询、无 delay**（M14 实机修复）——
 /// 官方 C Main_Circulation 即 while(1){TMOS_SystemProcess();}（EVT Peripheral/peripheral_main.c:40）；
 /// 300µs 轮询间隙会饿死连接事件的链路层处理（广播正常但连接建立失败，§14.2quater）。
-/// notify 计时用 SysTick CNT（单次 load，≈1s 周期随 HCLK 自适应）。#[highcode] 放高速 RAM。
+/// notify 计时用 SysTick CNT（STCLK=HCLK/8，周期 = hclk/8 ≈1s 随 PLL 自适应）。#[highcode] 放高速 RAM。
 #[highcode]
 fn tmos_poll(mut subscriber: ble::EventSubscriber) -> ! {
-    let notify_period: u32 = hal::sysctl::clocks().hclk.to_Hz();
+    // SysTick 计数率 = HCLK/8（stack_init STCLK=hclk_div8）→ 1s 周期取 hclk/8（M14 实机裁决）
+    let notify_period: u32 = hal::sysctl::clocks().hclk.to_Hz() / 8;
     let mut last_notify: u32 = 0;
     loop {
         unsafe {

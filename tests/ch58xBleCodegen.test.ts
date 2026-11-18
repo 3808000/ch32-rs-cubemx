@@ -500,8 +500,9 @@ describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
     expect(c).toContain('GATT_Notification(conn_handle, &noti, 0).is_err()')
     expect(c).toContain('GATT_bm_free(buf as *mut gattMsg_t, ATT_HANDLE_VALUE_NOTI)')
     // M14：协议栈自身时基 625µs/tick × 1600 = 1s（连续轮询后不能再数循环圈数）
-    // M14：SysTick CNT 时基（≈HCLK，周期取 clocks().hclk）；TMOS_GetSystemClock 每圈含 u64 软除法弃用
-    expect(c).toContain('let notify_period: u32 = hal::sysctl::clocks().hclk.to_Hz();')
+    // M14：SysTick CNT 时基（STCLK=HCLK/8 → 周期 = hclk/8 ≈1s；宿主实测 8.00s 间隔裁决缺 /8）；
+    // TMOS_GetSystemClock 每圈含 u64 软除法弃用
+    expect(c).toContain('let notify_period: u32 = hal::sysctl::clocks().hclk.to_Hz() / 8;')
     expect(c).toContain('(&*hal::pac::SYSTICK::PTR).cnt().read().bits() as u32')
     expect(c).toContain('now.wrapping_sub(last_notify) >= notify_period')
     // 注释里会提到弃用原因；只断言不存在实际调用
