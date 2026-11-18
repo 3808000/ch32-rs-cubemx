@@ -1,0 +1,253 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '构建用版本标签（workflow_dispatch 仅构建产物，不创建/发布 Release）'
+        required: false
+        default: 'v0.1.0'
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  create-release:
+    name: Create draft release
+    runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+      is_tag: ${{ steps.release.outputs.is_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 创建或复用 draft release（仅 tag 推送）
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "ch32-rs-CubeMX $TAG" --notes "自动构建产物见 assets；发布说明由维护者补充。"
+
+      - name: 解析 release id
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+            ID="$(gh release view "$TAG" --json databaseId -q .databaseId)"
+            echo "release_id=$ID" >> "$GITHUB_OUTPUT"
+            echo "is_tag=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_id=" >> "$GITHUB_OUTPUT"
+            echo "is_tag=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: create-release
+    # create-release 在 workflow_dispatch 下也能正常完成（只是不建 Release）；
+    # always() 保证上游失败/跳过后仍尝试构建，cancel 时不浪费资源。
+    if: always() && !cancelled()
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            platform: ubuntu-22.04
+            args: '--bundles deb,rpm,appimage'
+            rust_targets: ''
+          - name: macos
+            platform: macos-latest
+            args: '--target universal-apple-darwin --bundles dmg,app'
+            rust_targets: 'aarch64-apple-darwin,x86_64-apple-darwin'
+          - name: windows
+            platform: windows-latest
+            args: '--bundles nsis,msi'
+            rust_targets: ''
+    runs-on: ${{ matrix.platform }}
+    env:
+      TAG: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag || 'v0.1.0' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev \
+            librsvg2-dev rpm libfuse2
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Build bundles and attach to release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: src-tauri
+          # 根 package.json 没有 `tauri` 脚本，显式指定 CLI 调用方式（v0 默认 `npm run tauri`）。
+          tauriScript: npx tauri
+          # 只有成功拿到 draft release id（tag 推送）时才关联/上传 Release；
+          # 为空时 tauri-action 仅构建并把产物留作 workflow artifacts。
+          tagName: ${{ needs.create-release.outputs.release_id != '' && github.ref_name || '' }}
+          releaseId: ${{ needs.create-release.outputs.release_id }}
+          args: ${{ matrix.args }}
+          includeUpdaterJson: false
+          uploadWorkflowArtifacts: true
+
+      - name: Upload build artifacts (build-only runs)
+        if: needs.create-release.outputs.release_id == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ch32-rs-cubemx-${{ matrix.name }}
+          path: |
+            src-tauri/target/release/bundle/**
+            src-tauri/target/universal-apple-darwin/release/bundle/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Generate and upload checksums (Linux/macOS)
+        if: needs.create-release.outputs.release_id != '' && runner.os != 'Windows'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if command -v sha256sum >/dev/null 2>&1; then
+            HASH=(sha256sum)
+          else
+            HASH=(shasum -a 256)
+          fi
+          checksums=()
+          while IFS= read -r -d '' file; do
+            dir="$(dirname "$file")"
+            base="$(basename "$file")"
+            (cd "$dir" && "${HASH[@]}" "$base" > "$base.sha256")
+            checksums+=("$dir/$base.sha256")
+          done < <(find src-tauri/target -type f \
+            \( -path '*/release/bundle/deb/*.deb' \
+            -o -path '*/release/bundle/rpm/*.rpm' \
+            -o -path '*/release/bundle/appimage/*.AppImage' \
+            -o -path '*/release/bundle/dmg/*.dmg' \) -print0)
+          if [ "${#checksums[@]}" -eq 0 ]; then
+            echo "::error::未找到 Linux/macOS 打包产物，无法生成校验和"
+            exit 1
+          fi
+          gh release upload "$TAG" "${checksums[@]}" --clobber
+
+      - name: Build and upload Linux portable archive
+        if: needs.create-release.outputs.release_id != '' && runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          name="ch32-rs-cubemx-${TAG}-linux-x86_64"
+          root="portable/${name}"
+          mkdir -p "$root"
+
+          install -m 755 src-tauri/target/release/ch32-rs-cubemx "$root/ch32-rs-cubemx"
+          install -m 644 src-tauri/icons/128x128@2x.png "$root/ch32-rs-cubemx.png"
+
+          printf '%s\n' \
+            '[Desktop Entry]' \
+            'Type=Application' \
+            'Name=ch32-rs-CubeMX' \
+            'Comment=CH32 RISC-V 纯本地图形化配置器' \
+            'Exec=ch32-rs-cubemx' \
+            'Icon=ch32-rs-cubemx' \
+            'Terminal=false' \
+            'Categories=Development;Electronics;' \
+            'Keywords=CH32;RISC-V;Rust;CubeMX;' \
+            > "$root/ch32-rs-cubemx.desktop"
+
+          printf '%s\n' \
+            '# ch32-rs-CubeMX Linux 便携包' \
+            '' \
+            '解压后直接运行：' \
+            '' \
+            '    ./ch32-rs-cubemx' \
+            '' \
+            '运行需要系统 WebKitGTK 4.1 与 GTK3 运行库（Fedora / Ubuntu / Arch 等主流发行版默认自带）。' \
+            '也可使用本次 Release 中的 .deb / .rpm / .AppImage 包安装或运行。' \
+            '' \
+            '文件说明：' \
+            '' \
+            '- ch32-rs-cubemx：可执行文件' \
+            '- ch32-rs-cubemx.desktop：桌面入口（按需复制到 ~/.local/share/applications/）' \
+            '- ch32-rs-cubemx.png：应用图标' \
+            > "$root/README.md"
+
+          tar -C portable -czf "portable/${name}.tar.gz" "$name"
+          (cd portable && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+
+          gh release upload "$TAG" \
+            "portable/${name}.tar.gz" \
+            "portable/${name}.tar.gz.sha256" \
+            --clobber
+
+      - name: Generate and upload checksums (Windows)
+        if: needs.create-release.outputs.release_id != '' && runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $files = Get-ChildItem -Path 'src-tauri/target/release/bundle' -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.exe', '.msi' }
+          if (-not $files) {
+            throw '未找到 Windows 打包产物，无法生成校验和'
+          }
+          $checksums = @(foreach ($file in $files) {
+            $hash = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLower()
+            $line = "$hash  $($file.Name)"
+            [IO.File]::WriteAllText("$($file.FullName).sha256", $line + "`n", [Text.Encoding]::ASCII)
+            "$($file.FullName).sha256"
+          })
+          gh release upload $env:TAG @checksums --clobber
+
+  publish-release:
+    name: Publish release
+    needs:
+      - create-release
+      - build
+    if: github.ref_type == 'tag' && needs.create-release.outputs.release_id != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: 取消 draft 状态
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ github.ref_name }}" --draft=false -R "${{ github.repository }}"

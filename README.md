@@ -1,123 +1,152 @@
 # ch32-rs-CubeMX
 
-纯本地图形化配置器：在封装图上点引脚、配外设、调时钟树，一键导出**可直接 `cargo build` 的 [ch32-hal](https://github.com/ch32-rs/ch32-hal) Rust 工程**（WCH CH32 RISC-V 系列）。界面对标 STM32CubeMX2，代码生成后端是 Rust（不是 C）。
+> 纯本地 CH32 RISC-V 图形化配置器：在封装图上点引脚、配置外设与时钟树，生成**可直接 `cargo build` 的 Rust 工程**（[ch32-hal](https://github.com/ch32-rs/ch32-hal) / [ch58x-hal](https://github.com/ch32-rs/ch58x-hal)）。界面交互对标 STM32CubeMX2，代码生成后端是 Rust，不生成 C 代码。
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/release-v0.1.0-blue.svg)](https://github.com/3808000/ch32-rs-cubemx/releases)
 
 提供两种形态：
 
-- **桌面应用**（Tauri 2，推荐）：下载 [Releases](https://github.com/3808000/ch32-rs-cubemx/releases) 中的 Linux 产物，解压即用。
-- **浏览器模式**：`npm run dev`，或 `npm run build` 后部署 `dist/`。
+- **桌面应用**（Tauri 2，推荐）：从 [Releases](https://github.com/3808000/ch32-rs-cubemx/releases) 下载对应平台安装包。
+- **浏览器模式**：`npm run dev` 本地运行，或 `npm run build` 后部署 `dist/`。
+
+## 特性
+
+- **封装图点引脚**：GPIO、复用功能（AF/remap）、模拟、EXTI、保留引脚统一在封装图上分配；九态过滤、图例、右键菜单、信号选择器、拖拽移脚、90° 旋转与 Bottom 镜像、分组与冲突检查。
+- **外设配置**：USART / SPI / I2C / ADC / EXTI 实例配置，含 remap 档位、Mode + Activate 流程与参数编辑；时钟树覆盖 AHB/APB、TIM、USB、ADC 等时钟域（USB 48M 域为仅显示）。
+- **MX2 风格时钟树**：逐芯片按 RM/DS 时钟框图转录并手写布局（7 份转录，含版本/图号/页码/SHA-256）；输入源左列、主干水平，输出与外设**上下并联竖排**；PLL 求解器、预设匹配、锁定节点、冲突检查与 `Resolve issues` 自动修复；无驱动/未建模域以灰显**仅显示**补全（LSI/LSE/RTC/MCO/PLL2/3/USBHS/32K、CORE/SYSTICK 等），不进入配置与代码生成。
+- **BLE 配置（CH582M）**：数据驱动的 peripheral（含简单 GATT 服务）/ broadcaster / observer 三角色，广播名、间隔、MAC、UUID16、notify 等参数；广播、连接建立与手机侧 GATT 读写已在实机验证。
+- **中断与 DMA 视图**：NVIC/PFIC 中断使能与优先级，生成 `generated/irq.rs`；DMA 通道配置用于 embassy 档。
+- **代码生成**：`src/generated/**` 每次导出整体重写，`src/main.rs` 永不覆盖；导出工程内嵌完整 vendor HAL 并以 path 依赖引用；H417 生成双核 Cargo workspace；导出前有冲突预览与逐文件决议，保留用户手改内容。
+- **工程回读与管理**：`cube.json` 导入/导出可往返编辑；桌面端磁盘工程库、自动保存、最近工程、全局撤销/重做、Monaco 只读预览与 diff、HTML 单文件报告、可选 VS Code 配置。
+- **纯本地**：无云端依赖、无账号、无遥测；浏览器模式同样在本地完成生成与打包。
+
+## 支持芯片
+
+| 芯片 | 封装 | 内核 | 目标 / 工具链 | 生成支持 |
+|---|---|---|---|---|
+| CH32V003F4P6 | TSSOP20 | QingKe V2A（RV32EC） | `riscv32ec-unknown-none-elf` · nightly | ✅ ch32-hal（blocking / embassy） |
+| CH32V103C8T6 | LQFP48 | QingKe V3A（RV32IMAC） | `riscv32imc-unknown-none-elf` · stable | ✅ ch32-hal（blocking / embassy） |
+| CH32V203C8T6 | LQFP48 | QingKe V4B（RV32IMAC） | `riscv32imac-unknown-none-elf` · stable | ✅ ch32-hal（blocking / embassy） |
+| CH32V307VCT6 | LQFP100 | QingKe V4F（RV32IMAFC） | `riscv32imfc-unknown-none-elf`（自定义 target，build-std）· nightly | ✅ ch32-hal（blocking / embassy） |
+| CH32X035C8T6 | LQFP48 | QingKe V4C（RV32IMAC） | `riscv32imc-unknown-none-elf` · stable | ✅ ch32-hal（blocking / embassy） |
+| CH32H417QEU6 | QFN128 | QingKe V3F + V5F 双核 | `riscv32imafc` / `riscv32imafbc` · stable | ✅ ch32-hal（双核 workspace，`cargo xtask build`；embassy 档暂不开放——双核异步路径待端到端验证） |
+| CH582M | QFN48 | QingKe V4A（RV32IMAC） | `riscv32imc-unknown-none-elf` · stable | ✅ ch58x-hal（blocking / embassy / BLE） |
+
+说明：CH582M 编译目标刻意选用 `riscv32imc`，以规避其 QingKe 原子指令缺陷（上游认可的回退路径），不属于数据错误。芯片差异由 `data/devices/<chip>/` 下的 JSON 数据表达，新增同族芯片以数据接入为主。
+
+## 截图
 
 | 引脚配置 | 时钟树 | 外设 |
 |---|---|---|
 | ![](docs/images/pinout.png) | ![](docs/images/clock.png) | ![](docs/images/peripherals.png) |
 
-## 下载桌面版
+## 下载桌面版 v0.1.0
+
+前往 [Releases](https://github.com/3808000/ch32-rs-cubemx/releases) 页面下载。桌面产物由 GitHub Actions 在推送 tag 时自动构建并发布（工作流 `.github/workflows/release.yml`）。
 
 | 平台 | 产物 | 说明 |
 |---|---|---|
-| Linux x86_64 | `ch32-rs-cubemx-v0.01-linux-x86_64.tar.gz` | 解压后运行 `./ch32-rs-cubemx`（需系统 WebKitGTK 4.1，主流发行版已自带）|
-| Linux x86_64 | `.rpm` / `.deb` | 包管理器安装（若本次构建产出）|
-| Windows / macOS | 从源码构建 | 需在对应平台执行 `npm install && npm run desktop:build` |
+| Linux x86_64 | `.deb` / `.rpm` / `.AppImage` / 便携 `.tar.gz` | 便携包解压后运行 `./ch32-rs-cubemx`；需要系统 WebKitGTK 4.1 与 GTK3 运行库 |
+| Windows x86_64 | `.msi` / `.exe`（NSIS） | 未签名安装包可能触发 SmartScreen，选择「更多信息 → 仍要运行」 |
+| macOS universal | `.dmg` | 未签名/未公证：首次打开请右键「打开」，或在「系统设置 → 隐私与安全性」中允许 |
+
+Linux 的 `.deb` 声明依赖 `libwebkit2gtk-4.1-0` 与 `libgtk-3-0`；其他发行版请安装对应的 WebKitGTK 4.1 运行库。
 
 ## 快速开始（源码）
+
+需要 Node.js 22+。桌面模式额外需要 Rust（rustup）与对应平台的 WebView 构建依赖。
 
 ```bash
 npm install
 npm run dev          # 浏览器模式 http://localhost:5173
-npm run desktop:dev  # 桌面模式（Tauri，需要 Rust 与 WebKitGTK 开发包）
+npm run build        # 类型检查 + 生产构建（输出 dist/）
+npm run desktop:dev  # 桌面模式（Tauri 2）
+npm run desktop:build # 桌面安装包（src-tauri/target/release/bundle/）
 ```
 
-Linux 构建桌面版需要：`webkit2gtk4.1-devel libsoup3-devel gtk3-devel librsvg2-devel`（Fedora）或
-`libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev librsvg2-dev`（Debian/Ubuntu）。
+Linux 构建桌面版的系统依赖：
 
 ```bash
-npm run desktop:build          # 产物：src-tauri/target/release/ 与 bundle/
+# Fedora
+sudo dnf install webkit2gtk4.1-devel libsoup3-devel gtk3-devel librsvg2-devel
+
+# Debian / Ubuntu
+sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev librsvg2-dev
 ```
+
+Windows 使用系统 WebView2（Windows 10/11 通常已自带）与 Rust MSVC 工具链；macOS 使用系统自带 WKWebView，建议安装 Xcode Command Line Tools。
 
 ## 验证命令
 
-```bash
-npm run test             # Vitest 单元测试（380 用例）
-npm run build            # vue-tsc 类型检查 + vite 构建
-npm run lint             # ESLint
-npm run validate:device  # 器件数据校验（CI 必过）
-npm run verify:build     # 端到端：生成工程 → cargo build --release
-```
+| 命令 | 内容 | 当前基线 |
+|---|---|---|
+| `npm test` | Vitest 单元/集成测试 | **1524 用例 / 61 文件** |
+| `npm run validate:device` | 器件数据校验（引脚、remap、时钟、外设、中断一致性） | 7 颗芯片 0 错误 0 警告 |
+| `npm run lint` | ESLint（含 MVC 分层 import 守卫） | 通过 |
+| `npm run build` | `vue-tsc` 类型检查 + Vite 构建 | 通过 |
+| `npm run verify:build` | 生成工程并执行 `cargo build --release` | blocking 6/6、embassy 6/6、BLE 1/1 |
 
-`verify:build` 需要 Rust nightly（rv32ec 是 tier-3 target）：
-
-```bash
-rustup toolchain install nightly --component rust-src
-```
-
-环境变量：`CH32_HAL_DIR`（本地 ch32-hal 克隆，加速验证）、`CH32_HAL_REV`（覆盖锁定 rev）。
-
-## 已支持芯片
-
-| 芯片 | 封装 | 内核 / Target | 代码生成 |
-|---|---|---|---|
-| CH32V003F4P6 | TSSOP20 | QingKe V2A · riscv32ec（nightly） | ✅ ch32-hal |
-| CH32V203C8T6 | LQFP48 | QingKe V4B · riscv32imac | ✅ ch32-hal |
-| CH32H417QEU6 | QFN128 | QingKe V3F + V5F 双核 · riscv32imac | ✅ ch32-hal（Cargo workspace，`cargo xtask build` 逐核构建）|
-| CH582M | QFN48 | QingKe V4A · riscv32imac | ⏳ 数据可查（引脚/时钟/外设），HAL 后端为 ch58x-hal，导出被守卫阻止 |
-
-CH582M 与 CH32 系列同属 WCH RISC-V，但 BLE 系列的 HAL 是独立的 [ch58x-hal](https://github.com/ch32-rs/ch58x-hal)（API 与 ch32-hal 不同）。当前可在工具中查看其引脚复用、时钟预设与外设通道；代码生成后端接入后即可导出。
+`verify:build` 需要 **Rust stable 与 nightly**（V003/V307 走 nightly + `build-std`，需要 `rust-src`）：
 
 ```bash
-npm run verify:build                 # 默认验证 V003 + V203
-npm run verify:build -- --embassy    # 异步（embassy + DMA）场景
+rustup toolchain install stable nightly --component rust-src
+npm run verify:build              # 默认芯片集
+npm run verify:build -- --embassy # 异步（embassy + DMA）
+npm run verify:build -- --ble     # CH582M BLE 厂商库真实链接
 ```
 
-## 如何新增一颗芯片（3 步）
+可选环境变量：`CH32_HAL_DIR`（本地 ch32-hal 克隆，加速验证）、`CH32_HAL_REV`（覆盖锁定 rev）。首次构建需拉取依赖，耗时较长。
 
-1. **导入只读数据**：`node scripts/import-ch32data.mjs --chip CH32V203C8T6`
-   从 ch32-data 生成 `remap.json` / `interrupts.json` / `dma.json`（信号/remap 与 HAL 同源）。
-2. **人工录入三份数据**（参考 `data/devices/ch32v003f4p6/`）：
-   - `chip.json`：封装物理引脚编号（查数据手册）、`halFeature`（完整小写型号）、`target`、`nightly`、特殊引脚、ADC 通道。
-   - `clock.json`：时钟源/PLL 参数/分频档位/上限/预设（读 `ch32-hal/src/rcc/<family>.rs` 核对）。
-   - `peripherals.json`：外设实例 remap 引脚表 + 参数（枚举名逐字对应 HAL）。
-   并在 `src/data/device.ts` 注册导入。
-3. **校验 + 编译验证**：`npm run validate:device && npm run verify:build -- --chip CH32V203C8T6`。
+## 工程结构
 
-不需要改任何组件或 lib 代码——芯片差异全部由数据字段表达。
+| 路径 | 说明 |
+|---|---|
+| `src/model/` | 领域层：类型、器件、时钟、引脚、冲突、代码生成，纯函数，零 UI/Pinia 依赖 |
+| `src/services/` | 应用服务：导出、持久化、`cube.json`、Tauri 桥、Monaco |
+| `src/controllers/` | Pinia 状态层：组装 `ProjectConfig`、运行冲突检查 |
+| `src/views/`、`src/components/` | 视图与展示组件（Pinout / Clock / Peripherals / Project settings 等） |
+| `data/devices/<chip>/` | 每颗芯片的 chip/remap/exti/clock/peripherals/interrupts/dma JSON，数据驱动 |
+| `src-tauri/` | Tauri 2 桌面壳与原生命令（另存为、目录写入、工程库） |
+| `scripts/` | ch32-data 导入、器件校验、端到端编译验证、vendor HAL 打包 |
+| `docs/` | 路线图、架构与决策记录、HAL API 核对笔记、里程碑契约、RM 转录 |
+| `tests/` | Vitest 用例（与 `src/model` 等模块对应） |
 
-## 如何烧录
+依赖方向单向向下（model ← services ← controllers ← views/components），由 ESLint 强制；`src/model` 不得 import 任何上层模块。
 
-导出的工程自带 `.cargo/config.toml` runner（[wlink](https://github.com/ch32-rs/wlink)）：
+## 文档索引
 
-```bash
-cargo install wlink
-cd <导出工程>
-cargo run --release    # 编译并经 WCH-Link 烧录，--enable-sdi-print 查看调试打印
-```
+| 文档 | 内容 |
+|---|---|
+| [docs/ROADMAP.md](docs/ROADMAP.md) | M1–M16 里程碑、完成状态与剩余边界 |
+| [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md) | 架构地图、关键决策、测试与门禁现状 |
+| [docs/HAL_API_NOTES.md](docs/HAL_API_NOTES.md) | 逐行核对过的 ch32-hal / ch58x-hal API、锁定 rev 与上游 issue 证据 |
+| [docs/M15_CLOCK_OVERHAUL_CONTRACT.md](docs/M15_CLOCK_OVERHAUL_CONTRACT.md) | 时钟树数据驱动布局、外设时钟与写回路由契约 |
+| [docs/M16_CLOCK_DIAGRAM_CONTRACT.md](docs/M16_CLOCK_DIAGRAM_CONTRACT.md) | RM 框图保真、图元与布局、仅显示域、D12 主干重构契约 |
+| [docs/m16-rm/](docs/m16-rm/) | 7 份公开手册时钟框图的事实性转录（版本/图号/页码/SHA-256） |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | MVC 分层与依赖规则 |
 
-## 工程结构约定
+## 许可与法律
 
-- `src/generated/**`：每次导出整体重写，**勿手动编辑**。
-- `src/main.rs`：用户代码区，生成器永不覆盖。
-- `cube.json`：配置回读，可拖回本工具继续编辑。
+### 本仓库
 
-## 架构（MVC 分层）
+本项目以 [MIT License](LICENSE) 发布，版权归 **ch32-rs-CubeMX authors** 所有。
 
-```
-src/
-├── model/        # 领域层：纯函数，零 UI/Pinia 依赖（类型、器件、时钟、冲突、引脚、封装、代码生成）
-├── services/     # 应用服务层：IO 与平台能力（导出、持久化、cube.json、Tauri 桥、Monaco）
-├── controllers/  # 状态层：Pinia store（组装 ProjectConfig、跑冲突检查）
-├── views/        # 视图：Home / Pinout / Clock / Peripherals
-└── components/   # 展示组件（按域分子目录）
-```
+### 生成工程
 
-依赖方向单向向下（eslint 强制，model 层禁止 import 任何上层）；新增代码的放置决策见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+- 你通过本工具生成的工程中的**用户代码归你所有**，可自由选择许可。
+- 生成工程内嵌的 vendor HAL（`vendor/ch32-hal/`、`vendor/ch58x-hal/`）为 **MIT / Apache-2.0 双许可**（上游 (c) 2023 Andelf）；打包时随附其 `LICENSE-MIT` 与 `LICENSE-APACHE` 副本，满足再分发署名要求。
+- 器件数据导入自 [ch32-data](https://github.com/ch32-rs/ch32-data)（同为 MIT / Apache-2.0 双许可）；`data/devices/` 下的 JSON 为本仓库在其事实基础上的整理与扩展，依本仓库 MIT 许可。
 
-## 文档
+### 商标与文档
 
-- [AGENTS.md](AGENTS.md)：项目约定
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：分层架构与依赖规则
-- [docs/PROJECT_MEMORY.md](docs/PROJECT_MEMORY.md)：架构地图 + 决策记录
-- [docs/HAL_API_NOTES.md](docs/HAL_API_NOTES.md)：核对过的 ch32-hal API（含锁定 rev）
-- [docs/ANIMATION.md](docs/ANIMATION.md)：动效规范（45° 倾斜、文字可读性补偿）
+- **WCH / 沁恒**及相关产品名称是南京沁恒微电子股份有限公司（WCH）的商标，归其所有者所有。本工具与 WCH 官方**无关联**，也未获其背书。
+- `docs/m16-rm/` 是对公开数据手册中**时钟框图与寄存器事实**的转录（页码/图号/哈希可追溯），用于互操作与配置建模，**不包含手册原文 PDF**；手册及其图文的著作权归 WCH 所有。
+- 界面交互参照 **STM32CubeMX2** 仅为交互范式对标；**ST / STM32** 是 STMicroelectronics 的商标，归其所有者所有。
 
-## 技术栈
+## 贡献与问题反馈
 
-Vite · Vue 3 · TypeScript · Pinia · Element Plus · 原生 SVG · EJS · JSZip · Monaco · Vitest
+欢迎提交 Issue 与 Pull Request：
+
+- **Issue**：请附芯片型号、工具版本、复现步骤、期望/实际行为，以及相关 `cube.json`、生成日志或截图。
+- **PR**：提交前请确保 `npm test`、`npm run lint`、`npm run build`、`npm run validate:device` 通过；涉及生成器的改动还需跑 `npm run verify:build`。新增芯片优先以 `data/devices/` 数据 + 校验器覆盖，不要手改生成产物。
