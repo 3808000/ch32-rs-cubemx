@@ -41,6 +41,7 @@ interface HealthSummary {
 /** 时钟树问题：即使没有 pins/peripheral 也归到 Clock 标签。 */
 const CLOCK_CONFLICT_CODES = new Set<Conflict['code']>([
   'CLOCK_PRESET_UNAVAILABLE',
+  'CLOCK_DISPLAY_ONLY_SOURCE',
   'PERIPHERAL_CLOCK_INVALID',
   'SPECIAL_PIN_OSC',
 ])

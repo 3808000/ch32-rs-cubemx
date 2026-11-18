@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-18）：M1–M15 十五个里程碑核心项全部完成。** 测试 380→1456，50 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
+> **总体进度（2026-11-18）：M1–M16 十六个里程碑核心项全部完成。** 测试 380→1495，58 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -292,7 +292,25 @@
 | 15.3 | UI 全量 MX2 对齐 | ClockNode/ClockWire/ClockCanvas/ClockView/ClockDetail/ClockContextMenu/ConfirmDialog/peripheralFocus/canvasNav | 七芯片浏览器验收；clockInlineEdit 47 用例 |
 | 15.4 | ADC clkdiv codegen + README 时钟摘要 | codegen/adc.ts、templates/adcRs.ts、readme.ts | codegen +9 用例；快照仅预期变化；V203 clkdiv=5 真实 cargo build |
 
-**暂缓**：H417 KernelMux 建模、USB 外设建模与代码生成、adcClkDiv 每实例独立、时钟单位切换、MCO/时钟输出、LSE/LSI/RTC/IWDG 域（P2）、非预设 PLL 显式导出（M16 候选）。
+**暂缓**：H417 KernelMux 建模、USB 外设建模与代码生成、adcClkDiv 每实例独立、时钟单位切换、非预设 PLL 显式导出（M17 候选）。MCO/LSE/LSI/RTC/IWDG 域已于 M16 以**仅显示**形态补进树。
+
+---
+
+## M16（v0.17）时钟树逐芯片重画 —— 「RM 框图保真 + MX2 分离图元 + 缺失域仅显示补全」 ✅ 已完成（2026-11-18）
+
+> **落地状态**：用户裁决 M15 树「太丑、配置项挤在一起」→ 下载转录 7 份 RM/DS 时钟树框图（docs/m16-rm/，含版本/图号/页码/SHA-256），**逐芯片手写 diagram 坐标+分组框+lanes** 镜像 RM 五区带；渲染重写为 MX2 分离图元簇（mux 竖 radio 列/stepper 块/两行读数卡/pll 参数 stepper 链/peri airy 卡）+ 白纸面板 + 长 note 截断 hover；**缺失域仅显示补全**（LSI/LSE/RTC/MCO/PLL2/3/USBHS/32K 域/H417 双核 V5F/V3F 分叉）。RM 裁决纠正入数据：**V003 ADCPRE=HCLK÷2 结案上游 FIXME（24→12MHz）**、V003 RM 无 APB2 预分频、X035 无 LSI（IWDG=HSI÷1024）+ CLK_DIV 9 位非自然编码强警告、H417 RM 仅 PPRE2、CH582 ADC 图/寄存器歧义注记；**mux 输入 RM 保真**（LSI/LSE 不画假灰行/灰边，仅 sysclkMuxInput 的 CK32K 画灰行）。**1495 测试 / 61 文件**全绿；validate 7 芯片 0/0（diagram 全覆盖/分组互不重叠/走线不穿簇）；verify 6/6+6/6+1/1 **codegen 逐字节不变**；七芯片截图对照 RM 验收 + M15 交互抽查过。8 子代理（R1/R2 转录 + E 引擎 + U 渲染 + G1a/G2/G3/G4 布局）并行 + 主控契约/裁决/集成/验收。
+> **契约**：[M16_CLOCK_DIAGRAM_CONTRACT.md](M16_CLOCK_DIAGRAM_CONTRACT.md)（D1–D10 + D4bis/D4ter）；证据 [HAL_API_NOTES §16](HAL_API_NOTES.md)。
+> **诚实边界**：I2S mux/KernelMux/AuxPlls 不画不建模；aux 不生成不进配置；X035 raw 4 档子集+9 位编码警告；MCO/RTC div 固定档无旋钮；V203 prediv/非预设 PLL 显式导出暂缓（M17 候选）。
+
+| # | 任务 | 改动落点 | 验收 |
+|---|---|---|---|
+| 16.1 | RM 下载+框图转录 ×7 | docs/m16-rm/*.md（/tmp/m16-rm1/2 独立解包） | 版本/图号/页码/SHA-256 齐全 |
+| 16.2 | kind/aux/diagram 引擎 + validate 5c | tree/model.ts、tree/layout.ts（PRIM/锚点/避障）、validate-device-data.mjs | clockTree 98 用例；validate 7 芯片 0/0 |
+| 16.3 | MX2 图元簇渲染 + 白纸 + 截断 | ClockNode.vue、primitives.css、ClockCanvas.vue | 七芯片截图；行距硬约束用例 |
+| 16.4 | 七芯片 diagram+aux+displayOnly 数据 | data/devices/*/clock.json（G1a/G2/G3/G4） | 逐芯片 validate+截图对照 RM |
+| 16.5 | RM 保真裁决 + 集成守卫 | types（sysclkMuxInput/muxLabels）、model mux/边、index.ts displayOnly 排除、codegen CLOCK_DISPLAY_ONLY_SOURCE | 1495 全绿；快照仅 README ADC 行 |
+
+**暂缓**：KernelMux/AuxPlls/I2S 建模、aux 域代码生成、X035 CLK_DIV 完整 9 位编码表（需 RM 表逐字）、V203 prediv 支路建模、非预设 PLL 显式导出（M17 候选）、时钟单位切换。
 
 ---
 

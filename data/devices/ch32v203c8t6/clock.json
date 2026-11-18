@@ -4,7 +4,9 @@
   "sources": [
     { "id": "HSI", "label": "内部 HSI", "freqMhz": 8 },
     { "id": "HSE", "label": "外部晶振", "hxtal": { "min": 3, "max": 25, "default": 8 } },
-    { "id": "PLL", "label": "PLL", "pll": true }
+    { "id": "PLL", "label": "PLL", "pll": true },
+    { "id": "LSI", "label": "内部 LSI", "freqMhz": 0.04, "displayOnly": true },
+    { "id": "LSE", "label": "外部 LSE", "freqMhz": 0.032768, "displayOnly": true }
   ],
   "pll": {
     "outMaxMhz": 144,
@@ -57,6 +59,93 @@
       "note": "自动、无 API、无驱动"
     }
   },
+  "aux": [
+    {
+      "id": "RTC",
+      "kind": "mux",
+      "label": "RTC 时钟源",
+      "inputs": [
+        { "id": "HSE", "label": "HSE÷128" },
+        { "id": "LSE", "label": "LSE" },
+        { "id": "LSI", "label": "LSI" }
+      ],
+      "note": "RM 图 3-3（V2.5 p26）：RTCCLK 三源 LSI/LSE/HSE÷128（RCC_BDCTLR.RTCSEL）；HSE÷128 复用 HSE 节点并标注；HAL LsConfig::init=todo!() 不生成"
+    },
+    {
+      "id": "MCO",
+      "kind": "mux",
+      "label": "MCO (PA8)",
+      "inputs": [
+        { "id": "SYSCLK", "label": "SYSCLK" },
+        { "id": "HSI", "label": "HSI" },
+        { "id": "HSE", "label": "HSE" },
+        { "id": "PLL", "label": "PLL÷2" }
+      ],
+      "fixedDivLabel": "÷1",
+      "note": "RM 图 3-3（V2.5 p26）只画 HSI/HSE/PLLCLK÷2；寄存器 MCO[3:0] 0100=SYSCLK（d8）另有——图/寄存器差异并列；HAL 不生成"
+    },
+    {
+      "id": "USBPRE",
+      "kind": "div",
+      "label": "USBPRE",
+      "inputs": [{ "id": "PLL", "label": "PLLCLK" }],
+      "fixedDivLabel": "auto ÷1/÷2/÷3",
+      "note": "RM 图 3-3（V2.5 p26）：USB prescaler /1,/2,/3 自 PLLCLK 抽头、经 peripheral clock enable 门出 48MHz；HAL calc_usbpre 自动（48/96/144→÷1/÷2/÷3）；无 API 不生成"
+    },
+    {
+      "id": "ADCPRE",
+      "kind": "div",
+      "label": "ADCPRE",
+      "inputs": [{ "id": "APB2", "label": "PCLK2" }],
+      "fixedDivLabel": "÷2..÷8",
+      "note": "RM 图 3-3（V2.5 p26）：ADC prescaler ÷2/4/6/8 上游 PCLK2；HAL 不写 ADCPRE；CTLR3.CLK_DIV 见 P-ADC raw 旋钮"
+    }
+  ],
+  "diagram": {
+    "nodes": {
+      "HSI": { "x": 40, "y": 60 },
+      "HSE": { "x": 40, "y": 140 },
+      "LSE": { "x": 40, "y": 220 },
+      "LSI": { "x": 40, "y": 300 },
+      "PLL": { "x": 300, "y": 60 },
+      "USB": { "x": 700, "y": 50 },
+      "SYSCLK": { "x": 300, "y": 240 },
+      "AHB": { "x": 580, "y": 390 },
+      "APB1": { "x": 860, "y": 200 },
+      "APB2": { "x": 860, "y": 290 },
+      "ADC": { "x": 1160, "y": 470 },
+      "P-ADC1": { "x": 1160, "y": 590 },
+      "P-ADC2": { "x": 1160, "y": 840 },
+      "TIM1": { "x": 1440, "y": 192 },
+      "TIM2": { "x": 1440, "y": 282 },
+      "P-SPI1": { "x": 1440, "y": 560 },
+      "P-SPI2": { "x": 1440, "y": 688 },
+      "P-I2C1": { "x": 1680, "y": 560 },
+      "P-I2C2": { "x": 1680, "y": 688 },
+      "P-USART1": { "x": 1920, "y": 560 },
+      "P-USART2": { "x": 1920, "y": 688 },
+      "P-USART3": { "x": 1920, "y": 816 },
+      "P-USART4": { "x": 1920, "y": 944 },
+      "RTC": { "x": 160, "y": 520 },
+      "MCO": { "x": 400, "y": 640 },
+      "USBPRE": { "x": 860, "y": 520 },
+      "ADCPRE": { "x": 860, "y": 620 }
+    },
+    "groups": [
+      { "id": "g-sources", "label": "时钟源（LSE/LSI 仅显示）", "x": 24, "y": 30, "w": 128, "h": 332 },
+      { "id": "g-pll", "label": "PLL（RM 含 HSE÷2/HSI÷2 支路，未建模不画）", "x": 284, "y": 30, "w": 316, "h": 104 },
+      { "id": "g-usb", "label": "USB 时钟（显示）", "x": 684, "y": 20, "w": 136, "h": 92 },
+      { "id": "g-sys", "label": "系统时钟（SW）", "x": 284, "y": 210, "w": 524, "h": 242 },
+      { "id": "g-bus", "label": "APB 总线分频", "x": 844, "y": 170, "w": 244, "h": 182 },
+      { "id": "g-tim", "label": "定时器时钟", "x": 1424, "y": 162, "w": 136, "h": 228 },
+      { "id": "g-adc", "label": "ADC 时钟（ADCPRE 见 aux）", "x": 1144, "y": 440, "w": 232, "h": 514 },
+      { "id": "g-spi", "label": "SPI 时钟", "x": 1424, "y": 530, "w": 222, "h": 272 },
+      { "id": "g-i2c", "label": "I2C 时钟", "x": 1664, "y": 530, "w": 222, "h": 272 },
+      { "id": "g-usart", "label": "USART 时钟", "x": 1904, "y": 530, "w": 222, "h": 528 },
+      { "id": "g-aux", "label": "仅显示域（不生成）", "x": 24, "y": 490, "w": 1066, "h": 256 }
+    ],
+    "lanes": { "peri-P-ADC2": 1 }
+  },
   "presets": [
     {
       "id": "144MHZ_HSI",
@@ -82,5 +171,5 @@
     },
     "fallback": "explicit"
   },
-  "notes": "依据 ch32-hal src/rcc/v3.rs（V203 走 v3，HSI_FREQUENCY=8MHz；预设常量 SYSCLK_FREQ_96/144MHZ_HSE/HSI 均硬编码 HSE=8MHz、PLL prediv=DIV1；96MHZ_HSI 的 APB1/APB2 为 DIV4）。⚠ HAL 的 SYSCLK_FREQ_96MHZ_HSE 常量按其字段（HSE 8MHz × MUL6）实际输出 48MHz 而非 96MHz，与命名矛盾（ch32-hal 上游 bug：8MHz 需 ×12 才得 96MHz），故不收录该预设，待上游修复后再补 96MHZ_HSE（hxtal 8 × mul 12）。PLL 倍频档位 2..16/18（metapac rcc_v3 PllMul，无 ×17）；PLL 输入预分频（HSI/2、HSE/2，v3.rs PllPreDiv）未建模——当前 pll 参数模型仅支持乘法，且上述 HAL 预设全部 prediv=DIV1，故固定为 1（待补：prediv 选择）；AHB 档位无 ÷32（metapac Hpre 与 WCH 标准库 ch32v20x_rcc.h 一致：0xC0=÷64，HAL v3.rs 的 Div 实现在 ≥÷64 时有偏差，以 metapac/标准库为准）；APB1/APB2 上限 144MHz（CH32V203DS0 电气特性表：FHCLK/FPCLK1/FPCLK2 max 144MHz，不同于 STM32F1 的 36M）；ADC 时钟 = PCLK2/(2/4/6/8)（rcc_v3 Adcpre），fADC max 14MHz（DS 表 fADC）；timerClock=apb_x2（v3.rs calc_pclk 经 apb_timer_clk ×2）。M15 外设时钟源逐字取自 ch32-data：USART1/SPI1 挂 PCLK2（peripherals/FV2x_V3x_USART1.yaml、FV2x_V3x_SPI1.yaml），其余 USART2/3/4、SPI2、I2C1/2 挂 PCLK1，ADC1/2 挂 PCLK2；ADC CTLR3.CLK_DIV 为 4 位 raw（HAL 缺省 0b11），语义未核实，节点只显示 raw 不编造 MHz；USB 48/96/144MHz 由 HAL calc_usbpre（v3.rs:487-497）自动 ÷1/÷2/÷3，其余 PLL 输出静默留复位值（UI warning，无生成、无驱动）。"
+  "notes": "依据 ch32-hal src/rcc/v3.rs（V203 走 v3，HSI_FREQUENCY=8MHz；预设常量 SYSCLK_FREQ_96/144MHZ_HSE/HSI 均硬编码 HSE=8MHz、PLL prediv=DIV1；96MHZ_HSI 的 APB1/APB2 为 DIV4）。⚠ HAL 的 SYSCLK_FREQ_96MHZ_HSE 常量按其字段（HSE 8MHz × MUL6）实际输出 48MHz 而非 96MHz，与命名矛盾（ch32-hal 上游 bug：8MHz 需 ×12 才得 96MHz），故不收录该预设，待上游修复后再补 96MHZ_HSE（hxtal 8 × mul 12）。PLL 倍频档位 2..16/18（metapac rcc_v3 PllMul，无 ×17）；PLL 输入预分频（HSI/2、HSE/2，v3.rs PllPreDiv）未建模——当前 pll 参数模型仅支持乘法，且上述 HAL 预设全部 prediv=DIV1，故固定为 1（待补：prediv 选择）；AHB 档位无 ÷32（metapac Hpre 与 WCH 标准库 ch32v20x_rcc.h 一致：0xC0=÷64，HAL v3.rs 的 Div 实现在 ≥÷64 时有偏差，以 metapac/标准库为准）；APB1/APB2 上限 144MHz（CH32V203DS0 电气特性表：FHCLK/FPCLK1/FPCLK2 max 144MHz，不同于 STM32F1 的 36M）；ADC 时钟 = PCLK2/(2/4/6/8)（rcc_v3 Adcpre），fADC max 14MHz（DS 表 fADC）；timerClock=apb_x2（v3.rs calc_pclk 经 apb_timer_clk ×2）。M15 外设时钟源逐字取自 ch32-data：USART1/SPI1 挂 PCLK2（peripherals/FV2x_V3x_USART1.yaml、FV2x_V3x_SPI1.yaml），其余 USART2/3/4、SPI2、I2C1/2 挂 PCLK1，ADC1/2 挂 PCLK2；ADC CTLR3.CLK_DIV 为 4 位 raw（HAL 缺省 0b11），语义未核实，节点只显示 raw 不编造 MHz；USB 48/96/144MHz 由 HAL calc_usbpre（v3.rs:487-497）自动 ÷1/÷2/÷3，其余 PLL 输出静默留复位值（UI warning，无生成、无驱动）。 M16（RM 框图镜像，2026-11-18）：diagram/aux 依据《CH32F/V20x_V30x_V31x 系列应用手册》CH32FV2x_V3xRM V2.5 图 3-3 CH32F203/V203/V303 时钟树框图（印刷 p26 / PDF p29，逐元素转录见 docs/m16-rm/v203.md）；五区带镜像 RM（源区 / PLL 簇 / 系统区 SW+HPRE / APB+ADC+TIM 分频区 / USART·SPI·I2C·ADC 外设列 + USB 独立小簇 + 左下 aux 带）。冲突与裁决：①RM 有 HSE÷2/HSI÷2 预分频选择支路（PLLXTPRE / EXTEN_CTR.PLL_HSI_PRE），repo prediv 固定 1 未建模（M17 候选），diagram 不画假 mux 行；②d8 图 I2S2/I2S3/TRNG 自 SYSCLK 直连三箭头（无 mux 框、无驱动）不建模；③RM 图 PLLMUL 框只标 ×3 起，寄存器 d6/d8 含 ×2：数据保留寄存器档位；④MCO 图只画 HSI/HSE/PLLCLK÷2，寄存器 d8 另有 0100=SYSCLK，aux 按寄存器 4 源并并列图/寄存器差异；⑤仅显示域（不生成）：LSE 32.768kHz、LSI 40kHz 与 aux RTC（LSI/LSE/HSE÷128）、MCO PA8、USBPRE（÷1/÷2/÷3 auto）、ADCPRE（PCLK2÷2..÷8）；不进 ClockConfig/cube.json/求解/预设匹配/codegen。"
 }

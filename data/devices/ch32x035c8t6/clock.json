@@ -2,16 +2,50 @@
   "chip": "CH32X035C8T6",
   "sysclkMaxMhz": 48,
   "sources": [
-    { "id": "HSI", "label": "内部 HSI", "freqMhz": 48 }
+    {
+      "id": "HSI",
+      "label": "内部 HSI",
+      "freqMhz": 48
+    }
   ],
-  "ahb": { "options": [1, 2, 3, 4, 5, 6, 7, 8, 16, 32, 64, 128, 256], "maxMhz": 48, "default": 1 },
-  "apb1": { "options": [1], "maxMhz": 48, "default": 1 },
-  "apb2": { "options": [1], "maxMhz": 48, "default": 1 },
+  "ahb": {
+    "options": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      16,
+      32,
+      64,
+      128,
+      256
+    ],
+    "maxMhz": 48,
+    "default": 1
+  },
+  "apb1": {
+    "options": [
+      1
+    ],
+    "maxMhz": 48,
+    "default": 1
+  },
+  "apb2": {
+    "options": [
+      1
+    ],
+    "maxMhz": 48,
+    "default": 1
+  },
   "adc": {
     "options": [
       {
         "id": "SYS",
-        "label": "SYSCLK / CTLR3.CLK_DIV（4 位原始分频；HAL 缺省 0b11 注释称 ÷8，精确语义待核实）",
+        "label": "SYSCLK / CTLR3.CLK_DIV（RM 图 4 位；寄存器 9 位非自然编码；HAL 缺省 0b11 注释称 ÷8，语义待核实）",
         "source": "SYSCLK",
         "div": 8
       }
@@ -21,13 +55,31 @@
   },
   "timerClock": "apb_x2",
   "peripheralClocks": {
-    "usart": { "sourceDefault": "HCLK", "knob": "baudrate" },
+    "usart": {
+      "sourceDefault": "HCLK",
+      "knob": "baudrate"
+    },
     "spi": {
       "sourceDefault": "HCLK",
       "knob": "frequency",
-      "brg": { "divs": [2, 4, 8, 16, 32, 64, 128, 256] }
+      "brg": {
+        "divs": [
+          2,
+          4,
+          8,
+          16,
+          32,
+          64,
+          128,
+          256
+        ]
+      }
     },
-    "i2c": { "sourceDefault": "HCLK", "knob": "speed", "maxKhz": 400 },
+    "i2c": {
+      "sourceDefault": "HCLK",
+      "knob": "speed",
+      "maxKhz": 400
+    },
     "adc": {
       "source": "SYSCLK",
       "clkDiv": {
@@ -35,36 +87,264 @@
         "bits": 4,
         "default": 3,
         "raw": true,
-        "note": "div:8 系 HAL 注释假设（0b11），PAC 仅 4-bit raw"
+        "note": "RM 图 3-2（V2.0 p10）画 CLK_DIV[3:0]；寄存器 ADC_CTLR3.CLK_DIV[8:0] 为 9 位非自然编码（印刷 p95-97），复位 0x3 不在编码表内，÷8 系 HAL 注释假设，语义未核实"
       }
     },
     "usb": {
       "autoPre": {},
       "validPllMhz": [],
       "fixedMhz": 48,
-      "note": "HSI 48M 直连无分频"
+      "note": "HSI 48M 直连无分频（RM 图 3-2 USBCLK 直出，无 USBPRE）"
     }
+  },
+  "aux": [
+    {
+      "id": "IWDG",
+      "kind": "readout",
+      "label": "IWDG",
+      "inputs": [
+        {
+          "id": "HSI",
+          "label": "HSI÷1024"
+        }
+      ],
+      "fixedMhz": 0.046875,
+      "note": "RM 图 3-2（V2.0 p10）：HSI÷1024≈46.875kHz 供 AWU/IWDG；本芯片无 LSI；仅显示不生成"
+    },
+    {
+      "id": "AWU",
+      "kind": "readout",
+      "label": "AWU",
+      "inputs": [
+        {
+          "id": "HSI",
+          "label": "HSI÷1024"
+        }
+      ],
+      "fixedMhz": 0.046875,
+      "note": "RM 图 3-2（V2.0 p10）：与 IWDG 共用 HSI÷1024≈46.875kHz（to AWU/IWDG）；本芯片无 LSI；仅显示不生成"
+    },
+    {
+      "id": "MCO",
+      "kind": "mux",
+      "label": "MCO (PB9)",
+      "inputs": [
+        {
+          "id": "SYSCLK",
+          "label": "SYSCLK"
+        },
+        {
+          "id": "HSI",
+          "label": "HSI"
+        }
+      ],
+      "fixedDivLabel": "÷1",
+      "note": "RM 图 3-2（V2.0 p10）行名 HSI/HCLK，但 RCC_CFGR0.MCO[2:0] 编码 100=SYSCLK、101=HSI（其余无输出），图与寄存器不一致；图 MCO[1:0] 为简写；HAL 无 MCO 生成"
+    }
+  ],
+  "diagram": {
+    "nodes": {
+      "HSI": {
+        "x": 40,
+        "y": 60
+      },
+      "SYSCLK": {
+        "x": 280,
+        "y": 60
+      },
+      "AHB": {
+        "x": 280,
+        "y": 148
+      },
+      "APB1": {
+        "x": 560,
+        "y": 80
+      },
+      "APB2": {
+        "x": 560,
+        "y": 156
+      },
+      "TIM1": {
+        "x": 740,
+        "y": 50
+      },
+      "TIM2": {
+        "x": 740,
+        "y": 142
+      },
+      "ADC": {
+        "x": 900,
+        "y": 50
+      },
+      "P-ADC1": {
+        "x": 900,
+        "y": 130
+      },
+      "P-SPI1": {
+        "x": 1160,
+        "y": 80
+      },
+      "P-I2C1": {
+        "x": 1160,
+        "y": 420
+      },
+      "P-USART1": {
+        "x": 1400,
+        "y": 80
+      },
+      "P-USART2": {
+        "x": 1400,
+        "y": 208
+      },
+      "P-USART3": {
+        "x": 1400,
+        "y": 336
+      },
+      "P-USART4": {
+        "x": 1400,
+        "y": 464
+      },
+      "USB": {
+        "x": 1640,
+        "y": 50
+      },
+      "IWDG": {
+        "x": 40,
+        "y": 260
+      },
+      "AWU": {
+        "x": 184,
+        "y": 260
+      },
+      "MCO": {
+        "x": 620,
+        "y": 260
+      }
+    },
+    "groups": [
+      {
+        "id": "g-sources",
+        "label": "时钟源",
+        "x": 24,
+        "y": 30,
+        "w": 128,
+        "h": 92
+      },
+      {
+        "id": "g-sys",
+        "label": "系统时钟",
+        "x": 264,
+        "y": 30,
+        "w": 244,
+        "h": 180
+      },
+      {
+        "id": "g-bus",
+        "label": "APB 总线（PCLK≡HCLK，RM 图无预分频）",
+        "x": 544,
+        "y": 50,
+        "w": 136,
+        "h": 168
+      },
+      {
+        "id": "g-tim",
+        "label": "定时器时钟",
+        "x": 724,
+        "y": 20,
+        "w": 136,
+        "h": 200
+      },
+      {
+        "id": "g-adc",
+        "label": "ADC 时钟（CLK_DIV）",
+        "x": 884,
+        "y": 20,
+        "w": 232,
+        "h": 224
+      },
+      {
+        "id": "g-spi",
+        "label": "SPI 时钟",
+        "x": 1144,
+        "y": 50,
+        "w": 222,
+        "h": 144
+      },
+      {
+        "id": "g-i2c",
+        "label": "I2C 时钟",
+        "x": 1144,
+        "y": 390,
+        "w": 222,
+        "h": 144
+      },
+      {
+        "id": "g-usart",
+        "label": "USART 时钟",
+        "x": 1384,
+        "y": 50,
+        "w": 222,
+        "h": 528
+      },
+      {
+        "id": "g-usb",
+        "label": "USB 时钟（HSI 直连）",
+        "x": 1624,
+        "y": 20,
+        "w": 136,
+        "h": 92
+      },
+      {
+        "id": "g-aux",
+        "label": "仅显示域（不生成）",
+        "x": 24,
+        "y": 230,
+        "w": 812,
+        "h": 104
+      }
+    ],
+    "lanes": {}
   },
   "presets": [
     {
       "id": "48MHZ_HSI",
       "label": "48MHz (HSI 48MHz, AHB÷1)",
-      "match": { "source": "HSI", "ahb": 1, "apb1": 1, "apb2": 1 }
+      "match": {
+        "source": "HSI",
+        "ahb": 1,
+        "apb1": 1,
+        "apb2": 1
+      }
     },
     {
       "id": "24MHZ_HSI",
       "label": "24MHz (HSI 48MHz, AHB÷2)",
-      "match": { "source": "HSI", "ahb": 2, "apb1": 1, "apb2": 1 }
+      "match": {
+        "source": "HSI",
+        "ahb": 2,
+        "apb1": 1,
+        "apb2": 1
+      }
     },
     {
       "id": "16MHZ_HSI",
       "label": "16MHz (HSI 48MHz, AHB÷3)",
-      "match": { "source": "HSI", "ahb": 3, "apb1": 1, "apb2": 1 }
+      "match": {
+        "source": "HSI",
+        "ahb": 3,
+        "apb1": 1,
+        "apb2": 1
+      }
     },
     {
       "id": "12MHZ_HSI",
       "label": "12MHz (HSI 48MHz, AHB÷4)",
-      "match": { "source": "HSI", "ahb": 4, "apb1": 1, "apb2": 1 }
+      "match": {
+        "source": "HSI",
+        "ahb": 4,
+        "apb1": 1,
+        "apb2": 1
+      }
     }
   ],
   "codegen": {
@@ -76,5 +356,5 @@
     },
     "fallback": "preset_only"
   },
-  "notes": "依据 ch32-hal src/rcc/x0.rs：①HSI 固定 48MHz（:5），没有 HSE/LSI/LSE 与 PLL/SW 选择——Config 只有 ahb_pre 一个字段（:9-11），metapac rcc_x0 的 vals 只有 Hpre/Mco（MP/src/peripherals/rcc_x0.rs:921-1018），故本文件不写 pll 字段（M14 契约 D3.2：ClockData.pll 可选，消费方按无 PLL 处理）；②复位后 HAL Config::default() 为 AHB DIV6 → 8MHz（:13-19，HAL/examples/ch32x035/README.md:27-28），本数据没有 8MHz 预设（HAL 无 SYSCLK_FREQ_8MHZ_HSI 常量，DIV6 只能显式写 Config { ahb_pre: DIV6 }）；③HAL 预设只有 48/24/16/12MHz 四档，逐级对应 AHB÷1/2/3/4（x0.rs:21-42），presetConstMap 逐字使用这四个常量；④AHB 合法档位 1..8/16/32/64/128/256（metapac Hpre 去重后的 DIV1..DIV8/DIV2_ALT/DIV4_ALT/DIV8_ALT/DIV16..DIV256，rcc_x0.rs:925-957）；HAL 的 hclk_from_hsi 对每档精确除法，无 V1/V3 的 Hpre off-by-one（x0.rs:97-113）；⑤APB1=APB2=HCLK，无独立分频器（x0.rs:84-95），故 apb1/apb2 options 固定 [1]、上限 48MHz；⑥ADC 时钟取自 SYSCLK 经 ADC CTLR3.CLK_DIV 分频（ch32-data family/CH32X0.yaml:418；CTLR3.CLK_DIV 为 4 位原始值 [3:0]，MP/src/peripherals/adc_x0.rs:449-460）；HAL adc::Config.clkdiv 是原始 u8（0..0b111，注释「Div1 to Div16」、缺省 0b11 注释称 ÷8，src/adc.rs:24-42,68-69），data 中 div:8 按该注释建模，原始值到实际除数的精确语义（2^N 还是 N+1）本地无 RM，待核实；ADC 上限仅 HAL 注释 14MHz（adc.rs:35-36），48MHz/8=6MHz 不会触发警告；⑦定时器时钟 = HCLK（x0.rs:84-95），用 timerClock=apb_x2 且 APB=1 表达等价（不写 sysclk，否则 AHB≠1 时会算错）；⑧fallback=preset_only：现有 explicit 兜底会写 cfg.sys/cfg.pll_src/cfg.apb1_pre/cfg.apb2_pre，X0 的 Config 只有 ahb_pre，直接编译失败；AHB÷5..÷256 的导出路径待 M15（需新增「只写 cfg.ahb_pre」的显式路径）；⑨defaultClock 落在 HSI + AHB÷1 = 48MHz，命中 48MHZ_HSI 预设。诚实边界（M14 契约 D12）：无 HSE/PLL；SPI1（v0）只支持 MSB-first；I2C1 上游 README 标「未验证」（❓）；PIOC 需 pioc feature + 外部固件、不建模；USBPD 只有 PHY 层、不建模；OPA 无 HAL 驱动、不建模。M15 外设时钟：USART1-4/SPI1 源 HCLK（ch32-data family/CH32X0.yaml:141,340），I2C1 yaml 标 PCLK1（X035_I2C1.yaml:8）但本芯片 APB1≡HCLK（无分频器）故统一按 HCLK；ADC 源 SYSCLK 经 CTLR3.CLK_DIV（4 位 raw，HAL 缺省 0b11 注释称 ÷8，精确语义待核实，仅显示不编造 MHz）；USB 48MHz 为 HSI 直连无分频（无 USBPRE）。"
+  "notes": "RM 来源：《CH32X035 系列应用手册》V2.0 图 3-2 CH32X035 时钟树框图（印刷 p10 / PDF p12），逐元素转录见 docs/m16-rm/x035.md。依据 ch32-hal src/rcc/x0.rs：①HSI 固定 48MHz（:5），没有 HSE/LSI/LSE 与 PLL/SW 选择——Config 只有 ahb_pre 一个字段（:9-11），metapac rcc_x0 的 vals 只有 Hpre/Mco（MP/src/peripherals/rcc_x0.rs:921-1018），故本文件不写 pll 字段（M14 契约 D3.2：ClockData.pll 可选，消费方按无 PLL 处理）；②复位后 HAL Config::default() 为 AHB DIV6 → 8MHz（:13-19，HAL/examples/ch32x035/README.md:27-28），本数据没有 8MHz 预设（HAL 无 SYSCLK_FREQ_8MHZ_HSI 常量，DIV6 只能显式写 Config { ahb_pre: DIV6 }）；③HAL 预设只有 48/24/16/12MHz 四档，逐级对应 AHB÷1/2/3/4（x0.rs:21-42），presetConstMap 逐字使用这四个常量；④AHB 合法档位 1..8/16/32/64/128/256（metapac Hpre 去重后的 DIV1..DIV8/DIV2_ALT/DIV4_ALT/DIV8_ALT/DIV16..DIV256，rcc_x0.rs:925-957）；HAL 的 hclk_from_hsi 对每档精确除法，无 V1/V3 的 Hpre off-by-one（x0.rs:97-113）；⑤RM 图无 APB1/APB2 预分频器（PCLK1≡PCLK2≡HCLK，图 3-2 HCLK 门控直扇出），寄存器命名沿用 PB1/PB2 但无分频器（x0.rs:84-95），故 apb1/apb2 options 固定 [1]、上限 48MHz，diagram 分组标签注明；⑥ADC 时钟取自 SYSCLK 经 ADC_CTLR3.CLK_DIV 分频（ch32-data family/CH32X0.yaml:418）；RM 图 3-2 画 CLK_DIV[3:0]，寄存器为 ADC_CTLR3.CLK_DIV[8:0] 9 位非自然编码（印刷 p95-97），复位 0x3 不在编码表内；HAL adc::Config.clkdiv 是原始 u8（0..0b111，注释「Div1 to Div16」、缺省 0b11 注释称 ÷8，src/adc.rs:24-42,68-69），data 中 div:8 按该注释建模，精确语义待核实（P-ADC raw 旋钮 note 已升级为 9 位非自然编码边界）；ADC 上限仅 HAL 注释 14MHz（adc.rs:35-36），48MHz/8=6MHz 不会触发警告；⑦定时器时钟 = HCLK（x0.rs:84-95），用 timerClock=apb_x2 且 APB=1 表达等价；⑧fallback=preset_only：X0 的 Config 只有 ahb_pre，现有 explicit 兜底会写不存在的字段；AHB÷5..÷256 的导出路径待 M15（需新增「只写 cfg.ahb_pre」的显式路径）；⑨defaultClock 落在 HSI + AHB÷1 = 48MHz，命中 48MHZ_HSI 预设；⑩M16 D4bis 裁决：RM 图无 LSI，IWDG/AWU=HSI÷1024≈46.875kHz（aux 仅显示），MCO inputs 按寄存器编码 SYSCLK/HSI（图行名 HSI/HCLK 不一致，note 注明）。诚实边界（M14 契约 D12）：无 HSE/PLL；SPI1（v0）只支持 MSB-first；I2C1 上游 README 标「未验证」（❓）；PIOC 需 pioc feature + 外部固件、不建模；USBPD 只有 PHY 层、不建模；OPA 无 HAL 驱动、不建模。M15 外设时钟：USART1-4/SPI1 源 HCLK（ch32-data family/CH32X0.yaml:141,340），I2C1 yaml 标 PCLK1（X035_I2C1.yaml:8）但本芯片 APB1≡HCLK（无分频器）故统一按 HCLK；ADC 源 SYSCLK 经 CTLR3.CLK_DIV（4 位 raw，HAL 缺省 0b11 注释称 ÷8，精确语义待核实，仅显示不编造 MHz）；USB 48MHz 为 HSI 直连无分频（无 USBPRE）。"
 }

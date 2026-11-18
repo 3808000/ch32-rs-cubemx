@@ -44,6 +44,7 @@ const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.c
 /** 时钟树问题：无 pins/peripheral 时点击定位到 Clock 视图。 */
 const CLOCK_CONFLICT_CODES = new Set<Conflict['code']>([
   'CLOCK_PRESET_UNAVAILABLE',
+  'CLOCK_DISPLAY_ONLY_SOURCE',
   'PERIPHERAL_CLOCK_INVALID',
   'SPECIAL_PIN_OSC',
 ])

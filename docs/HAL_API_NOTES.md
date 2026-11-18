@@ -677,3 +677,34 @@ Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）�
 - **验收（2026-11-18，七芯片）**：H417/V203/V003/X035/V307/CH582M/V103 外设节点渲染；V203 SPI1 请求 8MHz@8MHz 总线 → warning+实际 4MHz(÷2)+Resolve(1)；ADC raw5 写回+codegen clkdiv:5（单测+快照+cargo）；CH582 SPI0 ÷60 线性/UART0 DIV13 DL5；V307 USB 144→÷3 auto；V103 80MHz 预设 → USB 非法警告；Reset 对话框确认→clock=null 且外设参数不受影响；路径高亮+Clear；右键 Configure SPI1 → 外设页 SPI1 标签打开。1456 测试/61 文件、vue-tsc/eslint/validate 7 芯片 0/0/build/verify 6/6+6/6+1/1 全绿。
 - 诚实边界：外设节点不可锁（MX2 全节点锁的差异）；单位切换不做；USB 无代码生成；adcClkDiv 多实例同值；非预设 PLL 显式导出仍暂缓（M16 候选）。
 - **dev 环境教训（M15 验收期）**：① 四子代理并行编辑后长驻 dev server 的 HMR 模块图可能陈旧/幽灵实例（store 数据旧、组件 handler 旧）——**验收前必须干净 reload**；② 浏览器自动化 evaluate 桥对 pinia reactive proxy 做 structured clone 得 `{}`（**读数伪影**）——store 取证用页内 `JSON.stringify` 或原始值字段，勿信对象克隆。
+
+## 16. M16 时钟树逐芯片重画：RM 框图保真 + MX2 分离图元 + 缺失域仅显示（2026-11-18）
+
+> 契约：M16_CLOCK_DIAGRAM_CONTRACT.md（D1–D10 + D4bis/D4ter 裁决）；RM 转录 docs/m16-rm/{v003,v103,x035,v203,v307,h417,ch582}.md（含文档版本/图号/印刷页/PDF 页/SHA-256）。
+> 用户裁决：M15 树「太丑、配置项挤在一起」→ 参照 RM 时钟树框图 + CubeMX2 布局逐芯片重画；缺失域一并补（仅显示不生成）。
+
+### 16.1 RM 获取与转录（本机原无 RM）
+
+- 路径：openwch GitHub Pages 镜像 `ch32-riscv-ug.github.io/<chip>/datasheet_zh/*.PDF`（V003/V103/X035）；`file.wch.cn/download/file?id=371`（CH32FV2x_V3xRM V2.5）、`id=532`（CH32H417RM V1.8）、openwch/ch583 raw（CH583DS1 V1.9）。wch.cn/wch-ic.com 下载页为 Vue SPA 空壳不可抓；raw.githubusercontent.com 本机 :443 超时。
+- 图页：V003 RM V1.9 图 3-2 p11；CH32xRM V2.0 图 3-2 p13；X035 RM V2.0 图 3-2 p10；FV2x_V3xRM 图 3-2(d8c) p25 / 图 3-3(d8) p26；H417 RM V1.8 图 3-2 p12；CH583DS1 图 6-1 p34（时钟章实为第 6 章）。
+
+### 16.2 RM 裁决纠正（结案/冲突注记，数据层已落）
+
+- **V003 ADCPRE 上游=HCLK**（非 APB2）、÷2..÷128、复位 ÷2 → **结案 ch32-hal v003.rs:20,125 FIXME**；clock.json.adc 改 AHB÷2（adcMhz 24→12，M15 显示偏高 2× 纠正）。**RM 图无 APB2 预分频器** → diagram APB2 kind=readout + note（HAL PPRE2 写入 undocumented，配置能力保留 Detail/表格）。MCO 枚举无 PLL÷2（inputs SYSCLK/HSI/HSE/PLL）。
+- **V103 PLL 四源**（HSI/HSI÷2/HSE÷2/HSE；HSI÷2 走 EXTEN_CTR.HSIPRE 不在 RCC）→ 配置真相仍 HSI/HSE+prediv，不画假 mux 行（note）；RTC 三源含 HSE÷128；HSE RM 4~16 vs DS 8~25 冲突保留 DS + note；HCLK RM ÷512/HAL ÷16 边界 note。
+- **X035 无 LSI**：IWDG/AWU=HSI÷1024≈46.875kHz（aux readout）；**ADC CTLR3.CLK_DIV 实为 9 位非自然编码**（[8:0]，复位 0x3 不在编码表）→ raw 旋钮 note 升级（位宽仍 4 档子集 + 强警告）；MCO 图行名 HSI/HCLK vs 寄存器 100=SYSCLK/101=HSI note。
+- **H417 RM 仅 PPRE2 无 PPRE1** → APB1 kind=readout + note；定时器内核=PCLK 无 ×2（repo APB≡1 数值等价 note）；RTC 第三源 HSE÷512；双核 HPRE→V5F / FPRE→V3F 分叉以 readout 表达（不改 ahb 合成语义）；KernelMux 11 字段/AuxPlls 不建模（组 note 列名）。
+- **V307** PLL2/PLL3（HAL todo!()）/USBHS HSPLL（API 存在外设未建模）仅显示簇；ETH125M/I2S2/3SRC/RNG 不画（无驱动 note）；AHB 硬件 9 档 repo 5 档 note。
+- **CH582** 无 HSI/无 AHB/APB 分频；ClockSrc 三路（PLL/HSE/CK32K）→ CK32K 为 displayOnly 源 + `sysclkMuxInput:true` 画灰行；LSI/LSE 作 **aux osc 节点**（非 sources，避免污染 mux 输入）→ CK32KSEL mux → RTC readout（BLE 占用 note）；**ADC 图/寄存器歧义**：图 6-1 把 ADC_CLK_DIV 画到 Fsys 轨，寄存器明确 CK32M÷10/4/6/8 → repo 采信 CK32M + note 并列。
+- **RM 保真 mux 输入裁决（主控）**：displayOnly 源**不再通用追加**进 SYSCLK/PLL mux 灰行——LSI/LSE 在 RM 中非 SW/PLLSRC 输入 → 无灰行、无灰边（仅 aux 引用）；仅 `sysclkMuxInput` 者（CH582 CK32K）画灰行+灰边（active=false）。aux mux 行标签取 `inputs[].label`（muxLabels，RM 文案如 PLL3÷2/HSE÷128）；同源多行边 id 加行序后缀防 Vue :key 重复。
+
+### 16.3 图元语言与布局（MX2 照抄）
+
+- kind ∈ osc/mux/div/readout/peri/pll；簇内分离块（mux 竖 radio 列/stepper「− ÷N +」/读数卡两行「N MHz」「max N MHz」/pll=mux+参数 stepper 链+读数/peri airy 四行）；PRIM 常量 layout.ts export 渲染共用；行距硬约束（读数 18/peri 20/标题-控件 14）；**白纸面板**取代点阵（MX2 实机为纯白纸）；分组框 11px 左上标题；长 note/hint/组标签按块宽截断+`<title>` 悬停全文（防横穿画布）。
+- 逐芯片 `clock.json.diagram`（节点坐标+显式分组框+lanes 走廊 hint）镜像 RM 五区带；无 diagram 回退列式（宽簇按实际宽度扩张列距）；走线正交避障不穿簇（validate 5c 断言：全覆盖/坐标/分组互不重叠/簇互不重叠/走线不穿/aux 输入存在/displayOnly 不进 options）。
+- 逻辑节点数组不变（表格/Detail/菜单/聚焦/高亮/锁定零改动）；aux/displayOnly 不进 ClockConfig/cube.json/solver/matchPreset/validateClock 配置语义；**codegen 零改动**（verify 6/6+6/6+1/1 快照逐字节同）。
+
+### 16.4 验收（2026-11-18，七芯片截图对照 RM 转录）
+
+V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/stepper 链/读数两行/白纸/中文分组/aux 仅显示带/走线锚点入 radio 行/无文本溢出；V203 交互抽查（SPI 8MHz→实际 4MHz ÷2 BRG+Resolve(1)、Reset 对话框、右键高亮+Clear）通过。**1495 测试/61 文件**、vue-tsc/eslint/validate 7 芯片 0/0/build/verify 三路全绿。
+- 诚实边界：I2S mux/KernelMux/AuxPlls 不画不建模；aux 不生成；V203 prediv/非预设 PLL 显式导出暂缓（M17 候选）；X035 raw 旋钮 4 档子集+9 位编码强警告；MCO/RTC div 显示固定档无旋钮。

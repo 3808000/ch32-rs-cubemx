@@ -109,6 +109,11 @@ export function validateClock(spec: ClockData, cfg: ClockConfig): ClockIssue[] {
   const f = computeClock(spec, cfg)
 
   const hse = spec.sources.find((s) => s.id === 'HSE')
+  // M16：仅显示源（LSI/LSE/CK32K 等 RM 低频域）不可配置为 SYSCLK（导入脏值兜底）
+  const srcSpec = spec.sources.find((s) => s.id === cfg.source)
+  if (srcSpec?.displayOnly) {
+    issues.push({ node: 'SYSCLK', level: 'error', message: `${srcSpec.label} 为仅显示时钟源（RM 低频域），不可配置为 SYSCLK` })
+  }
   const usesHse = cfg.source === 'HSE' || (cfg.source === 'PLL' && cfg.pllSource === 'HSE')
   if (usesHse && hse?.hxtal) {
     const x = cfg.hxtalMhz ?? hse.hxtal.default
@@ -250,7 +255,9 @@ export function defaultClock(spec: ClockData): ClockConfig {
   const hse = spec.sources.find((s) => s.id === 'HSE')
   // 不能写死 'HSI'：CH582M 等芯片只有 HSE + PLL，写死会导致默认 SYSCLK=0
   // M12：defaultSource 数据驱动优先（CH582M 指定 PLL——HSE 直连需 div=1 被 HAL assert 拒绝，不可生成）
-  const defaultSource = spec.defaultSource ?? spec.sources.find((s) => !s.pll)?.id ?? spec.sources[0]?.id ?? ''
+  // M16：displayOnly 源（LSI/LSE/CK32K 仅显示）不可作默认/求解候选
+  const defaultSource =
+    spec.defaultSource ?? spec.sources.find((s) => !s.pll && !s.displayOnly)?.id ?? spec.sources.find((s) => !s.displayOnly)?.id ?? ''
   const adcClkDiv = adcClkDivDefault(spec)
   // 无 PLL 芯片（M14）：不写 pllSource/pll
   if (!spec.pll) {
@@ -480,7 +487,8 @@ export function resolveClockIssues(spec: ClockData, cfg: ClockConfig): ClockFixR
   const curFreq = computeClock(spec, cfg)
   const targetSys = curFreq.sysclkMhz > 0 ? curFreq.sysclkMhz : spec.sysclkMaxMhz
 
-  const sourceIds = locked.has('SYSCLK') ? [cfg.source] : spec.sources.map((s) => s.id)
+  // M16：displayOnly 源不进自动修复搜索空间（仅显示域无配置语义）
+  const sourceIds = locked.has('SYSCLK') ? [cfg.source] : spec.sources.filter((s) => !s.displayOnly).map((s) => s.id)
   const pllSourceIds = locked.has('PLL') ? [cfg.pllSource ?? pllSourceOptions[0]] : pllSourceOptions
   const allPllCombos = locked.has('PLL') ? [basePll] : pllParamCombos(spec)
   const ahbOptions = locked.has('AHB') ? [cfg.ahb] : spec.ahb.options

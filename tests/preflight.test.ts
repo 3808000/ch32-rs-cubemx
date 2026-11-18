@@ -25,13 +25,12 @@ function pin(name: string, mode: PinMode): PinAssignment {
 }
 
 describe('preflight 基础分级', () => {
-  it('默认时钟（无 clock 配置）：空引脚工程仅 ADC warning，定位 Clock/ADC', () => {
+  it('默认时钟（无 clock 配置）：空引脚工程 0 warning（ADC=HCLK÷2=12MHz ≤14）', () => {
+    // D4bis：V003 ADCPRE 自 HCLK 复位 ÷2，默认档不再触发 ADC 超限 warning；
+    // ADC warning 分级由下方「时钟 warning 进入 warnings」显式 PLL48 配置覆盖
     const report = preflight(makeConfig(), data)
     expect(report.errors).toEqual([])
-    const adc = report.warnings.find((w) => w.target.node === 'ADC')
-    expect(adc).toBeDefined()
-    expect(adc!.level).toBe('warning')
-    expect(adc!.target.view).toBe('clock')
+    expect(report.warnings).toEqual([])
     expect(preflightBlocked(report)).toBe(false)
   })
 

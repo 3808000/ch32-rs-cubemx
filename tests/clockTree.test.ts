@@ -13,11 +13,15 @@ import type {
 } from '@/model/types'
 import { computeClock, defaultClock } from '@/model/clock'
 import {
+  anchorIn,
+  anchorOut,
   applyClockControl,
   applyPeripheralClockControl,
   buildClockTree,
   formatMhz,
+  PRIM,
   type ClockNodeControl,
+  type ClockTreeNode,
   type ClockTreeLayout,
   type PeripheralClockContext,
 } from '@/model/clock/tree'
@@ -28,11 +32,11 @@ const spec = v003.clock
 
 // ---------- 布局常量（与 layout.ts 契约一致，测试独立声明以固定几何契约） ----------
 const X0 = 40
-const COL_DX = 200
 const Y0 = 60
-const ROW_DY = 140
-const NODE_W = 160
-const NODE_H = 108
+/** 列距下限（宽簇按实际宽度扩张） */
+const COL_MIN_DX = 200
+const COL_GAP = 40
+const ROW_GAP = 32
 
 // ---------- 合成外设上下文 ----------
 
@@ -206,39 +210,94 @@ describe('buildClockTree 节点', () => {
     expect(tree2.nodes.find((n) => n.id === 'ADC')?.issueLevel).toBe('error')
   })
 
-  it('分组容器覆盖四类区域', () => {
+  it('分组容器覆盖四类区域（diagram 显式分组）', () => {
     const labels = tree.groups.map((g) => g.label)
-    expect(labels.some((l) => l.startsWith('Clock sources'))).toBe(true)
-    expect(labels.some((l) => l.startsWith('PLL Max'))).toBe(true)
-    expect(labels.some((l) => l.startsWith('System Clock'))).toBe(true)
-    expect(labels.some((l) => l.startsWith('ADC Max'))).toBe(true)
+    expect(labels).toContain('时钟源')
+    expect(labels).toContain('PLL（×2 固定）')
+    expect(labels).toContain('系统时钟')
+    expect(labels).toContain('ADC 时钟')
   })
 })
 
-describe('buildClockTree 列式布局几何', () => {
+describe('buildClockTree 列式回退几何（真实芯片显式去 diagram）', () => {
   const cfg = defaultClock(spec)
-  const tree = treeOf(spec, cfg)
+  const tree = treeOf({ ...spec, diagram: undefined }, cfg)
+  const byId = new Map(tree.nodes.map((n) => [n.id, n]))
 
-  it('所有节点 x = 40 + column*200（无硬编码坐标表）', () => {
+  /** 测试侧独立按 D1/PRIM 计算期望簇尺寸 */
+  function expectedSize(n: ClockTreeNode): { w: number; h: number } {
+    switch (n.kind) {
+      case 'osc':
+        return { w: PRIM.OSC_W, h: PRIM.OSC_H }
+      case 'mux': {
+        const rows = Math.max(1, n.muxInputs?.length ?? 1)
+        return {
+          w: PRIM.MUX_W + PRIM.CLUSTER_GAP + PRIM.READOUT_W,
+          h: Math.max(PRIM.MUX_PAD * 2 + rows * PRIM.MUX_ROW, PRIM.READOUT_H),
+        }
+      }
+      case 'pll': {
+        const steps = n.id === 'PLL' ? spec.pll!.params.length : 0
+        return {
+          w: PRIM.MUX_W + steps * PRIM.STEP_W + PRIM.READOUT_W + PRIM.CLUSTER_GAP * (steps + 1),
+          h: Math.max(PRIM.MUX_PAD * 2 + Math.max(1, n.muxInputs?.length ?? 1) * PRIM.MUX_ROW, PRIM.STEP_H, PRIM.READOUT_H),
+        }
+      }
+      case 'div':
+        return { w: PRIM.DIV_W + PRIM.CLUSTER_GAP + PRIM.READOUT_W, h: Math.max(PRIM.DIV_H, PRIM.READOUT_H) }
+      case 'readout':
+        return { w: PRIM.READOUT_W, h: PRIM.READOUT_H + (n.hint ? 16 : 0) }
+      case 'peri':
+        return { w: PRIM.PERI_W, h: PRIM.PERI_H }
+    }
+  }
+
+  it('簇宽高按 kind 用 PRIM 计算（osc/mux/pll/div/readout）', () => {
     for (const n of tree.nodes) {
-      expect(n.x).toBe(X0 + n.column * COL_DX)
-      expect(n.w).toBe(NODE_W)
-      expect(n.h).toBe(NODE_H)
+      expect(n.w, n.id).toBe(expectedSize(n).w)
+      expect(n.h, n.id).toBe(expectedSize(n).h)
+    }
+    expect(byId.get('HSI')).toMatchObject({ w: 96, h: 44 })
+    expect(byId.get('SYSCLK')).toMatchObject({ w: 200, h: 72 }) // 3 路源（HSI/HSE/PLL；RM 保真：LSI 非 mux 输入不画灰行）
+    expect(byId.get('PLL')).toMatchObject({ w: 284, h: 56 }) // mux 2 行（HSI/HSE）+ 1 stepper + 读数卡
+    expect(byId.get('AHB')).toMatchObject({ w: 212, h: 44 }) // stepper + 读数卡
+    expect(byId.get('APB1')).toMatchObject({ w: 104, h: 44 }) // 唯一档位 → readout
+  })
+
+  it('列式回退保留 x=40 起点与最小列距 200（宽簇按实际宽度扩张，不重叠）', () => {
+    const cols = [...new Set(tree.nodes.map((n) => n.column))].sort((a, b) => a - b)
+    expect(cols).toEqual([0, 1, 2, 3, 4, 8, 10]) // 10 = aux 仅显示域列
+    const colX = new Map<number, number>()
+    for (const c of cols) colX.set(c, byId.get(tree.nodes.find((n) => n.column === c)!.id)!.x)
+    expect(colX.get(0)).toBe(X0)
+    expect(colX.get(1)).toBe(X0 + COL_MIN_DX) // 源列 96 宽 → 仍保 200 节奏
+    expect(colX.get(2)).toBe(colX.get(1)! + Math.max(COL_MIN_DX, 284 + COL_GAP)) // PLL 簇 284 宽
+    for (const c of cols) {
+      const members = tree.nodes.filter((n) => n.column === c)
+      expect(new Set(members.map((n) => n.x)).size).toBe(1)
+      const maxW = Math.max(...members.map((n) => n.w))
+      const next = cols[cols.indexOf(c) + 1]
+      if (next !== undefined) {
+        const nextX = tree.nodes.find((n) => n.column === next)!.x
+        expect(nextX).toBe(colX.get(c)! + Math.max(COL_MIN_DX, maxW + COL_GAP))
+        expect(colX.get(c)! + maxW).toBeLessThan(nextX)
+      }
     }
   })
 
-  it('列内按模型顺序堆叠：y = 60 + 行号*140', () => {
-    const rows = new Map<number, number>()
+  it('列内按模型顺序堆叠：y = 60，后续行 = 上行 y + 簇高 + 32', () => {
+    const cursor = new Map<number, number>()
     for (const n of tree.nodes) {
-      // 模型顺序即节点数组顺序：同列节点依次占 0..k 行
-      const expected = rows.get(n.column) ?? 0
-      expect(n.y).toBe(Y0 + expected * ROW_DY)
-      rows.set(n.column, expected + 1)
+      const expectedY = cursor.get(n.column) ?? Y0
+      expect(n.y, n.id).toBe(expectedY)
+      cursor.set(n.column, expectedY + n.h + ROW_GAP)
     }
+    // SYSCLK（mux h=72，3 路源；LSI 非 mux 输入）→ AHB 行距 = 72+32
+    expect(byId.get('AHB')!.y - byId.get('SYSCLK')!.y).toBe(72 + ROW_GAP)
+    expect(byId.get('HSE')!.y - byId.get('HSI')!.y).toBe(PRIM.OSC_H + ROW_GAP)
   })
 
   it('核心列序保持：源→PLL→SYSCLK/AHB→APB→TIM→ADC', () => {
-    const byId = new Map(tree.nodes.map((n) => [n.id, n]))
     expect(byId.get('HSI')?.column).toBe(0)
     expect(byId.get('HSE')?.column).toBe(0)
     expect(byId.get('PLL')?.column).toBe(1)
@@ -260,7 +319,7 @@ describe('buildClockTree 列式布局几何', () => {
     expect(byId.get('AHB')!.y).toBeGreaterThan(byId.get('SYSCLK')!.y)
   })
 
-  it('画布尺寸 = 最大列 x+NODE_W+40 × 最大 y+NODE_H+36', () => {
+  it('画布尺寸 = 最大簇右下 + 40/36', () => {
     const maxX = Math.max(...tree.nodes.map((n) => n.x + n.w))
     const maxY = Math.max(...tree.nodes.map((n) => n.y + n.h))
     expect(tree.width).toBe(maxX + 40)
@@ -279,7 +338,6 @@ describe('buildClockTree 列式布局几何', () => {
       expect(g.y).toBe(minY - 30)
       expect(g.w).toBe(maxX - minX + 32)
       expect(g.h).toBe(maxY - minY + 30 + 18)
-      // 成员完全落在框内
       for (const m of members) {
         expect(m.x).toBeGreaterThanOrEqual(g.x)
         expect(m.y).toBeGreaterThanOrEqual(g.y)
@@ -302,8 +360,9 @@ describe('buildClockTree 列式布局几何', () => {
     }
   })
 
-  it('无成员的分组不输出（如无外设数据时无 g-usart）', () => {
-    const ids = tree.groups.map((g) => g.id)
+  it('无成员的分组不输出（无 aux 数据时无 g-aux；无外设时无 g-usart）', () => {
+    const noAux = treeOf({ ...spec, diagram: undefined, aux: [] }, cfg)
+    const ids = noAux.groups.map((g) => g.id)
     expect(ids).toContain('g-sources')
     expect(ids).toContain('g-pll')
     expect(ids).toContain('g-sys')
@@ -311,6 +370,7 @@ describe('buildClockTree 列式布局几何', () => {
     expect(ids).toContain('g-adc')
     expect(ids).not.toContain('g-usart')
     expect(ids).not.toContain('g-usb')
+    expect(ids).not.toContain('g-aux')
   })
 })
 
@@ -342,11 +402,16 @@ describe('buildClockTree 连线', () => {
     expect(tree2.edges.find((e) => e.id === 'src-HSI-pll')?.active).toBe(false)
   })
 
-  it('同列连线为竖直直线（SYSCLK→AHB：两点同 x）', () => {
+  it('同列连线按 D2 锚点出/入（SYSCLK 读数卡右中 → AHB 左中）', () => {
+    const byId = new Map(tree.nodes.map((n) => [n.id, n]))
     const e = tree.edges.find((x) => x.id === 'sys-ahb')!
-    expect(e.points).toHaveLength(2)
-    expect(e.points[0]!.x).toBe(e.points[1]!.x)
-    expect(e.points[0]!.y).toBeLessThan(e.points[1]!.y)
+    expect(e.points[0]).toEqual(anchorOut(byId.get('SYSCLK')!))
+    expect(e.points[e.points.length - 1]).toEqual(anchorIn(byId.get('AHB')!, 'SYSCLK'))
+    for (let i = 1; i < e.points.length; i++) {
+      const a = e.points[i - 1]!
+      const b = e.points[i]!
+      expect(a.x === b.x || a.y === b.y).toBe(true)
+    }
   })
 })
 
@@ -643,11 +708,16 @@ describe('外设节点：ADC raw（CTLR3.CLK_DIV）', () => {
     expect(applyClockControl(lockedCfg, c, 5)).toBe(lockedCfg)
   })
 
-  it('ADC→P-ADC 同列垂直边（相邻行两点同 x）', () => {
+  it('ADC→P-ADC 同列边：ADC mux 左缘行/读数卡右中锚点，正交折线', () => {
+    const byId2 = new Map(tree.nodes.map((n) => [n.id, n]))
     const e = tree.edges.find((x) => x.id === 'peri-P-ADC1')!
-    expect(e.points).toHaveLength(2)
-    expect(e.points[0]!.x).toBe(e.points[1]!.x)
-    expect(e.points[1]!.y - e.points[0]!.y).toBe(32) // 行间距 140 - 节点高 108
+    expect(e.points[0]).toEqual(anchorOut(byId2.get('ADC')!))
+    expect(e.points[e.points.length - 1]).toEqual(anchorIn(byId2.get('P-ADC1')!, 'ADC'))
+    for (let i = 1; i < e.points.length; i++) {
+      const a = e.points[i - 1]!
+      const b = e.points[i]!
+      expect(a.x === b.x || a.y === b.y).toBe(true)
+    }
   })
 
   it('applyClockControl adcClkDiv：Number + min/max 夹取', () => {
@@ -862,6 +932,418 @@ describe('真实 clock.json peripheralClocks：7 芯片数据驱动', () => {
       if (pc!.usb) expect(layout.nodes.find((n) => n.id === 'USB')!.column).toBe(9)
     })
   }
+})
+
+// ---------- M16：diagram 驱动布局 / aux 仅显示域 / displayOnly 源 ----------
+
+const M16_AUX: NonNullable<ClockData['aux']> = [
+  {
+    id: 'IWDG',
+    kind: 'readout',
+    label: 'IWDG',
+    inputs: [{ id: 'LSI', label: 'LSI' }],
+    fixedMhz: 0.128,
+    note: 'LSI 128kHz 独立域',
+  },
+  {
+    id: 'MCO',
+    kind: 'mux',
+    label: 'MCO (PC4)',
+    inputs: [
+      { id: 'SYSCLK', label: 'SYSCLK' },
+      { id: 'HSI', label: 'HSI' },
+      { id: 'HSE', label: 'HSE' },
+    ],
+    fixedDivLabel: '÷1',
+    note: 'HAL mco.rs 有驱动但本期不生成',
+  },
+  {
+    id: 'ADCPRE',
+    kind: 'div',
+    label: 'ADCPRE',
+    inputs: [{ id: 'APB2', label: 'APB2' }],
+    fixedDivLabel: '÷2(复位)',
+    note: 'HAL 无 API；上游 FIXME v003.rs:20,125',
+  },
+]
+
+/** 合成 diagram（坐标=测试数据；覆盖核心节点 + aux；groups=成员包围盒） */
+function m16Spec(): ClockData {
+  return {
+    ...spec,
+    // V003 真实数据已含 LSI displayOnly 源（HSI/HSE/PLL/LSI），勿重复追加
+    aux: M16_AUX,
+    diagram: {
+      nodes: {
+        HSI: { x: 40, y: 40 },
+        HSE: { x: 40, y: 120 },
+        LSI: { x: 40, y: 200 },
+        PLL: { x: 260, y: 40 },
+        SYSCLK: { x: 560, y: 40 },
+        AHB: { x: 560, y: 200 },
+        APB1: { x: 800, y: 40 },
+        APB2: { x: 800, y: 160 },
+        TIM1: { x: 1060, y: 40 },
+        TIM2: { x: 1060, y: 160 },
+        ADC: { x: 1300, y: 40 },
+        IWDG: { x: 40, y: 320 },
+        MCO: { x: 260, y: 320 },
+        ADCPRE: { x: 560, y: 320 },
+      },
+      groups: [
+        { id: 'g-sources', label: 'Clock sources', x: 24, y: 10, w: 128, h: 252 },
+        { id: 'g-pll', label: 'PLL', x: 244, y: 10, w: 300, h: 104 },
+        { id: 'g-sys', label: 'System Clock', x: 544, y: 10, w: 228, h: 252 },
+        { id: 'g-tim', label: 'TIM', x: 1044, y: 10, w: 136, h: 228 },
+        { id: 'g-adc', label: 'ADC', x: 1284, y: 10, w: 232, h: 92 },
+        { id: 'g-aux', label: 'Display-only domains', x: 24, y: 290, w: 764, h: 120 },
+      ],
+      lanes: { 'src-HSI-sys': 0 },
+    },
+  }
+}
+
+describe('M16 diagram 驱动布局', () => {
+  const s = m16Spec()
+  const cfg = defaultClock(s)
+  const tree = treeOf(s, cfg)
+  const byId = new Map(tree.nodes.map((n) => [n.id, n]))
+
+  it('坐标 = diagram.nodes（簇左上，数据优先）', () => {
+    expect(byId.get('HSI')).toMatchObject({ x: 40, y: 40 })
+    expect(byId.get('HSE')).toMatchObject({ x: 40, y: 120 })
+    expect(byId.get('PLL')).toMatchObject({ x: 260, y: 40 })
+    expect(byId.get('SYSCLK')).toMatchObject({ x: 560, y: 40 })
+    expect(byId.get('AHB')).toMatchObject({ x: 560, y: 200 })
+    expect(byId.get('ADC')).toMatchObject({ x: 1300, y: 40 })
+    expect(byId.get('MCO')).toMatchObject({ x: 260, y: 320 })
+  })
+
+  it('簇尺寸仍按 kind/PRIM（diagram 只给坐标）', () => {
+    expect(byId.get('SYSCLK')).toMatchObject({ w: 200, h: 72 }) // 3 行（RM 保真：LSI 非 mux 输入）
+    expect(byId.get('AHB')).toMatchObject({ w: 212, h: 44 })
+    expect(byId.get('APB1')).toMatchObject({ w: 104, h: 44 })
+    expect(byId.get('PLL')).toMatchObject({ w: 284, h: 56 }) // 2 行 mux（HSI/HSE）
+    expect(byId.get('TIM1')).toMatchObject({ w: 104, h: 60 })
+    expect(byId.get('ADC')).toMatchObject({ w: 200, h: 44 }) // ADC 分频 mux 仅 1 档（灰行只进源选择 mux）
+    expect(byId.get('IWDG')).toMatchObject({ w: 104, h: 60 })
+    expect(byId.get('MCO')).toMatchObject({ w: 200, h: 72 })
+    expect(byId.get('ADCPRE')).toMatchObject({ w: 212, h: 44 })
+  })
+
+  it('mux 输入锚点 = mux 左缘第 i 行（HSI→SYSCLK 第 0 行）', () => {
+    const e = tree.edges.find((x) => x.id === 'src-HSI-sys')!
+    expect(e.points[0]).toEqual(anchorOut(byId.get('HSI')!))
+    expect(e.points[e.points.length - 1]).toEqual({ x: 560, y: 40 + PRIM.MUX_PAD + PRIM.MUX_ROW / 2 })
+  })
+
+  it('非 mux 输入的 displayOnly 源：无 SYSCLK/PLL 灰边、无灰行（RM 保真）', () => {
+    const sys = byId.get('SYSCLK')!
+    expect(sys.muxInputs).not.toContain('LSI')
+    expect(tree.edges.find((x) => x.id === 'src-LSI-sys')).toBeUndefined()
+    expect(tree.edges.find((x) => x.id === 'src-LSI-pll')).toBeUndefined()
+  })
+
+  it('sysclkMuxInput 的 displayOnly 源画灰行：CH582 CK32K→SYSCLK 第 2 行', () => {
+    const c582 = getDeviceData('CH582M').clock
+    const cfg582 = defaultClock(c582)
+    const t582 = buildClockTree(c582, cfg582, computeClock(c582, cfg582))
+    const sys = t582.nodes.find((n) => n.id === 'SYSCLK')!
+    expect(sys.muxInputs).toEqual(['HSE', 'PLL', 'CK32K'])
+    const e = t582.edges.find((x) => x.id === 'src-CK32K-sys')!
+    expect(e.active).toBe(false)
+    expect(e.points[e.points.length - 1]).toEqual({
+      x: sys.x,
+      y: sys.y + PRIM.MUX_PAD + 2 * PRIM.MUX_ROW + PRIM.MUX_ROW / 2,
+    })
+  })
+
+  it('PLL mux 输入锚点行：HSE→PLL 第 1 行', () => {
+    const e = tree.edges.find((x) => x.id === 'src-HSE-pll')!
+    expect(e.points[e.points.length - 1]).toEqual({
+      x: 260,
+      y: 40 + PRIM.MUX_PAD + PRIM.MUX_ROW + PRIM.MUX_ROW / 2,
+    })
+  })
+
+  it('PLL→SYSCLK 锚点 = SYSCLK 第 2 行（pllInputs 顺序 HSI/HSE/PLL/LSI）', () => {
+    const e = tree.edges.find((x) => x.id === 'pll-sys')!
+    expect(e.points[e.points.length - 1]).toEqual({
+      x: 560,
+      y: 40 + PRIM.MUX_PAD + 2 * PRIM.MUX_ROW + PRIM.MUX_ROW / 2,
+    })
+  })
+
+  it('全部边端点 = anchorOut(from) / anchorIn(to, from)（D2 契约）', () => {
+    for (const e of tree.edges) {
+      const a = byId.get(e.from)!
+      const b = byId.get(e.to)!
+      expect(e.points[0], `${e.id} out`).toEqual(anchorOut(a))
+      expect(e.points[e.points.length - 1], `${e.id} in`).toEqual(anchorIn(b, e.from))
+    }
+  })
+
+  it('全部走线为正交折线', () => {
+    for (const e of tree.edges) {
+      for (let i = 1; i < e.points.length; i++) {
+        const a = e.points[i - 1]!
+        const b = e.points[i]!
+        expect(a.x === b.x || a.y === b.y).toBe(true)
+      }
+    }
+  })
+
+  it('走线不穿过任何簇（含 aux 域）', () => {
+    expect(nodeBusters(tree)).toEqual([])
+    expect(tree.nodes.some((n) => n.id === 'IWDG')).toBe(true)
+  })
+
+  it('diagram.groups 原样输出（坐标/尺寸不重算）', () => {
+    expect(tree.groups.map((g) => g.id)).toEqual([
+      'g-sources',
+      'g-pll',
+      'g-sys',
+      'g-tim',
+      'g-adc',
+      'g-aux',
+    ])
+    expect(tree.groups.find((g) => g.id === 'g-aux')).toMatchObject({ x: 24, y: 290, w: 764, h: 120 })
+  })
+
+  it('diagram.groups 覆盖全部有分组的成员（含 aux）', () => {
+    for (const n of tree.nodes) {
+      if (!n.group) continue
+      const g = tree.groups.find((x) => x.id === n.group)!
+      expect(g, `缺少分组框 ${n.group}`).toBeTruthy()
+      expect(n.x).toBeGreaterThanOrEqual(g.x)
+      expect(n.y).toBeGreaterThanOrEqual(g.y)
+      expect(n.x + n.w).toBeLessThanOrEqual(g.x + g.w)
+      expect(n.y + n.h).toBeLessThanOrEqual(g.y + g.h)
+    }
+  })
+
+  it('diagram.groups 互不重叠', () => {
+    for (let i = 0; i < tree.groups.length; i++) {
+      for (let j = i + 1; j < tree.groups.length; j++) {
+        const a = tree.groups[i]!
+        const b = tree.groups[j]!
+        const ox = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+        const oy = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+        expect(ox <= 0 || oy <= 0, `${a.id} 与 ${b.id} 重叠`).toBe(true)
+      }
+    }
+  })
+
+  it('lanes hint 不破坏正交/避障（hint 仅影响走廊选择）', () => {
+    expect(tree.edges.find((e) => e.id === 'src-HSI-sys')).toBeTruthy()
+    expect(nodeBusters(tree)).toEqual([])
+  })
+
+  it('diagram 缺节点 → 运行时回退最右列堆叠（不抛错）', () => {
+    const s2 = m16Spec()
+    delete s2.diagram!.nodes.TIM2
+    const t2 = treeOf(s2, defaultClock(s2))
+    const tim2 = t2.nodes.find((n) => n.id === 'TIM2')!
+    expect(tim2).toBeTruthy()
+    const others = t2.nodes.filter((n) => n.id !== 'TIM2')
+    const maxRight = Math.max(...others.map((n) => n.x + n.w))
+    expect(tim2.x).toBe(maxRight + 40)
+    expect(tim2.y).toBe(Y0)
+  })
+
+  it('diagram.nodes[id].kind 覆盖默认 kind（AHB div → readout）', () => {
+    const s2 = m16Spec()
+    s2.diagram!.nodes.AHB = { x: 560, y: 200, kind: 'readout' }
+    const t2 = treeOf(s2, defaultClock(s2))
+    const ahb = t2.nodes.find((n) => n.id === 'AHB')!
+    expect(ahb.kind).toBe('readout')
+    expect(ahb.w).toBe(PRIM.READOUT_W)
+    expect(ahb.h).toBe(PRIM.READOUT_H)
+    // readout 输入锚点回退左中
+    expect(anchorIn(ahb, 'SYSCLK')).toEqual({ x: 560, y: 200 + PRIM.READOUT_H / 2 })
+  })
+
+  it('有/无 diagram 对比：diagram 坐标 ≠ 列式回退坐标', () => {
+    const fb = treeOf({ ...s, diagram: undefined }, cfg)
+    const fbSys = fb.nodes.find((n) => n.id === 'SYSCLK')!
+    expect(fbSys.x).not.toBe(560) // 回退列位
+    expect(byId.get('SYSCLK')!.x).toBe(560) // diagram 数据
+  })
+})
+
+describe('M16 aux 仅显示域（display-only）', () => {
+  const s = m16Spec()
+  const tree = treeOf(s, defaultClock(s))
+  const byId = new Map(tree.nodes.map((n) => [n.id, n]))
+
+  it('aux readout 元数据：displayOnly/badge/control/lockable/locked/issueLevel/active', () => {
+    const n = byId.get('IWDG')!
+    expect(n.kind).toBe('readout')
+    expect(n.displayOnly).toBe(true)
+    expect(n.badge).toBe('derived')
+    expect(n.control).toBeNull()
+    expect(n.lockable).toBe(false)
+    expect(n.locked).toBe(false)
+    expect(n.issueLevel).toBeNull()
+    expect(n.active).toBe(true)
+  })
+
+  it('aux 频率/上限：fixedMhz → in/out；maxMhz 透传', () => {
+    const s2 = m16Spec()
+    s2.aux = [...M16_AUX, { id: 'V5F', kind: 'readout', label: 'V5F', fixedMhz: 120, maxMhz: 400 }]
+    const t2 = treeOf(s2, defaultClock(s2))
+    expect(t2.nodes.find((n) => n.id === 'IWDG')).toMatchObject({ inMhz: 0.128, outMhz: 0.128 })
+    expect(t2.nodes.find((n) => n.id === 'V5F')).toMatchObject({ inMhz: 120, outMhz: 120, maxMhz: 400 })
+  })
+
+  it('aux hint = fixedDivLabel · note 拼接', () => {
+    expect(byId.get('MCO')!.hint).toBe('÷1 · HAL mco.rs 有驱动但本期不生成')
+    expect(byId.get('ADCPRE')!.hint).toBe('÷2(复位) · HAL 无 API；上游 FIXME v003.rs:20,125')
+    expect(byId.get('IWDG')!.hint).toBe('LSI 128kHz 独立域')
+  })
+
+  it('aux mux/pll 节点带 muxInputs（inputs 顺序）', () => {
+    expect(byId.get('MCO')!.kind).toBe('mux')
+    expect(byId.get('MCO')!.muxInputs).toEqual(['SYSCLK', 'HSI', 'HSE'])
+    const s2 = m16Spec()
+    s2.aux = [...M16_AUX, { id: 'PLL2', kind: 'pll', label: 'PLL2', inputs: [{ id: 'HSE', label: 'HSE' }] }]
+    const t2 = treeOf(s2, defaultClock(s2))
+    expect(t2.nodes.find((n) => n.id === 'PLL2')!.muxInputs).toEqual(['HSE'])
+  })
+
+  it('aux 入边全部 active=false（灰线），永不激活', () => {
+    for (const id of ['aux-IWDG-LSI', 'aux-MCO-SYSCLK', 'aux-MCO-HSI', 'aux-MCO-HSE', 'aux-ADCPRE-APB2']) {
+      const e = tree.edges.find((x) => x.id === id)
+      expect(e, id).toBeTruthy()
+      expect(e!.active, id).toBe(false)
+      expect(e!.to, id).toBe(id.split('-')[1])
+    }
+  })
+
+  it('aux 不进 M15 列：column=10 / group=g-aux / g-aux 分组输出', () => {
+    for (const id of ['IWDG', 'MCO', 'ADCPRE']) {
+      const n = byId.get(id)!
+      expect(n.column).toBe(10)
+      expect(n.group).toBe('g-aux')
+    }
+    expect(tree.groups.find((g) => g.id === 'g-aux')?.label).toBe('Display-only domains')
+  })
+
+  it('aux 无配置控件：applyClockControl 路径不产生 aux 节点控件', () => {
+    for (const n of tree.nodes.filter((x) => x.displayOnly)) {
+      expect(n.control).toBeNull()
+      expect(n.lockable).toBe(false)
+    }
+  })
+})
+
+describe('M16 displayOnly 源（灰 osc + 灰行）', () => {
+  const s = m16Spec()
+  const tree = treeOf(s, defaultClock(s))
+  const byId = new Map(tree.nodes.map((n) => [n.id, n]))
+
+  it('displayOnly 源仍为 osc 节点且标记 displayOnly', () => {
+    const lsi = byId.get('LSI')!
+    expect(lsi.kind).toBe('osc')
+    expect(lsi.displayOnly).toBe(true)
+    expect(lsi.control).toBeNull()
+  })
+
+  it('displayOnly 源不进 SYSCLK control options', () => {
+    const values = byId.get('SYSCLK')!.control!.options!.map((o) => o.value)
+    expect(values).toEqual(['HSI', 'HSE', 'PLL'])
+    expect(values).not.toContain('LSI')
+  })
+
+  it('muxInputs = RM 真实输入：options 顺序 + 仅 sysclkMuxInput 的 displayOnly 灰行', () => {
+    // RM 保真：LSI/LSE 不是 SYSCLK/PLL mux 输入 → 不画假灰行（M16 主控裁决）
+    expect(byId.get('SYSCLK')!.muxInputs).toEqual(['HSI', 'HSE', 'PLL'])
+    expect(byId.get('PLL')!.muxInputs).toEqual(['HSI', 'HSE'])
+    // ADC 分频 mux 不是源选择：仅显示源不进其输入行（V003 单档 HCLK÷2）
+    expect(byId.get('ADC')!.muxInputs).toEqual(['HCLK_DIV2'])
+  })
+
+  it('源→SYSCLK/PLL 边：可选源激活语义保留；sysclkMuxInput 灰边 active=false', () => {
+    expect(tree.edges.find((e) => e.id === 'src-HSI-sys')!.active).toBe(true)
+    expect(tree.edges.find((e) => e.id === 'src-HSE-pll')!.active).toBe(false) // 默认 HSI 源
+    const c582 = getDeviceData('CH582M').clock
+    const cfg582 = defaultClock(c582)
+    const t582 = buildClockTree(c582, cfg582, computeClock(c582, cfg582))
+    expect(t582.edges.find((e) => e.id === 'src-CK32K-sys')!.active).toBe(false)
+    expect(t582.edges.find((e) => e.id === 'src-CK32K-pll')).toBeUndefined()
+  })
+
+  it('displayOnly 源不改写 computeClock/配置语义（cfg 仍只含可选源）', () => {
+    const cfg = defaultClock(s)
+    expect(cfg.source).toBe('HSI')
+    expect(computeClock(s, cfg).sysclkMhz).toBe(24)
+  })
+})
+
+describe('M16 kind 默认值与 PRIM 契约', () => {
+  const tree = treeOf(spec, defaultClock(spec))
+  const byId = new Map(tree.nodes.map((n) => [n.id, n]))
+
+  it('kind 默认：源=osc / PLL=pll / SYSCLK·ADC=mux / AHB=div / 单档 APB=readout / TIM=readout', () => {
+    expect(byId.get('HSI')!.kind).toBe('osc')
+    expect(byId.get('HSE')!.kind).toBe('osc')
+    expect(byId.get('PLL')!.kind).toBe('pll')
+    expect(byId.get('SYSCLK')!.kind).toBe('mux')
+    expect(byId.get('ADC')!.kind).toBe('mux')
+    expect(byId.get('AHB')!.kind).toBe('div')
+    expect(byId.get('APB1')!.kind).toBe('readout') // V003 APB1 唯一档位
+    expect(byId.get('APB2')!.kind).toBe('readout') // V003 diagram kind 覆盖：RM 图无 APB2 预分频
+    expect(byId.get('TIM1')!.kind).toBe('readout')
+    expect(byId.get('TIM2')!.kind).toBe('readout')
+  })
+
+  it('外设实例 kind=peri；USB 域 kind=readout', () => {
+    const s = withPeripheralClocks(spec, V003_PC)
+    const t = treeOf(s, defaultClock(s), V003_CTX)
+    expect(t.nodes.find((n) => n.id === 'P-USART1')!.kind).toBe('peri')
+    const v203 = getDeviceData('CH32V203C8T6')
+    const pc: PeripheralClocksData = {
+      adc: { source: 'APB2' },
+      usb: { autoPre: { '48': 1 }, validPllMhz: [48] },
+    }
+    const sp = withPeripheralClocks(v203.clock, pc)
+    const tp = treeOf(sp, defaultClock(sp), fakePeriCtx(v203.peripherals, pc, computeClock(sp, defaultClock(sp))))
+    expect(tp.nodes.find((n) => n.id === 'USB')!.kind).toBe('readout')
+  })
+
+  it('PRIM 常量逐字等于契约 D1', () => {
+    expect(PRIM).toEqual({
+      OSC_W: 96,
+      OSC_H: 44,
+      MUX_W: 84,
+      MUX_ROW: 16,
+      MUX_PAD: 12,
+      READOUT_W: 104,
+      READOUT_H: 44,
+      CLUSTER_GAP: 12,
+      DIV_W: 96,
+      DIV_H: 44,
+      STEP_W: 72,
+      STEP_H: 32,
+      PERI_W: 190,
+      PERI_H: 96,
+    })
+  })
+
+  it('PRIM 行距硬约束：读数两行基线差≥36、peri 高度≥4×20、控件间隔≥14', () => {
+    expect(PRIM.READOUT_H).toBeGreaterThanOrEqual(18 * 2)
+    expect(PRIM.PERI_H).toBeGreaterThanOrEqual(20 * 4)
+    const periNode = byId.get('HSI')!
+    expect(PRIM.PERI_H).toBeGreaterThan(periNode.h) // peri 单卡高于 osc
+    expect(PRIM.OSC_H - PRIM.MUX_PAD).toBeGreaterThanOrEqual(14)
+  })
+
+  it('readout hint 行 +16（TIM1 有「SYSCLK 直通」hint，APB1 无）', () => {
+    expect(byId.get('TIM1')!.hint).toBe('SYSCLK 直通')
+    expect(byId.get('TIM1')!.h).toBe(PRIM.READOUT_H + 16)
+    expect(byId.get('APB1')!.hint).toBeUndefined()
+    expect(byId.get('APB1')!.h).toBe(PRIM.READOUT_H)
+  })
 })
 
 describe('formatMhz', () => {

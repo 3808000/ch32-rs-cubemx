@@ -1,7 +1,8 @@
 // 时钟树 SVG 布局（纯函数）：把逻辑模型（节点 / 连线 / 分组）映射为画布坐标，
 // 输出节点位置、正交连线折线与分组容器。列位置完全由数据推导，禁止按芯片名分支。
-// M15：列式自动布局（x=40+column*200 / 列内 y=60+i*140），无硬编码节点坐标表；
-// 通用正交走线：跨列经走廊折弯 + 行间通道水平段，同列垂直；走线不穿过任何节点卡矩形。
+// M16：kind 簇尺寸（PRIM 常量，渲染共用）；有 clock.json.diagram → 数据坐标优先；
+// 无 diagram → M15 列式回退（列内 y 行距=簇高+32，列距按簇宽自适应、最小 200）。
+// 走线统一为通用正交避障路由：走廊/通道错开（M15 机制）+ lanes hint 优先 + 不穿任何簇矩形。
 import type { ClockConfig, ClockData, ClockFrequencies, ClockIssue } from '@/model/types'
 import {
   buildClockModel,
@@ -47,51 +48,148 @@ export interface ClockTreeLayout {
   groups: ClockTreeGroup[]
 }
 
-// ---------- 布局常量（全部相对画布原点；列/行间距固定，节点顺序决定行号） ----------
+// ---------- D1 图元尺寸（契约逐字；渲染层与布局共用） ----------
 
-const NODE_W = 160
-/** 节点高度需容纳：上限标签 / 频率两栏 / 节点标题 / 控件行（26px） */
-const NODE_H = 108
-/** 列起点与列间距：x = X0 + column * COL_DX（契约 D3 冻结） */
+export const PRIM = {
+  OSC_W: 96,
+  OSC_H: 44,
+  MUX_W: 84,
+  MUX_ROW: 16,
+  MUX_PAD: 12,
+  READOUT_W: 104,
+  READOUT_H: 44,
+  CLUSTER_GAP: 12,
+  DIV_W: 96,
+  DIV_H: 44,
+  STEP_W: 72,
+  STEP_H: 32,
+  PERI_W: 190,
+  PERI_H: 96,
+} as const
+
+// ---------- 列式回退常量（无 diagram 时使用） ----------
+
+/** 列起点 / 行起点（M15 语义保留） */
 const X0 = 40
-const COL_DX = 200
-/** 行起点与行间距：y = Y0 + rowIndex * ROW_DY（列内堆叠顺序） */
 const Y0 = 60
-const ROW_DY = 140
-/** 列间走廊（相邻列之间的空隙）宽度 = COL_DX - NODE_W */
-const COL_GAP = COL_DX - NODE_W
-/** 分组框留白：顶部 30（容纳分组标签）、左右 16（列间仅 40px；两侧各 16 留 8px 间隙，避免相邻分组框重叠）、底部 18 */
+/** 列距下限：仍保持 x=40+column*200 的既有节奏（宽簇按实际宽度扩张） */
+const COL_MIN_DX = 200
+const COL_GAP = 40
+/** 同列节点行距：簇高 + 32 */
+const ROW_GAP = 32
+/** 分组框留白：顶部 30（分组标签）、左右 16（列间留 8px 间隙）、底部 18 */
 const GROUP_PAD_TOP = 30
 const GROUP_PAD_X = 16
 const GROUP_PAD_BOTTOM = 18
-/** 同一走廊/通道内多条走线的错开步长（px；走廊/通道均宽 40/32，最多 ±12） */
+/** 同一走廊/通道内多条走线的错开步长（M15 机制） */
 const LANE_STEP = 12
-/** 同一走廊最多错开的档位数（-1/0/+1） */
 const LANE_SLOTS = 3
+/** 障碍重合判定的半像素容差（端点在簇边界上不算穿越） */
+const EPS = 0.5
+/** 极端绕行余量（画布外走线，保证总有可行正交路径） */
+const DETOUR = 20
 
-/** 计算连线标签位置：取最后一段的中点，水平段在上方、垂直段在右侧。 */
-function labelPos(points: ClockPt[]): ClockPt {
-  const n = points.length
-  if (n < 2) return { x: points[0]!.x + 8, y: points[0]!.y - 8 }
-  const a = points[n - 2]!
-  const b = points[n - 1]!
-  if (a.y === b.y) return { x: (a.x + b.x) / 2, y: a.y - 7 }
-  return { x: a.x + 8, y: (a.y + b.y) / 2 }
+interface Size {
+  w: number
+  h: number
 }
 
-/** 列号 → 列左边界 x */
-function columnX(column: number): number {
-  return X0 + column * COL_DX
+function muxRows(node: ClockNodeModel): number {
+  return Math.max(1, node.muxInputs?.length ?? 1)
 }
 
-/** 列号 c 与 c+1 之间走廊的中心 x */
-function corridorX(c: number): number {
-  return columnX(c) + NODE_W + COL_GAP / 2
+/** PLL 簇的参数 stepper 数量（PLL 节点来自 spec.pll.params；aux PLL 无参数） */
+function pllStepCount(spec: ClockData, node: ClockNodeModel): number {
+  return node.id === 'PLL' ? (spec.pll?.params.length ?? 0) : 0
 }
 
-/** 行号 r 与 r+1 之间通道的中心 y（行网格全局对齐，任意列该 y 均无节点） */
-function channelY(r: number): number {
-  return Y0 + r * ROW_DY + NODE_H + (ROW_DY - NODE_H) / 2
+/**
+ * kind → 簇宽高（D1）：
+ * - osc/readout/peri 固定；readout 带 hint 行 +16；
+ * - mux = mux 竖块 + gap + 读数卡；竖块高 = MUX_PAD*2 + 输入行数*MUX_ROW；
+ * - pll = mux + 参数 stepper 链（每个 STEP_W，块间 CLUSTER_GAP）+ 读数卡；
+ * - div = stepper + gap + 读数卡。
+ */
+export function clusterSize(spec: ClockData, node: ClockNodeModel | ClockTreeNode): Size {
+  switch (node.kind) {
+    case 'osc':
+      return { w: PRIM.OSC_W, h: PRIM.OSC_H }
+    case 'mux': {
+      const muxH = PRIM.MUX_PAD * 2 + muxRows(node) * PRIM.MUX_ROW
+      return { w: PRIM.MUX_W + PRIM.CLUSTER_GAP + PRIM.READOUT_W, h: Math.max(muxH, PRIM.READOUT_H) }
+    }
+    case 'pll': {
+      const steps = pllStepCount(spec, node)
+      const blocks = steps + 2 // mux + steps + readout
+      const w = PRIM.MUX_W + steps * PRIM.STEP_W + PRIM.READOUT_W + PRIM.CLUSTER_GAP * (blocks - 1)
+      const muxH = PRIM.MUX_PAD * 2 + muxRows(node) * PRIM.MUX_ROW
+      return { w, h: Math.max(muxH, PRIM.STEP_H, PRIM.READOUT_H) }
+    }
+    case 'div':
+      return { w: PRIM.DIV_W + PRIM.CLUSTER_GAP + PRIM.READOUT_W, h: Math.max(PRIM.DIV_H, PRIM.READOUT_H) }
+    case 'readout':
+      return { w: PRIM.READOUT_W, h: PRIM.READOUT_H + (node.hint ? 16 : 0) }
+    case 'peri':
+      return { w: PRIM.PERI_W, h: PRIM.PERI_H }
+  }
+}
+
+// ---------- D2 锚点 ----------
+
+/** 输出锚点：所有 kind 均为簇右中（mux/pll/div 的读数卡垂直居中于簇，故等价读数卡右中）。 */
+export function anchorOut(node: ClockTreeNode): ClockPt {
+  return { x: node.x + node.w, y: node.y + node.h / 2 }
+}
+
+/**
+ * 输入锚点：mux/pll = mux 左缘第 i 行（i=fromId 在 muxInputs 的索引；含仅显示灰行）；
+ * 其它 kind（osc/div/readout/peri）= 左中。
+ */
+export function anchorIn(node: ClockTreeNode, fromId?: string): ClockPt {
+  if ((node.kind === 'mux' || node.kind === 'pll') && fromId && node.muxInputs?.length) {
+    const i = node.muxInputs.indexOf(fromId)
+    if (i >= 0) {
+      return { x: node.x, y: node.y + PRIM.MUX_PAD + i * PRIM.MUX_ROW + PRIM.MUX_ROW / 2 }
+    }
+  }
+  return { x: node.x, y: node.y + node.h / 2 }
+}
+
+// ---------- 正交路由 ----------
+
+interface Rect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** 线段是否穿过矩形内部（严格内部；贴边/端点不算）。 */
+function segmentHitsRect(a: ClockPt, b: ClockPt, r: Rect): boolean {
+  if (a.y === b.y) {
+    if (a.y <= r.y + EPS || a.y >= r.y + r.h - EPS) return false
+    const lo = Math.min(a.x, b.x)
+    const hi = Math.max(a.x, b.x)
+    return Math.min(hi, r.x + r.w) - Math.max(lo, r.x) > EPS
+  }
+  if (a.x === b.x) {
+    if (a.x <= r.x + EPS || a.x >= r.x + r.w - EPS) return false
+    const lo = Math.min(a.y, b.y)
+    const hi = Math.max(a.y, b.y)
+    return Math.min(hi, r.y + r.h) - Math.max(lo, r.y) > EPS
+  }
+  return true
+}
+
+function pathClear(points: ClockPt[], rects: Rect[]): boolean {
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!
+    const b = points[i]!
+    for (const r of rects) {
+      if (segmentHitsRect(a, b, r)) return false
+    }
+  }
+  return true
 }
 
 /** 去掉重复点与共线中间点（保持正交折线形状） */
@@ -115,8 +213,135 @@ function simplify(pts: ClockPt[]): ClockPt[] {
   return res
 }
 
+/** 计算连线标签位置：取最后一段的中点，水平段在上方、垂直段在右侧。 */
+function labelPos(points: ClockPt[]): ClockPt {
+  const n = points.length
+  if (n < 2) return { x: points[0]!.x + 8, y: points[0]!.y - 8 }
+  const a = points[n - 2]!
+  const b = points[n - 1]!
+  if (a.y === b.y) return { x: (a.x + b.x) / 2, y: a.y - 7 }
+  return { x: a.x + 8, y: (a.y + b.y) / 2 }
+}
+
+/** 走廊错开档位（-12 / 0 / +12 循环），保证同走廊多条走线不重叠。 */
+function laneOffset(used: number): number {
+  return ((used % LANE_SLOTS) - 1) * LANE_STEP
+}
+
+function uniqOffsets(first: number): number[] {
+  const base = [0, LANE_STEP, -LANE_STEP, LANE_STEP * 2, -LANE_STEP * 2, LANE_STEP * 3, -LANE_STEP * 3]
+  return [first, ...base.filter((o) => o !== first)]
+}
+
+interface RouteCtx {
+  rects: Rect[]
+  minX: number
+  maxX: number
+  minY: number
+  maxY: number
+  corridorUse: Map<number, number>
+  channelUse: Map<number, number>
+  lanes?: Record<string, number>
+}
+
+/** 通用正交避障路由：短路径优先，走廊/通道错开，极端绕行兜底（必可达）。 */
+function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: RouteCtx): ClockPt[] {
+  const p0 = anchorOut(a)
+  const p1 = anchorIn(b, a.id)
+  const tryPath = (pts: ClockPt[]): ClockPt[] | null => {
+    const p = simplify(pts)
+    return pathClear(p, ctx.rects) ? p : null
+  }
+
+  // 1) 同 x / 同 y 直线
+  if (p0.x === p1.x || p0.y === p1.y) {
+    const p = tryPath([p0, p1])
+    if (p) return p
+  }
+  // 2) 单折 L
+  for (const pts of [
+    [p0, { x: p1.x, y: p0.y }, p1],
+    [p0, { x: p0.x, y: p1.y }, p1],
+  ]) {
+    const p = tryPath(pts as ClockPt[])
+    if (p) return p
+  }
+
+  const hint = ctx.lanes?.[edgeId]
+  // 3) H-V-H：竖向走两簇之间走廊
+  const rightOfA = a.x + a.w
+  const leftOfB = b.x
+  let baseMx: number
+  if (leftOfB >= rightOfA) baseMx = (rightOfA + leftOfB) / 2
+  else if (a.x >= b.x + b.w) baseMx = (b.x + b.w + a.x) / 2
+  else baseMx = Math.max(rightOfA, b.x + b.w) + DETOUR
+  const corridorKey = Math.round(baseMx)
+  const autoX = laneOffset(ctx.corridorUse.get(corridorKey) ?? 0)
+  const hintX = hint !== undefined ? hint * LANE_STEP : autoX
+  for (const off of uniqOffsets(hintX)) {
+    const mx = baseMx + off
+    const p = tryPath([
+      p0,
+      { x: mx, y: p0.y },
+      { x: mx, y: p1.y },
+      p1,
+    ])
+    if (p) {
+      ctx.corridorUse.set(corridorKey, (ctx.corridorUse.get(corridorKey) ?? 0) + 1)
+      return p
+    }
+  }
+
+  // 4) V-H-V：横向走两簇之间通道
+  let baseMy: number
+  if (b.y >= a.y + a.h) baseMy = (a.y + a.h + b.y) / 2
+  else if (a.y >= b.y + b.h) baseMy = (b.y + b.h + a.y) / 2
+  else baseMy = Math.max(a.y + a.h, b.y + b.h) + DETOUR
+  const channelKey = Math.round(baseMy)
+  const autoY = laneOffset(ctx.channelUse.get(channelKey) ?? 0)
+  const hintY = hint !== undefined ? hint * LANE_STEP : autoY
+  for (const off of uniqOffsets(hintY)) {
+    const my = baseMy + off
+    const p = tryPath([
+      p0,
+      { x: p0.x, y: my },
+      { x: p1.x, y: my },
+      p1,
+    ])
+    if (p) {
+      ctx.channelUse.set(channelKey, (ctx.channelUse.get(channelKey) ?? 0) + 1)
+      return p
+    }
+  }
+
+  // 5) 极端绕行：画布上/下外侧横向通道（锚点均在簇左右边界，竖段贴边合法）
+  for (const my of [ctx.minY - DETOUR, ctx.maxY + DETOUR]) {
+    const p = tryPath([
+      p0,
+      { x: p0.x, y: my },
+      { x: p1.x, y: my },
+      p1,
+    ])
+    if (p) return p
+  }
+  // 6) 画布左/右外侧竖向走廊（防御兜底）
+  for (const mx of [ctx.minX - DETOUR, ctx.maxX + DETOUR]) {
+    const p = tryPath([
+      p0,
+      { x: mx, y: p0.y },
+      { x: mx, y: p1.y },
+      p1,
+    ])
+    if (p) return p
+  }
+  // 理论上不可达；返回简化折线保证渲染不崩
+  return simplify([p0, { x: p0.x, y: p1.y }, p1])
+}
+
+// ---------- 主布局 ----------
+
 /**
- * 生成时钟树布局：节点按 column 分列、列内按模型顺序堆叠；连线走通用正交路由。
+ * 生成时钟树布局：有 diagram → 簇左上坐标取数据；无 → 列式回退。
  * 节点 / 连线 / 分组的构成由 buildClockModel 决定，本函数只负责坐标与走线。
  */
 export function buildClockTree(
@@ -127,155 +352,127 @@ export function buildClockTree(
   peri?: PeripheralClockContext,
 ): ClockTreeLayout {
   const model = buildClockModel(spec, cfg, freqs, issues, peri)
+  const diagram = spec.diagram
 
-  // ---------- 节点坐标（列 × 行，无 id→坐标表） ----------
-  const rowCount = new Map<number, number>()
-  const nodes: ClockTreeNode[] = model.nodes.map((n) => {
-    const row = rowCount.get(n.column) ?? 0
-    rowCount.set(n.column, row + 1)
-    return { ...n, x: columnX(n.column), y: Y0 + row * ROW_DY, w: NODE_W, h: NODE_H }
-  })
+  const nodes: ClockTreeNode[] = []
+  const dims = new Map<string, Size>()
+  for (const n of model.nodes) dims.set(n.id, clusterSize(spec, n))
+
+  if (diagram) {
+    // ---------- 数据坐标优先（diagram.nodes[id] = 簇左上） ----------
+    const missing: ClockNodeModel[] = []
+    let maxRight = X0
+    let placed = 0
+    for (const n of model.nodes) {
+      const d = diagram.nodes?.[n.id]
+      const size = dims.get(n.id)!
+      if (d && Number.isFinite(d.x) && Number.isFinite(d.y)) {
+        nodes.push({ ...n, x: d.x, y: d.y, ...size })
+        maxRight = Math.max(maxRight, d.x + size.w)
+        placed++
+      } else {
+        missing.push(n)
+      }
+    }
+    // validate 保证全覆盖；运行时缺省节点放最右列堆叠（同一 x，不 warn）
+    const missingX = placed > 0 ? maxRight + 40 : X0
+    let cursorY = Y0
+    for (const n of missing) {
+      const size = dims.get(n.id)!
+      nodes.push({ ...n, x: missingX, y: cursorY, ...size })
+      cursorY += size.h + ROW_GAP
+      maxRight = Math.max(maxRight, missingX + size.w)
+    }
+  } else {
+    // ---------- M15 列式回退：列内 y=簇高+32，列距 max(200, 列宽+40) ----------
+    const colWidth = new Map<number, number>()
+    for (const n of model.nodes) {
+      const size = dims.get(n.id)!
+      colWidth.set(n.column, Math.max(colWidth.get(n.column) ?? 0, size.w))
+    }
+    const colX = new Map<number, number>()
+    let x = X0
+    for (const col of [...colWidth.keys()].sort((p, q) => p - q)) {
+      colX.set(col, x)
+      x += Math.max(COL_MIN_DX, colWidth.get(col)! + COL_GAP)
+    }
+    const cursorY = new Map<number, number>()
+    for (const n of model.nodes) {
+      const size = dims.get(n.id)!
+      const y = cursorY.get(n.column) ?? Y0
+      nodes.push({ ...n, x: colX.get(n.column)!, y, ...size })
+      cursorY.set(n.column, y + size.h + ROW_GAP)
+    }
+  }
+
   const byId = new Map(nodes.map((n) => [n.id, n]))
-  const rowOf = new Map<string, number>()
-  for (const n of nodes) rowOf.set(n.id, Math.round((n.y - Y0) / ROW_DY))
 
-  // ---------- 分组容器（成员包围盒 + 留白；无成员组不输出） ----------
+  // ---------- 分组容器：diagram.groups 显式数据优先，否则成员包围盒 ----------
   const groups: ClockTreeGroup[] = []
-  for (const g of model.groups) {
-    const members = nodes.filter((n) => n.group === g.id)
-    if (!members.length) continue
-    let minX = Infinity
-    let minY = Infinity
-    let maxX = -Infinity
-    let maxY = -Infinity
-    for (const m of members) {
-      minX = Math.min(minX, m.x)
-      minY = Math.min(minY, m.y)
-      maxX = Math.max(maxX, m.x + m.w)
-      maxY = Math.max(maxY, m.y + m.h)
+  if (diagram?.groups?.length) {
+    for (const g of diagram.groups) {
+      groups.push({ id: g.id, label: g.label, x: g.x, y: g.y, w: g.w, h: g.h })
     }
-    groups.push({
-      ...g,
-      x: minX - GROUP_PAD_X,
-      y: minY - GROUP_PAD_TOP,
-      w: maxX - minX + GROUP_PAD_X * 2,
-      h: maxY - minY + GROUP_PAD_TOP + GROUP_PAD_BOTTOM,
-    })
-  }
-
-  // ---------- 走线 ----------
-  // 走廊/通道错开计数：同一条走廊（列 c↔c+1）或同一行间通道内多边按 12px 错开。
-  const corridorLanes = new Map<number, number>()
-  const channelLanes = new Map<number, number>()
-  const laneOffset = (used: number): number => ((used % LANE_SLOTS) - 1) * LANE_STEP
-  const takeCorridorLane = (c: number): number => {
-    const used = corridorLanes.get(c) ?? 0
-    corridorLanes.set(c, used + 1)
-    return laneOffset(used)
-  }
-  const takeChannelLane = (r: number): number => {
-    const used = channelLanes.get(r) ?? 0
-    channelLanes.set(r, used + 1)
-    return laneOffset(used)
-  }
-
-  /** 同列走线：相邻行=源底中→目标顶中的垂直线；跨行（如同一 ADC 域的多个实例）经列侧走廊绕行。 */
-  const sameColumn = (a: ClockTreeNode, b: ClockTreeNode): ClockPt[] => {
-    const cx = a.x + NODE_W / 2
-    const bMidY = b.y + NODE_H / 2
-    const ra = rowOf.get(a.id) ?? 0
-    const rb = rowOf.get(b.id) ?? 0
-    if (rb >= ra) {
-      // 目标在源下方：相邻行走垂直线，跨行走左侧走廊（不穿过中间节点卡）
-      if (rb === ra + 1) return [{ x: cx, y: a.y + NODE_H }, { x: cx, y: b.y }]
-      const sideX = a.x - COL_GAP / 2
-      const jogY = a.y + NODE_H + 8
-      return [
-        { x: cx, y: a.y + NODE_H },
-        { x: cx, y: jogY },
-        { x: sideX, y: jogY },
-        { x: sideX, y: bMidY },
-        { x: b.x, y: bMidY },
-      ]
+  } else {
+    for (const g of model.groups) {
+      const members = nodes.filter((n) => n.group === g.id)
+      if (!members.length) continue
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+      for (const m of members) {
+        minX = Math.min(minX, m.x)
+        minY = Math.min(minY, m.y)
+        maxX = Math.max(maxX, m.x + m.w)
+        maxY = Math.max(maxY, m.y + m.h)
+      }
+      groups.push({
+        ...g,
+        x: minX - GROUP_PAD_X,
+        y: minY - GROUP_PAD_TOP,
+        w: maxX - minX + GROUP_PAD_X * 2,
+        h: maxY - minY + GROUP_PAD_TOP + GROUP_PAD_BOTTOM,
+      })
     }
-    // 目标在源上方（防御）：右侧走廊绕行
-    const sideX = a.x + NODE_W + COL_GAP / 2
-    const jogY = a.y - 8
-    return [
-      { x: cx, y: a.y },
-      { x: cx, y: jogY },
-      { x: sideX, y: jogY },
-      { x: sideX, y: bMidY },
-      { x: b.x + NODE_W, y: bMidY },
-    ]
   }
 
-  /**
-   * 跨列走线：
-   * - 相邻列：源右中 → 走廊竖段 → 目标左中；
-   * - 跨多列：源右中 → 近端走廊竖段 → 行间通道水平段 → 远端走廊竖段 → 目标左中。
-   * 反向（目标列在左）镜像使用左边界/左侧走廊。
-   */
-  const crossColumn = (a: ClockTreeNode, b: ClockTreeNode, forward: boolean): ClockPt[] => {
-    const ra = rowOf.get(a.id) ?? 0
-    const rb = rowOf.get(b.id) ?? 0
-    const ya = a.y + NODE_H / 2
-    const yb = b.y + NODE_H / 2
-    const exitX = forward ? a.x + NODE_W : a.x
-    const entryX = forward ? b.x : b.x + NODE_W
-    const nearCorridorCol = forward ? a.column : a.column - 1
-    const farCorridorCol = forward ? b.column - 1 : b.column
-    const nearOffset = takeCorridorLane(nearCorridorCol)
-    const nearX = corridorX(nearCorridorCol) + nearOffset
-
-    // 相邻列：两端共用走廊（同一 x，避免折线来回跳）
-    if (Math.abs(b.column - a.column) === 1) {
-      return [
-        { x: exitX, y: ya },
-        { x: nearX, y: ya },
-        { x: nearX, y: yb },
-        { x: entryX, y: yb },
-      ]
-    }
-
-    const farOffset = takeCorridorLane(farCorridorCol)
-    const farX = corridorX(farCorridorCol) + farOffset
-    // 通道取两端行号较小者的行间隙（该 y 在所有列均无节点）
-    const chanRow = Math.min(ra, rb)
-    const chan = channelY(chanRow) + takeChannelLane(chanRow)
-    return [
-      { x: exitX, y: ya },
-      { x: nearX, y: ya },
-      { x: nearX, y: chan },
-      { x: farX, y: chan },
-      { x: farX, y: yb },
-      { x: entryX, y: yb },
-    ]
-  }
-
-  const edgePointsOf = (e: ClockEdgeModel): ClockPt[] => {
-    const a = byId.get(e.from)
-    const b = byId.get(e.to)
-    // 防御：模型引用不存在的节点时退化为零长线（不抛错，避免画布整体失败）
-    if (!a || !b) return [{ x: 0, y: 0 }, { x: 0, y: 0 }]
-    if (a.id === b.id) return [{ x: a.x + NODE_W, y: a.y + NODE_H / 2 }, { x: b.x, y: b.y + NODE_H / 2 }]
-    if (a.column === b.column) return sameColumn(a, b)
-    return crossColumn(a, b, b.column > a.column)
-  }
-
-  const edges: ClockTreeEdge[] = model.edges.map((e) => {
-    const points = simplify(edgePointsOf(e))
-    return { ...e, points, labelAt: labelPos(points) }
-  })
-
-  // ---------- 画布尺寸：最大列 x + 节点宽 + 40 × 最大 y + 节点高 + 36 ----------
-  let maxX = 0
-  let maxY = 0
+  // ---------- 走线（正交 + 走廊错开 + 不穿簇） ----------
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
   for (const n of nodes) {
+    minX = Math.min(minX, n.x)
+    minY = Math.min(minY, n.y)
     maxX = Math.max(maxX, n.x + n.w)
     maxY = Math.max(maxY, n.y + n.h)
   }
-  const width = maxX + 40
-  const height = maxY + 36
-  return { width, height, nodes, edges, groups }
+  const ctx: RouteCtx = {
+    rects: nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h })),
+    minX,
+    maxX,
+    minY,
+    maxY,
+    corridorUse: new Map(),
+    channelUse: new Map(),
+    lanes: diagram?.lanes,
+  }
+  const edges: ClockTreeEdge[] = model.edges.map((e) => {
+    const a = byId.get(e.from)
+    const b = byId.get(e.to)
+    // 防御：模型引用不存在的节点时退化为零长线（不抛错，避免画布整体失败）
+    const points =
+      a && b ? routeEdge(a, b, e.id, ctx) : [{ x: 0, y: 0 }, { x: 0, y: 0 }]
+    return { ...e, points, labelAt: labelPos(points) }
+  })
+
+  // ---------- 画布尺寸：最大簇右下 + 40 / 36 ----------
+  let right = 0
+  let bottom = 0
+  for (const n of nodes) {
+    right = Math.max(right, n.x + n.w)
+    bottom = Math.max(bottom, n.y + n.h)
+  }
+  return { width: right + 40, height: bottom + 36, nodes, edges, groups }
 }

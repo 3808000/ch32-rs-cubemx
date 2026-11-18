@@ -1,0 +1,304 @@
+/*
+ * M16 时钟树共享图元样式（契约 D1，MX2 分离图元语言）。
+ * 由 ClockNode.vue 以 <style scoped src="./primitives.css"> 引入：样式随节点作用域，
+ * 选择器只命中单个时钟节点内部，不污染画布/其他组件。
+ * 行距硬约束：读数两行基线差 ≥18px、peri 行距 ≥20px、标题-控件 ≥14px（坐标在模板中计算）。
+ */
+
+/* ---------- 通用块：白纸面板上的 1px 淡描边卡片/图元 ---------- */
+.prim-block {
+  fill: var(--mx-surface);
+  stroke: #d5dbe5;
+  stroke-width: 1;
+  transition:
+    stroke var(--mx-dur-node) linear,
+    fill var(--mx-dur-node) linear;
+}
+
+/* 选中：簇内所有图元描边强调蓝（簇无整体外框，MX2 逐块高亮） */
+.node.selected .prim-block {
+  stroke: var(--mx-accent);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 4px rgba(42, 98, 183, 0.45));
+}
+/* 越界语义色保留：error 红 / warning 橙 */
+.node.issue-error .prim-block {
+  stroke: var(--mx-error);
+}
+.node.issue-warning .prim-block {
+  stroke: var(--mx-warning);
+}
+
+/* 预设应用/配置变化：目标节点一次 240ms 高亮脉冲 */
+.node.pulse .prim-block {
+  animation: prim-pulse var(--mx-dur-pulse) var(--mx-ease-out);
+}
+@keyframes prim-pulse {
+  0% {
+    filter: drop-shadow(0 0 0 rgba(42, 98, 183, 0));
+  }
+  35% {
+    filter: drop-shadow(0 0 8px rgba(42, 98, 183, 0.65));
+  }
+  100% {
+    filter: drop-shadow(0 0 0 rgba(42, 98, 183, 0));
+  }
+}
+
+/* 灰态：未启用（dim）/仅显示（displayOnly，灰描边 + 半透明） */
+.node.inactive {
+  opacity: 0.62;
+}
+.node.display-only {
+  opacity: 0.55;
+}
+.node.display-only .prim-block {
+  fill: #f5f6f9;
+  stroke: #c9d2e0;
+}
+
+/* ---------- osc：标题行（11px muted）+ 值格 ---------- */
+.osc-title {
+  font-size: 11px;
+  fill: var(--mx-text-muted);
+}
+.osc-cell {
+  fill: #f7f8fa;
+  stroke: #d0d5dd;
+  cursor: pointer;
+}
+.osc-cell.fixed {
+  cursor: default;
+}
+.osc-value {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  fill: var(--mx-text);
+  pointer-events: none;
+}
+.node.display-only .osc-title,
+.node.display-only .osc-value {
+  fill: var(--mx-text-muted);
+}
+
+/* ---------- mux：竖块（输入小 label 10px + radio 点列） ---------- */
+.mux-box {
+  fill: #f7f8fa;
+  stroke: #d5dbe5;
+}
+.mux-row {
+  cursor: pointer;
+}
+.mux-row.disabled {
+  cursor: default;
+}
+.mux-label {
+  font-size: 10px;
+  fill: var(--mx-text);
+}
+.mux-label.muted {
+  fill: var(--mx-text-muted);
+}
+.mux-dot {
+  fill: #fff;
+  stroke: #98a2b3;
+  stroke-width: 1.5;
+  transition:
+    fill var(--mx-dur-node) linear,
+    stroke var(--mx-dur-node) linear;
+}
+.mux-dot.on {
+  fill: var(--mx-accent);
+  stroke: var(--mx-accent);
+}
+.mux-dot.disabled {
+  fill: #f2f4f7;
+  stroke: #c0c6d0;
+}
+
+/* ---------- 簇内 1px 连接线（mux/stepper → 读数卡） ---------- */
+.cluster-link {
+  fill: none;
+  stroke: #d5dbe5;
+  stroke-width: 1;
+}
+
+/* 簇外上方节点标题（mux/div/readout/pll；osc/peri 用内部标题） */
+.cluster-title {
+  font-size: 10px;
+  fill: var(--mx-text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---------- 读数卡：N MHz（13px/600）+ max N MHz（10px muted），基线差 18px ---------- */
+.readout-card {
+  fill: var(--mx-surface);
+  stroke: #d5dbe5;
+}
+.readout-out {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  fill: var(--mx-text);
+}
+.readout-out.error {
+  fill: var(--mx-error);
+}
+.readout-out.warning {
+  fill: var(--mx-warning);
+}
+.readout-max {
+  font-size: 10px;
+  fill: var(--mx-text-muted);
+}
+.readout-hint {
+  font-size: 10px;
+  fill: var(--mx-text-secondary);
+}
+
+/* ---------- stepper：- N + ---------- */
+.step-box {
+  fill: #f7f8fa;
+  stroke: #d0d5dd;
+}
+.step-btn-bg {
+  fill: #eef1f6;
+}
+.step-btn-bg:hover {
+  fill: var(--mx-accent-soft);
+}
+.step-btn-bg.disabled {
+  fill: #f2f4f7;
+}
+.step-btn-text {
+  font-size: 14px;
+  line-height: 1;
+  fill: var(--mx-text-secondary);
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+.step-btn-text.disabled {
+  fill: #c0c6d0;
+}
+.step-val {
+  font-size: 11px;
+  fill: var(--mx-text);
+  text-anchor: middle;
+  pointer-events: none;
+  user-select: none;
+}
+.stepper.disabled {
+  opacity: 0.55;
+}
+.stepper.disabled .step-btn-bg:hover {
+  fill: #f2f4f7;
+}
+
+/* ---------- pll 参数链补充说明 ---------- */
+.pll-hint {
+  font-size: 10px;
+  fill: var(--mx-text-muted);
+}
+
+/* ---------- peri：airy 卡（行距 ≥20px） ---------- */
+.peri-card {
+  fill: var(--mx-surface);
+  stroke: #d5dbe5;
+}
+.peri-title-fo {
+  overflow: hidden;
+}
+/* 标题：12px/600，overflow ellipsis；模板按 PERI_W-70 预留徽标位 */
+.peri-title {
+  box-sizing: border-box;
+  width: 100%;
+  height: 16px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mx-text);
+}
+.peri-req {
+  font-size: 10.5px;
+  fill: var(--mx-text-secondary);
+}
+.peri-act {
+  font-size: 10.5px;
+  fill: var(--mx-text-muted);
+}
+.peri-value {
+  font-size: 11px;
+  fill: var(--mx-text);
+  pointer-events: none;
+}
+.ctrl-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+.ctrl-hit.fixed {
+  cursor: default;
+}
+.node.inactive .peri-title,
+.node.inactive .peri-value {
+  color: var(--mx-text-muted);
+}
+
+/* ---------- 内联编辑器（osc 值格 / peri 数字旋钮）：非法输入短暂红框 ---------- */
+.ctrl-inline {
+  overflow: visible;
+}
+.inline-input,
+.inline-select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--mx-text);
+  background: #fff;
+  border: 1px solid var(--mx-accent);
+  border-radius: 4px;
+  outline: none;
+}
+.inline-input.invalid {
+  border-color: var(--mx-error);
+  box-shadow: 0 0 0 2px rgba(217, 45, 32, 0.18);
+}
+.inline-select {
+  cursor: pointer;
+}
+
+/* periParam select 常驻下拉（不经编辑态机） */
+.peri-select {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--mx-text);
+  background: #fff;
+  border: 1px solid #d0d5dd;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+.peri-select:hover:not(:disabled) {
+  border-color: var(--mx-accent);
+}
+.peri-select:focus {
+  border-color: var(--mx-accent);
+  box-shadow: 0 0 0 2px var(--mx-accent-soft);
+}
+.peri-select:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

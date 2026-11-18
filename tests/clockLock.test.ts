@@ -138,8 +138,9 @@ describe('solvePll 尊重锁定节点', () => {
 })
 
 describe('resolveClockIssues 自动修复', () => {
-  it('默认档（ADC warning）可收敛到零问题配置', () => {
-    const result = resolveClockIssues(spec, defaultClock(spec))
+  it('ADC warning 档（PLL48/AHB1 → ADC 24MHz）可收敛到零问题配置', () => {
+    // D4bis：V003 ADC=HCLK÷2；默认 HSI 档 12MHz 已无 warning，故显式用 PLL 48MHz 触发
+    const result = resolveClockIssues(spec, cfg({ source: 'PLL', pllSource: 'HSI', pll: { mul: 2 } }))
     expect(result).not.toBeNull()
     expect(result!.issues).toEqual([])
     expect(validateClock(spec, result!.config)).toEqual([])
@@ -153,7 +154,10 @@ describe('resolveClockIssues 自动修复', () => {
   })
 
   it('锁定节点保留当前值（AHB=1）', () => {
-    const current = { ...defaultClock(spec), locked: ['AHB'] }
+    const current = {
+      ...cfg({ source: 'PLL', pllSource: 'HSI', pll: { mul: 2 } }),
+      locked: ['AHB'],
+    }
     const result = resolveClockIssues(spec, current)
     expect(result).not.toBeNull()
     expect(result!.config.ahb).toBe(1)
@@ -165,7 +169,8 @@ describe('resolveClockIssues 自动修复', () => {
   })
 
   it('锁定 SYSCLK（HSI）时修复不改变时钟源', () => {
-    const result = resolveClockIssues(spec, { ...defaultClock(spec), locked: ['SYSCLK'] })
+    // APB2=3 非法作为修复触发（默认档已无 ADC warning），SYSCLK 锁定保留 HSI
+    const result = resolveClockIssues(spec, cfg({ apb2: 3, locked: ['SYSCLK'] }))
     expect(result).not.toBeNull()
     expect(result!.config.source).toBe('HSI')
     expect(validateClock(spec, result!.config)).toEqual([])

@@ -67,14 +67,15 @@ describe('README 工程报告', () => {
     expect(readme).toContain('EXTI FALLING')
   })
 
-  it('时钟五元组与 computeClock 一致（48MHz HSI 预设）', () => {
+  it('时钟五元组与 computeClock 一致（48MHz HSI 预设，ADC=HCLK÷2=24MHz）', () => {
     const readme = generate()['README.md']
     expect(readme).toContain('### 时钟')
     expect(readme).toContain('| SYSCLK | 48 MHz |')
     expect(readme).toContain('| HCLK | 48 MHz |')
     expect(readme).toContain('| PCLK1 | 48 MHz |')
     expect(readme).toContain('| PCLK2 | 48 MHz |')
-    expect(readme).toContain('| ADC | 48 MHz |')
+    // D4bis：ADCPRE 自 HCLK 复位 ÷2（PLL 48 / AHB1 → 24MHz）
+    expect(readme).toContain('| ADC | 24 MHz |')
   })
 
   it('外设实例表与中断表来自同一份配置推导', () => {

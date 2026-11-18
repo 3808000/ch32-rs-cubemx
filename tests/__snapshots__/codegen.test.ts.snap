@@ -407,7 +407,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -695,7 +695,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -2024,7 +2024,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -2371,7 +2371,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -2712,7 +2712,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -3010,7 +3010,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -3353,7 +3353,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -3688,7 +3688,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -4031,7 +4031,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -4379,7 +4379,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -4772,7 +4772,7 @@ opt-level = 's'
 | HCLK | 48 MHz |
 | PCLK1 | 48 MHz |
 | PCLK2 | 48 MHz |
-| ADC | 48 MHz |
+| ADC | 24 MHz |
 
 命中预设：**48MHz (HSE 24MHz×2)**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
@@ -5074,7 +5074,7 @@ opt-level = 's'
 | HCLK | 24 MHz |
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
-| ADC | 24 MHz |
+| ADC | 12 MHz |
 
 命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 

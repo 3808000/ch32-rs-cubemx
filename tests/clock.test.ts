@@ -14,6 +14,7 @@ import {
   sourceFreqMhz,
   pllOutMhz,
   isClockNodeLockable,
+  resolveClockIssues,
 } from '@/model/clock'
 import { getDeviceData } from '@/model/device'
 import { buildClockTree } from '@/model/clock/tree'
@@ -39,7 +40,7 @@ describe('sourceFreqMhz', () => {
     expect(sourceFreqMhz(spec, 'PLL', cfg())).toBeNull()
   })
   it('未知源返回 null', () => {
-    expect(sourceFreqMhz(spec, 'LSI', cfg())).toBeNull()
+    expect(sourceFreqMhz(spec, 'UNKNOWN_SRC', cfg())).toBeNull()
   })
 })
 
@@ -112,15 +113,16 @@ describe('computeClock 频率链', () => {
     expect(f.pclk1Mhz).toBe(48)
   })
 
-  it('ADC 时钟取自 APB2：sysclk 48、apb2=4 → 12MHz', () => {
+  it('ADC 时钟取自 HCLK÷2（RM 图 3-2 ADCPRE 复位）：sysclk 48、apb2=4 → 24MHz', () => {
     const f = computeClock(spec, cfg({ source: 'PLL', pllSource: 'HSI', apb2: 4 }))
     expect(f.pclk2Mhz).toBe(12)
-    expect(f.adcMhz).toBe(12)
+    // D4bis：ADCPRE 上游=HCLK（非 APB2），复位 ÷2；apb2 不再影响 ADC
+    expect(f.adcMhz).toBe(24)
   })
 
-  it('ADC 时钟随 sysclk 直通（默认档 APB2/1）', () => {
+  it('ADC 时钟随 HCLK÷2（默认 AHB÷1）：HSI 24 → 12MHz', () => {
     const f = computeClock(spec, cfg())
-    expect(f.adcMhz).toBe(24)
+    expect(f.adcMhz).toBe(12)
   })
 
   it('定时器域 = SYSCLK（V003 timerClock=sysclk）：apb2=4 时 pclk2Tim 仍为 48', () => {
@@ -130,20 +132,18 @@ describe('computeClock 频率链', () => {
     expect(f.pclk1TimMhz).toBe(48)
   })
 
-  it('HSI 24 + ahb=2：hclk=12、pclk1=12、adc=pclk2=12', () => {
+  it('HSI 24 + ahb=2：hclk=12、pclk1=12、adc=HCLK÷2=6', () => {
     const f = computeClock(spec, cfg({ ahb: 2 }))
     expect(f.hclkMhz).toBe(12)
     expect(f.pclk1Mhz).toBe(12)
-    expect(f.adcMhz).toBe(12)
+    expect(f.adcMhz).toBe(6)
   })
 })
 
 describe('validateClock 越界与非法分支', () => {
-  it('默认 HSI 档：仅 1 条 ADC 超建议上限的 warning（24 > 14）', () => {
-    const issues = validateClock(spec, defaultClock(spec))
-    expect(issues).toHaveLength(1)
-    expect(issues[0].node).toBe('ADC')
-    expect(issues[0].level).toBe('warning')
+  it('默认 HSI 档：ADC=HCLK÷2=12MHz（≤14）无 warning', () => {
+    // D4bis：ADCPRE 自 HCLK 复位 ÷2，M15 的 24MHz（APB2÷1）偏高 2× 已纠正
+    expect(validateClock(spec, defaultClock(spec))).toEqual([])
   })
 
   it('HSE 晶振低于下限 4MHz → error', () => {
@@ -160,10 +160,10 @@ describe('validateClock 越界与非法分支', () => {
     expect(validateClock(spec, cfg({ source: 'HSE', hxtalMhz: 8 }))).toEqual([])
   })
 
-  it('PLL 源非法（LSI）→ PLL 源 error + SYSCLK 为 0 error', () => {
-    const issues = validateClock(spec, cfg({ source: 'PLL', pllSource: 'LSI' }))
+  it('PLL 源非法（UNKNOWN_SRC）→ PLL 源 error + SYSCLK 为 0 error', () => {
+    const issues = validateClock(spec, cfg({ source: 'PLL', pllSource: 'UNKNOWN_SRC' }))
     const errors = issues.filter((i) => i.level === 'error')
-    expect(errors.some((i) => i.message.includes('PLL 源 LSI 不合法'))).toBe(true)
+    expect(errors.some((i) => i.message.includes('PLL 源 UNKNOWN_SRC 不合法'))).toBe(true)
     expect(errors.some((i) => i.message.includes('SYSCLK 为 0'))).toBe(true)
   })
 
@@ -203,19 +203,50 @@ describe('validateClock 越界与非法分支', () => {
     expect(issues.some((i) => i.node === 'APB2' && i.level === 'error')).toBe(true)
   })
 
-  it('未知源 LSI → SYSCLK 为 0 error', () => {
-    const issues = validateClock(spec, cfg({ source: 'LSI' }))
+  it('未知源 UNKNOWN_SRC → SYSCLK 为 0 error', () => {
+    const issues = validateClock(spec, cfg({ source: 'UNKNOWN_SRC' }))
     expect(issues.some((i) => i.message.includes('SYSCLK 为 0'))).toBe(true)
   })
 
   it('ADC 恰好 12MHz（≤14）不产生 warning', () => {
-    const issues = validateClock(spec, cfg({ source: 'PLL', pllSource: 'HSI', apb2: 4 }))
+    // PLL 48MHz + AHB÷2=24MHz，ADCPRE ÷2 → ADC 12MHz
+    const issues = validateClock(spec, cfg({ source: 'PLL', pllSource: 'HSI', ahb: 2 }))
     expect(issues.filter((i) => i.node === 'ADC')).toHaveLength(0)
   })
 
-  it('PLL HSI 完整合法配置（apb2=4）无任何问题', () => {
-    const issues = validateClock(spec, cfg({ source: 'PLL', pllSource: 'HSI', pll: { mul: 2 }, apb2: 4 }))
+  it('PLL HSI 完整合法配置（AHB÷2 → ADC 12MHz）无任何问题', () => {
+    const issues = validateClock(spec, cfg({ source: 'PLL', pllSource: 'HSI', pll: { mul: 2 }, ahb: 2, apb2: 4 }))
     expect(issues).toEqual([])
+  })
+})
+
+describe('M16 displayOnly 源（V003 LSI）', () => {
+  it('validateClock：displayOnly 源不可配置为 SYSCLK → error「仅显示时钟源」', () => {
+    const issues = validateClock(spec, cfg({ source: 'LSI' }))
+    const err = issues.find((i) => i.level === 'error' && i.node === 'SYSCLK')
+    expect(err).toBeDefined()
+    expect(err!.message).toContain('仅显示时钟源')
+  })
+
+  it('defaultClock 不选 displayOnly 源（仍为 HSI）', () => {
+    const d = defaultClock(spec)
+    expect(d.source).toBe('HSI')
+    expect(spec.sources.find((s) => s.id === 'LSI')?.displayOnly).toBe(true)
+  })
+
+  it('resolveClockIssues 不把 displayOnly 源放进修复搜索空间', () => {
+    const fixed = resolveClockIssues(spec, cfg({ source: 'LSI' }))
+    expect(fixed).not.toBeNull()
+    expect(fixed!.config.source).not.toBe('LSI')
+    expect(['HSI', 'HSE', 'PLL']).toContain(fixed!.config.source)
+    expect(fixed!.issues.filter((i) => i.level === 'error')).toEqual([])
+  })
+
+  it('SYSCLK control.options 与 muxInputs 均不含 LSI（RM 保真：LSI 非 SW mux 输入）', () => {
+    const tree = buildClockTree(spec, defaultClock(spec), computeClock(spec, defaultClock(spec)))
+    const sys = tree.nodes.find((n) => n.id === 'SYSCLK')!
+    expect(sys.control!.options!.map((o) => String(o.value))).not.toContain('LSI')
+    expect(sys.muxInputs).not.toContain('LSI')
   })
 })
 
@@ -254,7 +285,7 @@ describe('solvePll', () => {
   })
 
   it('未知源 → 空列表', () => {
-    expect(solvePll(spec, 48, 'LSI')).toEqual([])
+    expect(solvePll(spec, 48, 'UNKNOWN_SRC')).toEqual([])
   })
 
   it('超上限目标（>48）不会返回候选（outMaxMhz 过滤）', () => {
@@ -272,7 +303,7 @@ describe('defaultClock / mergeClockConfig', () => {
       ahb: 1,
       apb1: 1,
       apb2: 1,
-      adc: 'APB2',
+      adc: 'HCLK_DIV2',
     })
   })
 

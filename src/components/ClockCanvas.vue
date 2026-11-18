@@ -6,7 +6,7 @@
 // 并协调 editingNodeId：同一时刻画布内只允许一个节点处于编辑态（开新关旧）。
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ZoomIn, ZoomOut, FullScreen, Pointer } from '@element-plus/icons-vue'
-import type { ClockNodeControl, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
+import type { ClockNodeControl, ClockTreeGroup, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
 import ClockNode from '@/components/clock/ClockNode.vue'
 import ClockWire from '@/components/clock/ClockWire.vue'
 import { arrowScrollDelta, anchorZoomScroll, clampZoom, shouldIgnoreSceneKeys } from '@/components/common/canvasNav'
@@ -26,6 +26,41 @@ const emit = defineEmits<{
   (e: 'toggle-lock', nodeId: string): void
   (e: 'contextmenu', nodeId: string, x: number, y: number): void
 }>()
+
+// ---------- 分组标签截断（SVG text 无 ellipsis；全文走 <title>） ----------
+/** 单字符宽度估算（em）：CJK/全角≈1，窄字符≈0.3，大写/数字≈0.62，其余≈0.55 */
+function charWidthEm(ch: string): number {
+  const code = ch.codePointAt(0) ?? 0
+  if (code >= 0x2e80) return 1
+  if (ch === ' ' || /[ilI.,:;'!|]/.test(ch)) return 0.3
+  if (/[A-Z0-9]/.test(ch)) return 0.62
+  return 0.55
+}
+
+function truncateGroupLabel(text: string, maxWidth: number): string {
+  const full = text.replace(/\s+/g, ' ').trim()
+  const widthOf = (s: string): number => {
+    let w = 0
+    for (const ch of s) w += charWidthEm(ch)
+    return w * 11
+  }
+  if (!full || widthOf(full) <= maxWidth) return full
+  const ellW = charWidthEm('…') * 11
+  let out = ''
+  let acc = 0
+  for (const ch of full) {
+    const cw = charWidthEm(ch) * 11
+    if (acc + cw + ellW > maxWidth) break
+    out += ch
+    acc += cw
+  }
+  return `${out.trimEnd()}…`
+}
+
+/** 分组标签可用宽度 = 组宽 - 左右各 10px 内边距 */
+function groupLabelText(g: ClockTreeGroup): string {
+  return truncateGroupLabel(g.label, Math.max(20, g.w - 20))
+}
 
 // ---------- 缩放（用户缩放 × 容器自适应比例） ----------
 const zoom = ref(1)
@@ -156,6 +191,8 @@ const panStart = reactive({ x: 0, y: 0, sl: 0, st: 0 })
 function onPanMouseDown(e: MouseEvent) {
   const t = e.target as Element | null
   // 控件/工具条上不平移（保留按钮/内联编辑语义）
+  // M16：mux radio 行 / stepper 按钮为 SVG 图元（非 <button>），位于 .node 内；
+  // 指针模式下 `.node` 分支直接返回，故其 click handler 不会被 pan 吞掉。
   if (t?.closest('button, input, select, textarea, foreignObject, .zoom-bar')) return
   // 指针模式：节点上保留点选聚焦与内联编辑；抓手模式：节点上也平移
   if (!effectiveHand.value && t?.closest('.node')) return
@@ -264,6 +301,14 @@ function nodeDimmed(id: string): boolean {
   const highlightDim = highlight.value !== null && !highlight.value.has(id)
   return searchDim || highlightDim
 }
+/** 每个节点当前生效入边来源（M16：PLL 源选择无独立控件值，用它点亮 mux 行） */
+const activeInputById = computed(() => {
+  const m = new Map<string, string>()
+  for (const e of props.layout.edges) if (e.active) m.set(e.to, e.from)
+  return m
+})
+/** 仅显示源节点 id（M16：mux 灰行判定；不参与 control options） */
+const displayOnlyInputs = computed(() => props.layout.nodes.filter((n) => n.displayOnly).map((n) => n.id))
 function edgeDimmed(edge: { from: string; to: string }): boolean {
   return highlight.value !== null && !edgeInHighlight(edge, highlight.value)
 }
@@ -329,8 +374,11 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
         <svg :width="svgW" :height="svgH" :viewBox="`0 0 ${layout.width} ${layout.height}`" class="clock-svg">
           <!-- 分组容器 -->
           <g v-for="g in layout.groups" :key="g.id">
-            <rect :x="g.x" :y="g.y" :width="g.w" :height="g.h" rx="10" class="group-box" />
-            <text :x="g.x + 10" :y="g.y + 19" class="group-label">{{ g.label }}</text>
+            <rect :x="g.x" :y="g.y" :width="g.w" :height="g.h" rx="8" class="group-box" />
+            <!-- M16：上移到 +12 给组内首节点的簇外标题（node.y-6）让位，避免两行 10/11px 字形相叠 -->
+            <text :x="g.x + 10" :y="g.y + 12" class="group-label">
+              {{ groupLabelText(g) }}<title>{{ g.label }}</title>
+            </text>
           </g>
 
           <!-- 连线（正交折线）：按目标节点问题级别着色 + 高亮 dim -->
@@ -351,6 +399,8 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
             :dimmed="nodeDimmed(n.id)"
             :pulse="pulseIds.has(n.id)"
             :editing="n.id === editingNodeId"
+            :active-input="activeInputById.get(n.id) ?? null"
+            :display-only-inputs="displayOnlyInputs"
             @focus="onNodeClick"
             @edit-start="startEdit"
             @edit-end="endEdit"
@@ -427,10 +477,8 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
 .canvas-inner {
   position: relative;
   flex-shrink: 0;
-  /* MX2 同款点状背景：浅灰圆点阵（SVG 透明叠加其上） */
-  background-color: var(--mx-surface);
-  background-image: radial-gradient(#d7dee9 1px, transparent 1px);
-  background-size: 16px 16px;
+  /* M16 白纸面板（MX2 实机）：纯白底 + 细边框，去点阵背景 */
+  background: var(--mx-surface);
   border-radius: var(--mx-radius-card);
   border: 1px solid var(--mx-border);
   box-shadow: var(--mx-shadow-card);
@@ -447,16 +495,15 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
   height: 100%;
 }
 
-/* 分组容器 */
+/* 分组容器：MX2 淡描边矩形 + 11px 左上标题 */
 .group-box {
-  fill: rgba(255, 255, 255, 0.45);
-  stroke: #c9d2e0;
+  fill: none;
+  stroke: #d5dbe5;
   stroke-width: 1;
-  stroke-dasharray: 5 4;
 }
 .group-label {
-  font-size: 12px;
-  fill: var(--mx-text-secondary);
+  font-size: 11px;
+  fill: var(--mx-text-muted);
 }
 
 /* 底部浮动缩放条 */

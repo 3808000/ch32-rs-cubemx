@@ -66,6 +66,19 @@ export function generateProject(
   const usages = derivePeripheralUsage(config, data)
   errors.push(...generationErrors(usages, config.features?.embassy ?? false, data))
 
+  // 3a. M16：仅显示时钟源（RM 低频域 LSI/LSE/CK32K）不可生成——Sw 枚举无对应值，阻止导出
+  if (sel.clock) {
+    const clockCfg0 = mergeClockConfig(data.clock, config.clock)
+    const dispSrc = data.clock.sources.find((s) => s.id === clockCfg0.source && s.displayOnly)
+    if (dispSrc) {
+      errors.push({
+        code: 'CLOCK_DISPLAY_ONLY_SOURCE',
+        level: 'error',
+        message: `${dispSrc.label} 为仅显示时钟源（RM 低频域，不生成），请改选 HSI/HSE/PLL`,
+      })
+    }
+  }
+
   // 3. 时钟预设守卫：HAL 只提供时钟配方时（H4），无匹配预设不能用显式字段拼装
   if (sel.clock && data.clock.codegen?.fallback === 'preset_only') {
     const clockCfg = mergeClockConfig(data.clock, config.clock)

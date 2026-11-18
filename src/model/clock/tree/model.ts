@@ -8,6 +8,7 @@ import type {
   ClockData,
   ClockFrequencies,
   ClockIssue,
+  ClockNodeKind,
   ParamSpec,
   PeripheralClockBus,
   PeripheralClockFreq,
@@ -63,6 +64,19 @@ export type ClockNodeBadge = 'fixed' | 'derived' | 'raw'
 export interface ClockNodeModel {
   id: string
   label: string
+  /** M16 图元种类（渲染簇形状）：源=osc / SYSCLK·ADC=mux / PLL=pll / AHB·APB=div（单档→readout）
+   *  / TIM·USB=readout / 外设=peri / aux 数据自述；diagram.nodes[id].kind 覆盖优先 */
+  kind: ClockNodeKind
+  /** M16 仅显示（不生成）：aux 域与 displayOnly 源；渲染层灰显 */
+  displayOnly?: boolean
+  /** M16 mux/pll 输入 id 列表（锚点行序）：源选择 mux=options 值序 + displayOnly 源追加（灰行）；
+   *  ADC 分频 mux=选项 id；aux mux/pll=inputs id */
+  muxInputs?: string[]
+  /** M16 mux 行 RM 文案（与 muxInputs 同序；aux inputs[].label）；渲染层缺省回退 id/option label */
+  muxLabels?: string[]
+  /** M16 pll 簇完整参数 stepper 链（prediv/mul/div 逐参数控件，field='pll'+pllKey）；
+   *  control 仍为首参数（表格/Detail 兼容），渲染层用本链画全部 stepper */
+  pllControls?: ClockNodeControl[]
   /** 输入频率（MHz），源节点为 null */
   inMhz: number | null
   /** 输出频率（MHz） */
@@ -183,6 +197,8 @@ const COL_SPI = 6
 const COL_I2C = 7
 const COL_ADC = 8
 const COL_USB = 9
+/** M16 仅显示域列（不进 M15 列；无 diagram 回退时排在最右列） */
+const COL_AUX = 10
 
 /** 外设类别 → 列号 / 分组 id（外设节点 id='P-'+实例 id）。 */
 const PERI_COLUMN: Record<'usart' | 'spi' | 'i2c' | 'adc', number> = {
@@ -226,6 +242,8 @@ function busNode(
   return {
     id,
     label,
+    // M16：唯一档位无分频旋钮 → 单读数卡（MX2 固定分频块）
+    kind: div.options.length <= 1 ? 'readout' : 'div',
     inMhz,
     outMhz,
     maxMhz: div.maxMhz,
@@ -387,6 +405,8 @@ export function buildClockModel(
   const groups: ClockGroupModel[] = []
 
   const srcSpecs = spec.sources.filter((s) => !s.pll)
+  // M16：仅显示源（LSI/LSE/CK32K 等）→ 灰 osc 块 + mux 灰行；不进 control options、边 active=false
+  const displayOnlySources = srcSpecs.filter((s) => s.displayOnly)
   // 无 PLL 芯片（M14，如 X035）：不生成 PLL 分组/节点/连线
   const pllSpec = spec.pll
 
@@ -402,6 +422,7 @@ export function buildClockModel(
     [PERI_GROUP.i2c]: PERI_GROUP_LABEL.i2c,
     [PERI_GROUP.adc]: PERI_GROUP_LABEL.adc,
     [PERI_GROUP.usb]: PERI_GROUP_LABEL.usb,
+    'g-aux': 'Display-only domains',
   }
   if (pllSpec) groupLabels['g-pll'] = `PLL Max ${pllSpec.outMaxMhz} MHz`
   const timMode = spec.timerClock ?? 'apb_x2'
@@ -418,6 +439,8 @@ export function buildClockModel(
     nodes.push({
       id: s.id,
       label: s.label,
+      kind: 'osc',
+      ...(s.displayOnly ? { displayOnly: true } : {}),
       inMhz: null,
       outMhz: out,
       maxMhz: null,
@@ -456,6 +479,10 @@ export function buildClockModel(
     nodes.push({
       id: 'PLL',
       label: pllLabel,
+      kind: 'pll',
+      // PLL 的 mux 是 pllSource 选择（control.options 是本参数档位，不是源 id）：
+      // 锚点行序=sourceOptions（RM 保真：LSI/LSE/CK32K 不是 PLL 输入，不画假灰行）。
+      muxInputs: [...pllSpec.sourceOptions],
       inMhz: pllInShown,
       outMhz: pllOutShown,
       maxMhz: pllSpec.outMaxMhz,
@@ -478,6 +505,16 @@ export function buildClockModel(
             fixed: firstParam.fixed || firstParam.options.length <= 1 || pllLocked,
           }
         : null,
+      // M16：完整参数链供 pll 簇 stepper 链渲染（布局槽位数=pllSpec.params.length，二者一致）
+      pllControls: pllSpec.params.map((p) => ({
+        kind: 'select' as const,
+        field: 'pll' as const,
+        pllKey: p.key,
+        label: p.label,
+        value: cfg.pll?.[p.key] ?? p.default,
+        options: p.options.map((o) => ({ value: o, label: pllSpec.fixedOutMhz !== undefined ? `÷${o}` : `×${o}` })),
+        fixed: p.fixed || p.options.length <= 1 || pllLocked,
+      })),
       hint: usePll ? undefined : '未使用',
       column: COL_PLL,
       group: 'g-pll',
@@ -495,9 +532,19 @@ export function buildClockModel(
       : null
   const sysLevel = issueLevelOf(issues, 'SYSCLK')
   const sysLocked = isClockNodeLocked(cfg, 'SYSCLK')
+  // M16：仅显示源灰行追加在可选源之后（mux 锚点行序），但不进 control options
+  const sysSourceOptions = spec.sources
+    .filter((s) => !s.displayOnly)
+    .map((s) => ({ value: s.id, label: s.label }))
   nodes.push({
     id: 'SYSCLK',
     label: 'SYSCLK',
+    kind: 'mux',
+    // RM 保真：仅 sysclkMuxInput 的 displayOnly 源（CH582 CK32K）画灰行；LSI/LSE 非 mux 输入不画
+    muxInputs: [
+      ...sysSourceOptions.map((o) => String(o.value)),
+      ...displayOnlySources.filter((s) => s.sysclkMuxInput).map((s) => s.id),
+    ],
     inMhz: sysIn,
     outMhz: freqs.sysclkMhz,
     maxMhz: spec.sysclkMaxMhz,
@@ -511,7 +558,7 @@ export function buildClockModel(
       field: 'source',
       label: '时钟源',
       value: cfg.source,
-      options: spec.sources.map((s) => ({ value: s.id, label: s.label })),
+      options: sysSourceOptions,
       fixed: sysLocked,
     },
     column: COL_SYSTEM,
@@ -531,6 +578,7 @@ export function buildClockModel(
   nodes.push({
     id: 'TIM1',
     label: 'TIM1',
+    kind: 'readout',
     inMhz: freqs.pclk1Mhz,
     outMhz: freqs.pclk1TimMhz,
     maxMhz: tim1Max,
@@ -548,6 +596,7 @@ export function buildClockModel(
   nodes.push({
     id: 'TIM2',
     label: 'TIM2',
+    kind: 'readout',
     inMhz: freqs.pclk2Mhz,
     outMhz: freqs.pclk2TimMhz,
     maxMhz: tim2Max,
@@ -580,6 +629,9 @@ export function buildClockModel(
     id: 'ADC',
     // CH582 单 ADC 实例 id 即 'ADC'，与域节点同名会混淆 → 域节点改称「ADC 域」（数据驱动，非芯片硬编码）
     label: peri?.peripherals?.adc?.some((i) => i.id === 'ADC') ? 'ADC 域' : 'ADC',
+    kind: 'mux',
+    // ADC mux 的输入是数据层 adc 选项 id（分频档位，非时钟源）：仅显示源不追加灰行
+    muxInputs: spec.adc.options.map((o) => String(o.id)),
     inMhz: adcBase,
     outMhz: freqs.adcMhz,
     maxMhz: spec.adc.maxMhz ?? null,
@@ -606,8 +658,12 @@ export function buildClockModel(
   }
 
   for (const s of srcSpecs) {
-    if (pllSpec) edge(`src-${s.id}-pll`, s.id, 'PLL', usePll && pllSourceId === s.id)
-    edge(`src-${s.id}-sys`, s.id, 'SYSCLK', cfg.source === s.id)
+    // M16 RM 保真：非 mux 输入的 displayOnly 源（LSI/LSE）在 RM 中无通往 SYSCLK/PLL 的路径 → 不画灰边；
+    // 其仅供 aux 域（IWDG/RTC）引用。sysclkMuxInput（CH582 CK32K）保留灰边+灰行，永不激活。
+    if (s.displayOnly && !s.sysclkMuxInput) continue
+    const selectable = !s.displayOnly
+    if (pllSpec && !s.displayOnly) edge(`src-${s.id}-pll`, s.id, 'PLL', selectable && usePll && pllSourceId === s.id)
+    edge(`src-${s.id}-sys`, s.id, 'SYSCLK', selectable && cfg.source === s.id)
   }
   if (pllSpec) edge('pll-sys', 'PLL', 'SYSCLK', usePll)
 
@@ -701,6 +757,7 @@ export function buildClockModel(
     return {
       id: nodeId,
       label: iid,
+      kind: 'peri',
       inMhz: pf?.inMhz ?? busMhz(bus, freqs, adcClkSpec),
       // ADC raw 级不编造频率（periFreqs.actualMhz=null）
       outMhz: pf?.actualMhz ?? null,
@@ -750,6 +807,7 @@ export function buildClockModel(
     nodes.push({
       id: 'USB',
       label: 'USB',
+      kind: 'readout',
       // 非 PLL 源时 peripheral.ts 以 0 表「无时钟」（类型约束）→ 显示层归一为 null（—），不误导为 0 MHz
       inMhz: (pf?.inMhz ?? freqs.pllOutMhz) || null,
       outMhz: pf?.actualMhz ?? null,
@@ -771,6 +829,61 @@ export function buildClockModel(
     if (pllSpec) edge('pll-usb', 'PLL', 'USB', true, pf?.dividerLabel ?? undefined)
   }
 
+  // ---------- M16 仅显示域（aux：RM 框图有、模型/代码生成不覆盖） ----------
+  // badge='derived' + displayOnly=true + control=null + 不可锁 + active=true；边 active=false（灰线）。
+  for (const a of spec.aux ?? []) {
+    const hint = [a.fixedDivLabel, a.note].filter((s) => !!s).join(' · ')
+    const fixed = a.fixedMhz ?? null
+    const muxKind = a.kind === 'mux' || a.kind === 'pll'
+    nodes.push({
+      id: a.id,
+      label: a.label,
+      kind: a.kind,
+      ...(muxKind
+        ? {
+            muxInputs: (a.inputs ?? []).map((i) => i.id),
+            // RM 文案（如 'PLL3÷2'/'HSE÷128'）：渲染层 mux 行标签优先取此，缺省回退 id
+            muxLabels: (a.inputs ?? []).map((i) => i.label),
+          }
+        : {}),
+      inMhz: fixed,
+      outMhz: fixed,
+      maxMhz: a.maxMhz ?? null,
+      issueLevel: null,
+      overLimit: false,
+      active: true,
+      locked: false,
+      lockable: false,
+      control: null,
+      ...(hint ? { hint } : {}),
+      column: COL_AUX,
+      group: 'g-aux',
+      badge: 'derived',
+      displayOnly: true,
+    })
+    const seenInputs = new Map<string, number>()
+    for (const inp of a.inputs ?? []) {
+      // 同源多行（如 MCO 的 PLL3 与 PLL3÷2）：重复边 id 加行序后缀，避免 Vue :key 重复
+      const n = seenInputs.get(inp.id) ?? 0
+      seenInputs.set(inp.id, n + 1)
+      edges.push({ id: `aux-${a.id}-${inp.id}${n > 0 ? `-${n}` : ''}`, from: inp.id, to: a.id, active: false })
+    }
+  }
+
+  // ---------- M16 diagram kind 覆盖（数据坐标优先于默认 kind） ----------
+  const diagramNodes = spec.diagram?.nodes
+  if (diagramNodes) {
+    for (const n of nodes) {
+      const override = diagramNodes[n.id]?.kind
+      if (override) n.kind = override
+    }
+  }
+  // mux/pll kind 节点必须带 muxInputs（含灰行）；diagram 把其它节点覆盖成 mux/pll 时用入边来源兜底
+  for (const n of nodes) {
+    if (n.kind !== 'mux' && n.kind !== 'pll') continue
+    if (!n.muxInputs) n.muxInputs = edges.filter((e) => e.to === n.id).map((e) => e.from)
+  }
+
   // 核心节点：把全局问题列表按节点归属挂到节点上（hover 全量消息；外设节点已自带合并列表）
   for (const n of nodes) {
     if (n.issues?.length) continue
@@ -779,7 +892,7 @@ export function buildClockModel(
   }
 
   // ---------- 分组容器（仅保留有成员的组，顺序固定） ----------
-  const groupOrder = ['g-sources', 'g-pll', 'g-sys', 'g-tim', PERI_GROUP.adc, PERI_GROUP.usart, PERI_GROUP.spi, PERI_GROUP.i2c, PERI_GROUP.usb]
+  const groupOrder = ['g-sources', 'g-pll', 'g-sys', 'g-tim', PERI_GROUP.adc, PERI_GROUP.usart, PERI_GROUP.spi, PERI_GROUP.i2c, PERI_GROUP.usb, 'g-aux']
   for (const gid of groupOrder) {
     if (!nodes.some((n) => n.group === gid)) continue
     groups.push({ id: gid, label: groupLabels[gid] ?? gid })

@@ -20,6 +20,18 @@
       "id": "PLL",
       "label": "主 PLL（×16）",
       "pll": true
+    },
+    {
+      "id": "LSI",
+      "label": "内部 LSI",
+      "freqMhz": 0.04,
+      "displayOnly": true
+    },
+    {
+      "id": "LSE",
+      "label": "外部 LSE",
+      "freqMhz": 0.032768,
+      "displayOnly": true
     }
   ],
   "pll": {
@@ -116,6 +128,140 @@
       "pre": { "programmable": false, "note": "HAL 有 adcpre API 但本芯片 preset_only；adcsrc/duty 不写" }
     }
   },
+  "aux": [
+    {
+      "id": "V5F",
+      "kind": "readout",
+      "label": "V5F core (CORE1)",
+      "inputs": [{ "id": "SYSCLK", "label": "SYSCLK" }],
+      "maxMhz": 400,
+      "note": "RM 图 3-2（V1.8 p12）：HPRE → CORE1 V5F；400M 配方 HPRE=1 固定 → V5F=SYSCLK；repo ahb 为 HPRE×FPRE 合成，未单列 V5F 频率，仅显示"
+    },
+    {
+      "id": "V3F",
+      "kind": "readout",
+      "label": "V3F / HCLK (CORE0)",
+      "inputs": [{ "id": "AHB", "label": "HCLK" }],
+      "maxMhz": 160,
+      "note": "RM 图 3-2：HPRE 分支→FPRE ÷1/2/4→CORE0 V3F/HCLK；repo ahb=[1,4] 为 HPRE×FPRE 合成 ÷4 语义（V5F 400 / V3F 100MHz），不改合成语义"
+    },
+    {
+      "id": "RTC",
+      "kind": "mux",
+      "label": "RTC (RTCCLK)",
+      "inputs": [
+        { "id": "LSE", "label": "LSE" },
+        { "id": "LSI", "label": "LSI" },
+        { "id": "HSE", "label": "HSE÷512" }
+      ],
+      "note": "RTCSEL：01=LSE/10=LSI/11=HSE÷512（H417 为 512 分频）；BDCTLR.RTCEN 门控；HAL 不生成 RTC 配置"
+    },
+    {
+      "id": "MCO",
+      "kind": "mux",
+      "label": "MCO (PB0)",
+      "inputs": [
+        { "id": "SYSCLK", "label": "SYS_CLK" },
+        { "id": "HSE", "label": "HSE" },
+        { "id": "HSI", "label": "HSI" },
+        { "id": "PLL", "label": "PLLCLK÷2" },
+        { "id": "USBHSPLL", "label": "UTMI_CLK" }
+      ],
+      "fixedDivLabel": "÷1",
+      "note": "RM 图 8 行：SYS_CLK/HSE/HSI/PLLCLK÷2/UTMI_CLK/USBSS_PLL÷2/ETH_PLL÷8/SERDES_PLL÷16（后 3 行属 AuxPlls，不建模故不画行）；RCC_CFGR0.MCO[3:0] 0000=无输出；HAL mco API 本期不生成"
+    },
+    {
+      "id": "USBHSPLL",
+      "kind": "pll",
+      "label": "USBHS PLL",
+      "inputs": [
+        { "id": "HSE", "label": "HSE" },
+        { "id": "HSI", "label": "HSI" }
+      ],
+      "fixedDivLabel": "in ÷1..32 / ref 20..32M",
+      "note": "USBHSPLLSRC：00=HSE/01=HSI/10=ETHCLK_20M/11=SYS_PLL÷（USBHSPLL_IN_DIV ÷1..32）；参考 20/24/25/32MHz（USBHSPLL_REFESEL）；480MHz→÷8=UTMI_CLK；AuxPlls 不建模，不生成"
+    }
+  ],
+  "diagram": {
+    "nodes": {
+      "LSI": { "x": 40, "y": 40 },
+      "LSE": { "x": 40, "y": 116 },
+      "HSE": { "x": 40, "y": 192 },
+      "HSI": { "x": 40, "y": 268 },
+      "PLL": { "x": 300, "y": 140 },
+      "SYSCLK": { "x": 700, "y": 140 },
+      "AHB": { "x": 688, "y": 320 },
+      "APB2": { "x": 980, "y": 300 },
+      "APB1": { "x": 980, "y": 420, "kind": "readout" },
+      "TIM1": { "x": 1260, "y": 300 },
+      "TIM2": { "x": 1260, "y": 420 },
+      "P-USART1": { "x": 1560, "y": 140 },
+      "P-USART2": { "x": 1560, "y": 272 },
+      "P-USART3": { "x": 1560, "y": 404 },
+      "P-USART4": { "x": 1560, "y": 536 },
+      "P-USART5": { "x": 1800, "y": 140 },
+      "P-USART6": { "x": 1800, "y": 272 },
+      "P-USART7": { "x": 1800, "y": 404 },
+      "P-USART8": { "x": 1800, "y": 536 },
+      "P-SPI1": { "x": 2040, "y": 140 },
+      "P-SPI2": { "x": 2040, "y": 272 },
+      "P-SPI3": { "x": 2040, "y": 404 },
+      "P-SPI4": { "x": 2040, "y": 536 },
+      "P-I2C1": { "x": 2280, "y": 140 },
+      "P-I2C2": { "x": 2280, "y": 272 },
+      "P-I2C3": { "x": 2280, "y": 404 },
+      "P-I2C4": { "x": 2280, "y": 536 },
+      "ADC": { "x": 2520, "y": 140 },
+      "P-ADC1": { "x": 2520, "y": 272 },
+      "P-ADC2": { "x": 2520, "y": 404 },
+      "RTC": { "x": 40, "y": 900 },
+      "MCO": { "x": 300, "y": 900 },
+      "USBHSPLL": { "x": 560, "y": 900 },
+      "V5F": { "x": 940, "y": 900 },
+      "V3F": { "x": 1100, "y": 900 }
+    },
+    "groups": [
+      { "id": "g-sources", "label": "时钟源（LSI/LSE 仅显示）", "x": 24, "y": 10, "w": 128, "h": 320 },
+      { "id": "g-pll", "label": "主 SYS PLL（PLL_SRC_DIV ÷1..64 → PLLMUL ×16 固定）", "x": 284, "y": 110, "w": 316, "h": 104 },
+      {
+        "id": "g-sys",
+        "label": "系统时钟（SYSPLL_SEL → SW；HPRE×FPRE 合成）",
+        "x": 672,
+        "y": 110,
+        "w": 244,
+        "h": 272
+      },
+      {
+        "id": "g-bus",
+        "label": "APB 总线（RM 仅 PPRE2，无 PPRE1；APB2=PPRE2，HAL adcpre 路径 preset_only）",
+        "x": 964,
+        "y": 270,
+        "w": 244,
+        "h": 212
+      },
+      { "id": "g-tim", "label": "定时器时钟（内核=PCLK 无 ×2；repo APB≡1 数值等价）", "x": 1244, "y": 270, "w": 136, "h": 228 },
+      { "id": "g-usart", "label": "USART 时钟（PCLK1；USART1=PCLK2）", "x": 1544, "y": 110, "w": 462, "h": 540 },
+      { "id": "g-spi", "label": "SPI 时钟（PCLK1；SPI1=PCLK2）", "x": 2024, "y": 110, "w": 222, "h": 540 },
+      { "id": "g-i2c", "label": "I2C 时钟（PCLK1；I2C4=PCLK2，≤400kHz）", "x": 2264, "y": 110, "w": 222, "h": 540 },
+      {
+        "id": "g-adc",
+        "label": "ADC 时钟（ADCSRC=HCLK 路径：PPRE2+ADCPRE ÷2..8，≤80MHz）",
+        "x": 2504,
+        "y": 110,
+        "w": 232,
+        "h": 408
+      },
+      {
+        "id": "g-aux",
+        "label": "仅显示域（不生成）· KernelMux 不建模：uhsif/ltdc/usbfs/rng/i2s2/i2s3/hsadc/eth1g；AuxPlls USBSS/ETH/SERDES 不建模",
+        "x": 24,
+        "y": 870,
+        "w": 1196,
+        "h": 152
+      }
+    ],
+    "lanes": { "peri-P-USART5": -7, "peri-P-I2C1": -5, "peri-P-ADC2": 17 }
+  },
   "presets": [
     {
       "id": "400MHZ_HSI",
@@ -161,5 +307,5 @@
     },
     "fallback": "preset_only"
   },
-  "notes": "依据 ch32-hal src/rcc/h4/mod.rs 逐行核对：H4 的 Config 不是平铺字段（无 sys/pll_src/ahb_pre 赋值），而是内部 Recipe + 公开 hse/bus/mux/aux_plls/ls/mco/rgmii_on，因此 codegen.fallback=preset_only——HAL 只提供 with_hsi() 与 with_sysclk_*() 配方，无法用显式字段拼装。已收录配方：SYSCLK_400M_CoreCLK_V5F_400M_V3F_100M_{HSI,HSE}（主 PLL PLLMUL=MUL16，pll_src_div=0：25×16=400MHz；HPRE=DIV1、FPRE=DIV4 → V5F/AHB=400MHz、V3F/HCLK=100MHz、PCLK1=PCLK2=100MHz）。数据模型的 ahb 字段在这里表示 SYSCLK→HCLK 的合成分频（HPRE×FPRE=4），用于复现 HCLK/PCLK；V5F 时钟不在现有 ClockFrequencies 中建模。未收录 HAL 的 480MHz 配方（with_sysclk_480m_*）：数据手册 CH32H417DS0 第 1 章特性表明确 V5F 最高 400MHz、V3F 最高 160MHz，且 USBHS PLL 说明注明「实测不低于 480MHz，禁止 480MHz 应用于正式工程」。HSI=25MHz（rcc/h4/mod.rs HSI_FREQUENCY）；HSE 5~32MHz、典型 25MHz（DS 表 3-9 FHSE_ext）；HCLK/FHCLK 上限 160MHz；ADC 时钟 = HCLK/PPRE2/ADCPRE（RM §3.4.4），fADC 上限 80MHz（HAL adc/v4x7.rs MAX_ADC_CLOCK 与 DS 表 fADC）。H4 定时器内核时钟 = PCLK（RM 表 4.2，无 ×2），但本数据所有预设 APB 分频均为 1，故现有 timerClock=apb_x2 默认模型仍得到正确 PCLK；若将来放开 APB 分频需补 'pclk' 模式。M15 外设时钟源逐字取自 ch32-data CH32H4.yaml：USART1=PCLK2（:275）、USART2-8=PCLK1，SPI1=PCLK2（:1656）、SPI2-4=PCLK1，I2C1-3=PCLK1、I2C4=PCLK2（:789），ADC1/2 挂 PCLK2 经 PPRE2+ADCPRE；KernelMux（i2s/usbfs/rng/ltdc/uhsif/eth1g/hsadc）HAL 有 API（rcc/h4/mux.rs）但多数外设无驱动 + preset_only，本期不建模；无 USB 域。"
+  "notes": "依据 ch32-hal src/rcc/h4/mod.rs 逐行核对：H4 的 Config 不是平铺字段（无 sys/pll_src/ahb_pre 赋值），而是内部 Recipe + 公开 hse/bus/mux/aux_plls/ls/mco/rgmii_on，因此 codegen.fallback=preset_only——HAL 只提供 with_hsi() 与 with_sysclk_*() 配方，无法用显式字段拼装。已收录配方：SYSCLK_400M_CoreCLK_V5F_400M_V3F_100M_{HSI,HSE}（主 PLL PLLMUL=MUL16，pll_src_div=0：25×16=400MHz；HPRE=DIV1、FPRE=DIV4 → V5F/AHB=400MHz、V3F/HCLK=100MHz、PCLK1=PCLK2=100MHz）。数据模型的 ahb 字段在这里表示 SYSCLK→HCLK 的合成分频（HPRE×FPRE=4），用于复现 HCLK/PCLK；V5F 时钟不在现有 ClockFrequencies 中建模。未收录 HAL 的 480MHz 配方（with_sysclk_480m_*）：数据手册 CH32H417DS0 第 1 章特性表明确 V5F 最高 400MHz、V3F 最高 160MHz，且 USBHS PLL 说明注明「实测不低于 480MHz，禁止 480MHz 应用于正式工程」。HSI=25MHz（rcc/h4/mod.rs HSI_FREQUENCY）；HSE 5~32MHz、典型 25MHz（DS 表 3-9 FHSE_ext）；HCLK/FHCLK 上限 160MHz；ADC 时钟 = HCLK/PPRE2/ADCPRE（RM §3.4.4），fADC 上限 80MHz（HAL adc/v4x7.rs MAX_ADC_CLOCK 与 DS 表 fADC）。H4 定时器内核时钟 = PCLK（RM 表 4.2，无 ×2），但本数据所有预设 APB 分频均为 1，故现有 timerClock=apb_x2 默认模型仍得到正确 PCLK；若将来放开 APB 分频需补 'pclk' 模式。M15 外设时钟源逐字取自 ch32-data CH32H4.yaml：USART1=PCLK2（:275）、USART2-8=PCLK1，SPI1=PCLK2（:1656）、SPI2-4=PCLK1，I2C1-3=PCLK1、I2C4=PCLK2（:789），ADC1/2 挂 PCLK2 经 PPRE2+ADCPRE；KernelMux（i2s/usbfs/rng/ltdc/uhsif/eth1g/hsadc）HAL 有 API（rcc/h4/mux.rs）但多数外设无驱动 + preset_only，本期不建模；无 USB 域。M16 图注：RM《CH32H417 系列应用手册》V1.8 图 3-2「时钟树框图」（印刷 p12 / PDF p16；逐元素转录 docs/m16-rm/h417.md）。diagram 按图 3-2 排布（源区 / 主 SYS PLL / SYSPLL_SEL+SW 系统区 / APB+TIM / USART·SPI·I2C·ADC 外设列），aux 仅显示域置于底部带。仅显示（不生成、不进 ClockConfig/cube.json/solver/preset 匹配）：displayOnly 源 LSI 40kHz、LSE 32.768kHz（RM 只喂 RTC/IWDG/LPTIM，不作 SW/PLLSRC 输入，故 mux 不追加灰行）；aux V5F（HPRE=1 固定，HPRE→CORE1）/ V3F（HPRE×FPRE 合成 ÷4 语义→CORE0/HCLK）/ RTC（三源含 HSE÷512，BDCTLR.RTCEN 门控，不生成）/ MCO（图 8 行，USBSS/ETH/SERDES 三行属 AuxPlls 不建模故不画）/ USBHS PLL（AuxPlls 不建模）。RM 只有 PPRE2 无 PPRE1 → APB1 kind 覆盖 readout（APB1≡HCLK，HAL 侧 apb1.options=[1] 占位）；APB2（PPRE2）保留 div 形态（HAL adcpre 路径，preset_only 不写）。定时器内核=PCLK（RM 表 4.2，无 ×2）→ TIM1/TIM2 readout；repo timerClock=apb_x2 在所有预设 APB≡1 时数值等价，放开 APB 分频需补 pclk 模式。KernelMux（RCC_CFGR2 11 字段 uhsifdiv/uhsifsrc/ltdcdiv/ltdcsrc/usbfsdiv/usbfssrc/rngsrc/i2s2src/i2s3src/hsadcsrc/eth1gsrc）不建模（HAL rcc/h4/mux.rs 有 API，多数外设无驱动）。双核分叉用 V5F/V3F readout 表达，不改 ahb=HPRE×FPRE=4 的合成语义。"
 }

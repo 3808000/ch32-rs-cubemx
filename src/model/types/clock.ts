@@ -24,6 +24,62 @@ export interface ClockSource {
   freqMhz?: number
   hxtal?: { min: number; max: number; default: number }
   pll?: boolean
+  /** M16：仅显示源（LSI/LSE/CK32K 等低频域）：灰 osc 块，不进 control options、不可选 */
+  displayOnly?: boolean
+  /** M16：该 displayOnly 源是 RM 框图中 SYSCLK mux 的真实输入（如 CH582 CK32K 属 ClockSrc 三路）→ 画灰置灰输入行；
+   *  缺省 false：LSI/LSE 等不是 SYSCLK/PLL mux 输入，只作独立 osc 节点（RM 保真，不画假 mux 行） */
+  sysclkMuxInput?: boolean
+}
+
+/** M16 图元种类（MX2 分离图元语言）：渲染层按 kind 画簇，逻辑节点数组不变 */
+export type ClockNodeKind = 'osc' | 'mux' | 'div' | 'readout' | 'peri' | 'pll'
+
+/** M16 逐芯片手工布局：坐标镜像 RM 框图排布；缺省回退列式自动布局 */
+export interface ClockDiagramNode {
+  x: number
+  y: number
+  /** 覆盖模型默认 kind（如固定分频总线用 readout 而非 div） */
+  kind?: ClockNodeKind
+}
+
+export interface ClockDiagramGroup {
+  id: string
+  label: string
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+export interface ClockDiagram {
+  /** 逻辑节点 id（含 aux 域 id）→ 簇左上坐标；validate 保证全覆盖 */
+  nodes: Record<string, ClockDiagramNode>
+  /** 显式分组框（缺省=成员包围盒） */
+  groups?: ClockDiagramGroup[]
+  /** 走线走廊错开 hint：edge id → lane 索引 */
+  lanes?: Record<string, number>
+}
+
+/** M16 仅显示时钟域（RM 框图有、模型/代码生成不覆盖）：RTC/MCO/PLL2/3/USBHS/32K/双核分叉等 */
+export interface AuxClockInput {
+  /** 上游节点 id（源/域/aux），须存在于树中 */
+  id: string
+  label: string
+}
+
+export interface AuxClockDomain {
+  id: string
+  kind: ClockNodeKind
+  label: string
+  /** mux/pll _kind 的上游输入（画灰边 + mux 灰行） */
+  inputs?: AuxClockInput[]
+  /** 固定频率 MHz（readout/osc）；null=无时钟 */
+  fixedMhz?: number | null
+  maxMhz?: number
+  /** 固定分频档显示（MCO/RTC div）：如 '÷1' */
+  fixedDivLabel?: string
+  /** 诚实边界注记（HAL todo!()/无驱动/BLE 占用/模型合成语义） */
+  note?: string
 }
 
 export interface ClockParamSpec {
@@ -87,6 +143,10 @@ export interface ClockData {
   /** 外设时钟域（M15，可选）：每类外设的固定源总线 + 真实旋钮 + 分频链描述。
    *  实例清单来自 peripherals.json；WCH 芯片 I2C/SPI/USART 无内核 mux，源为固定总线（诚实徽标）。 */
   peripheralClocks?: PeripheralClocksData
+  /** M16：逐芯片手工布局（RM 框图排布）；缺省回退列式自动布局 */
+  diagram?: ClockDiagram
+  /** M16：仅显示时钟域（不生成、不进配置/求解） */
+  aux?: AuxClockDomain[]
   presets: ClockPreset[]
   codegen: {
     presetConstMap: Record<string, string>

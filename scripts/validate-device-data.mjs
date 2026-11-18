@@ -31,9 +31,13 @@ const server = await createServer({
   root,
   logLevel: 'error',
   server: { middlewareMode: true },
+  // configFile:false → 手动提供与 vite.config.ts 相同的 @ 别名（树模块有运行时别名 import）
+  resolve: { alias: { '@': path.join(root, 'src') } },
   optimizeDeps: { noDiscovery: true, include: [] },
 })
 const clockLib = await server.ssrLoadModule('/src/model/clock/index.ts')
+// M16：树模型/布局（diagram 覆盖与走线校验）
+const treeLib = await server.ssrLoadModule('/src/model/clock/tree/index.ts')
 
 function validateDevice(dir) {
   const id = path.basename(dir)
@@ -240,6 +244,13 @@ function validateDevice(dir) {
     if (errors === before) ok('clock peripheralClocks 结构通过')
   }
 
+  // ---- 5c. clock.json diagram 结构（M16 契约 D3/D6）----
+  if (clock.diagram) {
+    const before = errors
+    validateClockDiagram(clock, peripherals)
+    if (errors === before) ok('clock diagram 结构通过（覆盖/坐标/分组/走线）')
+  }
+
   // ---- 6. interrupts.json / dma.json ----
   const names = interrupts.irqs.map((i) => i.name)
   if (new Set(names).size !== names.length) err('interrupts.json', 'IRQ name 重复')
@@ -427,6 +438,191 @@ function validatePeripheralClockBlock(clock, peripherals) {
       } else {
         for (const mhz of usb.validPllMhz) {
           if (!(typeof mhz === 'number' && mhz > 0)) err('clock.json', 'peripheralClocks.usb.validPllMhz 元素必须大于 0')
+        }
+      }
+    }
+  }
+}
+
+// ---------- M16：clock.json diagram 结构校验（契约 D3/D6） ----------
+const CLOCK_NODE_KINDS = new Set(['osc', 'mux', 'div', 'readout', 'peri', 'pll'])
+const RECT_EPS = 0.5
+
+function rectOverlap(a, b) {
+  return (
+    Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > RECT_EPS &&
+    Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > RECT_EPS
+  )
+}
+
+/** 线段是否穿过矩形内部（贴边/端点不算）。 */
+function segmentHitsRect(a, b, r) {
+  if (a.y === b.y) {
+    if (a.y <= r.y + RECT_EPS || a.y >= r.y + r.h - RECT_EPS) return false
+    const lo = Math.min(a.x, b.x)
+    const hi = Math.max(a.x, b.x)
+    return Math.min(hi, r.x + r.w) - Math.max(lo, r.x) > RECT_EPS
+  }
+  if (a.x === b.x) {
+    if (a.x <= r.x + RECT_EPS || a.x >= r.x + r.w - RECT_EPS) return false
+    const lo = Math.min(a.y, b.y)
+    const hi = Math.max(a.y, b.y)
+    return Math.min(hi, r.y + r.h) - Math.max(lo, r.y) > RECT_EPS
+  }
+  return true
+}
+
+/**
+ * 5c：diagram 存在时的结构校验（无 diagram 跳过=回退合法）。
+ * 1) nodes 键全覆盖（逻辑节点含 aux/外设；由 buildClockModel 派生）+ 坐标非负有限；
+ * 2) groups 覆盖成员且互不重叠；
+ * 3) 簇互不重叠 + buildClockTree 走线不穿簇；
+ * 4) aux inputs 引用存在的节点；5) 仅显示源不进 control options。
+ */
+function validateClockDiagram(clock, peripherals) {
+  const diagram = clock.diagram
+  if (!diagram || typeof diagram !== 'object' || Array.isArray(diagram)) {
+    err('clock.json', 'diagram 必须是对象')
+    return
+  }
+  const dnodes = diagram.nodes
+  if (!dnodes || typeof dnodes !== 'object' || Array.isArray(dnodes)) {
+    err('clock.json', 'diagram.nodes 必须是对象')
+    return
+  }
+
+  let model
+  let layout
+  try {
+    const cfg = clockLib.mergeClockConfig(clock)
+    const freqs = clockLib.computeClock(clock, cfg)
+    const periCtx = peripherals ? { peripherals, state: {}, periFreqs: [] } : undefined
+    model = treeLib.buildClockModel(clock, cfg, freqs, undefined, periCtx)
+    layout = treeLib.buildClockTree(clock, cfg, freqs, undefined, periCtx)
+  } catch (e) {
+    err('clock.json', `diagram 构建树失败：${e instanceof Error ? e.message : String(e)}`)
+    return
+  }
+
+  const ids = new Set(model.nodes.map((n) => n.id))
+  for (const id of ids) {
+    const p = dnodes[id]
+    if (!p) {
+      err('clock.json', `diagram.nodes 缺少节点 ${id}`)
+      continue
+    }
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+      err('clock.json', `diagram.nodes.${id} 坐标必须为有限数字`)
+    } else if (p.x < 0 || p.y < 0) {
+      err('clock.json', `diagram.nodes.${id} 坐标必须非负（当前 ${p.x},${p.y}）`)
+    }
+    if (p.kind !== undefined && !CLOCK_NODE_KINDS.has(p.kind)) {
+      err('clock.json', `diagram.nodes.${id}.kind 非法：${p.kind}`)
+    }
+  }
+  for (const id of Object.keys(dnodes)) {
+    if (!ids.has(id)) err('clock.json', `diagram.nodes 含未知节点 ${id}`)
+  }
+
+  // 分组框：字段/唯一性/互不重叠/成员覆盖（成员=model.group 同 id 的节点）
+  if (diagram.groups !== undefined) {
+    if (!Array.isArray(diagram.groups)) {
+      err('clock.json', 'diagram.groups 必须是数组')
+    } else {
+      const gids = new Set()
+      for (const g of diagram.groups) {
+        if (!g || typeof g.id !== 'string' || !g.id) {
+          err('clock.json', 'diagram.groups: 每组必须有非空 id')
+          continue
+        }
+        if (gids.has(g.id)) err('clock.json', `diagram.groups: id ${g.id} 重复`)
+        gids.add(g.id)
+        if (!g.label) err('clock.json', `diagram.groups.${g.id}: label 缺失`)
+        if (![g.x, g.y, g.w, g.h].every((v) => Number.isFinite(v)) || g.w <= 0 || g.h <= 0) {
+          err('clock.json', `diagram.groups.${g.id}: x/y/w/h 必须是有限数字且 w/h>0`)
+        }
+      }
+      const boxes = diagram.groups.filter((g) => g && Number.isFinite(g.x))
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          if (rectOverlap(boxes[i], boxes[j])) {
+            err('clock.json', `diagram.groups: ${boxes[i].id} 与 ${boxes[j].id} 重叠`)
+          }
+        }
+      }
+      // 每个有分组归属的节点必须被同名分组框完全覆盖
+      for (const n of layout.nodes) {
+        if (!n.group) continue
+        const g = boxes.find((b) => b.id === n.group)
+        if (!g) {
+          err('clock.json', `diagram.groups: 缺少分组框 ${n.group}（节点 ${n.id}）`)
+        } else if (
+          n.x < g.x - RECT_EPS ||
+          n.y < g.y - RECT_EPS ||
+          n.x + n.w > g.x + g.w + RECT_EPS ||
+          n.y + n.h > g.y + g.h + RECT_EPS
+        ) {
+          err('clock.json', `diagram.groups.${g.id}: 未覆盖成员 ${n.id}`)
+        }
+      }
+    }
+  }
+
+  // 簇互不重叠（走线不穿簇的前提）
+  for (let i = 0; i < layout.nodes.length; i++) {
+    for (let j = i + 1; j < layout.nodes.length; j++) {
+      const a = layout.nodes[i]
+      const b = layout.nodes[j]
+      if (rectOverlap(a, b)) err('clock.json', `diagram: 簇 ${a.id} 与 ${b.id} 重叠`)
+    }
+  }
+
+  // 走线不穿任何簇矩形
+  const seen = new Set()
+  for (const e of layout.edges) {
+    for (let i = 1; i < e.points.length; i++) {
+      const a = e.points[i - 1]
+      const b = e.points[i]
+      for (const n of layout.nodes) {
+        if (!segmentHitsRect(a, b, n)) continue
+        const key = `${e.id}|${n.id}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        err('clock.json', `diagram: 走线 ${e.id} 穿过簇 ${n.id}`)
+      }
+    }
+  }
+
+  // lanes hint 必须引用存在的边
+  for (const key of Object.keys(diagram.lanes ?? {})) {
+    if (!layout.edges.some((e) => e.id === key)) {
+      err('clock.json', `diagram.lanes 引用不存在的边 ${key}`)
+    }
+  }
+
+  // aux 引用 + 仅显示源语义（diagram 不改变逻辑语义，这里顺带守门）
+  const nodeById = new Map(model.nodes.map((n) => [n.id, n]))
+  for (const a of clock.aux ?? []) {
+    for (const inp of a.inputs ?? []) {
+      if (!ids.has(inp.id)) err('clock.json', `aux.${a.id} 输入引用不存在的节点 ${inp.id}`)
+    }
+    const n = nodeById.get(a.id)
+    if (!n) err('clock.json', `aux.${a.id} 未进入时钟树模型`)
+    else {
+      if (!n.displayOnly) err('clock.json', `aux.${a.id} 必须 displayOnly=true`)
+      if (n.control !== null) err('clock.json', `aux.${a.id} 不可有配置控件（control=null）`)
+      if (n.lockable !== false) err('clock.json', `aux.${a.id} 必须 lockable=false`)
+    }
+  }
+  for (const s of clock.sources ?? []) {
+    if (!s.displayOnly) continue
+    const n = nodeById.get(s.id)
+    if (!n) err('clock.json', `displayOnly 源 ${s.id} 未进入时钟树模型`)
+    else if (!n.displayOnly) err('clock.json', `源 ${s.id} 必须 displayOnly=true`)
+    for (const other of model.nodes) {
+      for (const o of other.control?.options ?? []) {
+        if (String(o.value) === s.id) {
+          err('clock.json', `节点 ${other.id} 的 control options 含仅显示源 ${s.id}`)
         }
       }
     }

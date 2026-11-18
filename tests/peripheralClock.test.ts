@@ -153,12 +153,13 @@ describe('computePeripheralClocks 真实数据：遍历与源总线', () => {
     expect(node(nodes, 'I2C2').sourceBus).toBe('APB1')
   })
 
-  it('V003 源总线：USART1/SPI1=HCLK、I2C1=APB1、ADC=APB2，无 USB 节点', () => {
+  it('V003 源总线：USART1/SPI1=HCLK、I2C1=APB1、ADC=HCLK（AHB 语义），无 USB 节点', () => {
     const { nodes } = run(v003)
     expect(node(nodes, 'USART1').sourceBus).toBe('HCLK')
     expect(node(nodes, 'SPI1').sourceBus).toBe('HCLK')
     expect(node(nodes, 'I2C1').sourceBus).toBe('APB1')
-    expect(node(nodes, 'ADC1').sourceBus).toBe('APB2')
+    // D4bis：RM 图 3-2 ADCPRE 上游=HCLK（非 APB2）
+    expect(node(nodes, 'ADC1').sourceBus).toBe('HCLK')
     expect(nodes.some((n) => n.category === 'usb')).toBe(false)
   })
 
@@ -418,11 +419,11 @@ describe('ADC 节点：raw 不编造 MHz / 枚举映射 / CK32M', () => {
     expect(n.actualMhz).toBeNull()
   })
 
-  it('V003 无 raw 旋钮：actual=输入 ADC 域频率（24MHz），不造 raw 标签', () => {
+  it('V003 无 raw 旋钮：actual=ADC 域频率（HCLK÷2=12MHz），不造 raw 标签', () => {
     const { nodes } = run(v003)
     const n = node(nodes, 'ADC1')
-    expect(n.inMhz).toBe(24)
-    expect(n.actualMhz).toBe(24)
+    expect(n.inMhz).toBe(12)
+    expect(n.actualMhz).toBe(12)
     expect(n.requested).toBeNull()
     expect(n.dividerLabel).toBeNull()
   })

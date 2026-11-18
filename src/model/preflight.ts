@@ -33,7 +33,8 @@ export interface PreflightReport {
 
 /** 冲突 → 定位目标：时钟规则定位 Clock，外设规则定位 Peripherals，引脚规则定位 Pinout。 */
 function conflictTarget(c: Conflict): PreflightTarget {
-  if (c.code === 'PERIPHERAL_CLOCK_INVALID' || c.code === 'CLOCK_PRESET_UNAVAILABLE') return { view: 'clock' }
+  if (c.code === 'PERIPHERAL_CLOCK_INVALID' || c.code === 'CLOCK_PRESET_UNAVAILABLE' || c.code === 'CLOCK_DISPLAY_ONLY_SOURCE')
+    return { view: 'clock' }
   if (c.code === 'TARGET_FEATURE_UNSUPPORTED' || c.code === 'SRAM_BUDGET_EXCEEDED') return { view: 'project-settings' }
   if (c.peripheral) {
     return { view: 'peripherals', peripheral: c.peripheral, ...(c.pins?.[0] ? { pin: c.pins[0] } : {}) }
