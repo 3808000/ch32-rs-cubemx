@@ -146,14 +146,16 @@ export function buildClockModel(
   const groups: ClockGroupModel[] = []
 
   const srcSpecs = spec.sources.filter((s) => !s.pll)
+  // 无 PLL 芯片（M14，如 X035）：不生成 PLL 分组/节点/连线
+  const pllSpec = spec.pll
 
-  const usePll = cfg.source === 'PLL'
-  const pllSourceId = cfg.pllSource ?? spec.pll.sourceOptions[0] ?? ''
+  const usePll = !!pllSpec && cfg.source === 'PLL'
+  const pllSourceId = cfg.pllSource ?? pllSpec?.sourceOptions[0] ?? ''
 
   // ---------- 分组容器 ----------
   groups.push(
     { id: 'g-sources', label: 'Clock sources' },
-    { id: 'g-pll', label: `PLL Max ${spec.pll.outMaxMhz} MHz` },
+    ...(pllSpec ? [{ id: 'g-pll', label: `PLL Max ${pllSpec.outMaxMhz} MHz` }] : []),
     { id: 'g-sys', label: 'System Clock' },
   )
   const timMode = spec.timerClock ?? 'apb_x2'
@@ -202,39 +204,41 @@ export function buildClockModel(
 
   // PLL（倍频下拉；数据层 fixed 时置灰）。即使当前未选用 PLL，也显示其潜在输出（置灰态），
   // 便于用户判断切到 PLL 后的频率。
-  const pllLabel = spec.sources.find((s) => s.pll)?.label ?? 'PLL'
-  const firstParam = spec.pll.params[0]
-  const pllInShown = sourceFreqMhz(spec, pllSourceId, cfg)
-  const pllOutShown = pllInShown === null ? null : pllOutMhz(spec, pllInShown, cfg.pll ?? {})
-  const pllLevel = issueLevelOf(issues, 'PLL')
-  const pllLocked = isClockNodeLocked(cfg, 'PLL')
-  nodes.push({
-    id: 'PLL',
-    label: pllLabel,
-    inMhz: pllInShown,
-    outMhz: pllOutShown,
-    maxMhz: spec.pll.outMaxMhz,
-    issueLevel: pllLevel,
-    overLimit: pllLevel === 'error',
-    active: usePll,
-    locked: pllLocked,
-    lockable: isClockNodeLockable(spec, 'PLL'),
-    control: firstParam
-      ? {
-          kind: 'select',
-          field: 'pll',
-          pllKey: firstParam.key,
-          label: firstParam.label,
-          value: cfg.pll?.[firstParam.key] ?? firstParam.default,
-          options: firstParam.options.map((o) => ({
-            value: o,
-            label: spec.pll.fixedOutMhz !== undefined ? `÷${o}` : `×${o}`,
-          })),
-          fixed: firstParam.fixed || firstParam.options.length <= 1 || pllLocked,
-        }
-      : null,
-    hint: usePll ? undefined : '未使用',
-  })
+  if (pllSpec) {
+    const pllLabel = spec.sources.find((s) => s.pll)?.label ?? 'PLL'
+    const firstParam = pllSpec.params[0]
+    const pllInShown = sourceFreqMhz(spec, pllSourceId, cfg)
+    const pllOutShown = pllInShown === null ? null : pllOutMhz(spec, pllInShown, cfg.pll ?? {})
+    const pllLevel = issueLevelOf(issues, 'PLL')
+    const pllLocked = isClockNodeLocked(cfg, 'PLL')
+    nodes.push({
+      id: 'PLL',
+      label: pllLabel,
+      inMhz: pllInShown,
+      outMhz: pllOutShown,
+      maxMhz: pllSpec.outMaxMhz,
+      issueLevel: pllLevel,
+      overLimit: pllLevel === 'error',
+      active: usePll,
+      locked: pllLocked,
+      lockable: isClockNodeLockable(spec, 'PLL'),
+      control: firstParam
+        ? {
+            kind: 'select',
+            field: 'pll',
+            pllKey: firstParam.key,
+            label: firstParam.label,
+            value: cfg.pll?.[firstParam.key] ?? firstParam.default,
+            options: firstParam.options.map((o) => ({
+              value: o,
+              label: pllSpec.fixedOutMhz !== undefined ? `÷${o}` : `×${o}`,
+            })),
+            fixed: firstParam.fixed || firstParam.options.length <= 1 || pllLocked,
+          }
+        : null,
+      hint: usePll ? undefined : '未使用',
+    })
+  }
 
   // SYSCLK（源选择）
   const directSrc = spec.sources.find((s) => s.id === cfg.source)
@@ -310,7 +314,14 @@ export function buildClockModel(
 
   // ADC（时钟源来自 spec.adc.options）
   const adcOpt = spec.adc.options.find((o) => o.id === (cfg.adc ?? spec.adc.default)) ?? spec.adc.options[0]!
-  const adcBase = adcOpt.source === 'AHB' ? freqs.hclkMhz : adcOpt.source === 'APB1' ? freqs.pclk1Mhz : freqs.pclk2Mhz
+  const adcBase =
+    adcOpt.source === 'SYSCLK'
+      ? freqs.sysclkMhz
+      : adcOpt.source === 'AHB'
+        ? freqs.hclkMhz
+        : adcOpt.source === 'APB1'
+          ? freqs.pclk1Mhz
+          : freqs.pclk2Mhz
   const adcLevel = issueLevelOf(issues, 'ADC')
   const adcLocked = isClockNodeLocked(cfg, 'ADC')
   nodes.push({
@@ -340,10 +351,10 @@ export function buildClockModel(
   }
 
   for (const s of srcSpecs) {
-    edge(`src-${s.id}-pll`, s.id, 'PLL', usePll && pllSourceId === s.id)
+    if (pllSpec) edge(`src-${s.id}-pll`, s.id, 'PLL', usePll && pllSourceId === s.id)
     edge(`src-${s.id}-sys`, s.id, 'SYSCLK', cfg.source === s.id)
   }
-  edge('pll-sys', 'PLL', 'SYSCLK', usePll)
+  if (pllSpec) edge('pll-sys', 'PLL', 'SYSCLK', usePll)
 
   edge('sys-ahb', 'SYSCLK', 'AHB', true, `÷${cfg.ahb}`)
   edge('ahb-apb1', 'AHB', 'APB1', true, `÷${cfg.apb1}`)
@@ -367,7 +378,9 @@ export function buildClockModel(
 
   // ADC：按数据里的时钟源选出发节点与走线
   const adcLabel = `÷${adcOpt.div}`
-  if (adcOpt.source === 'AHB') {
+  if (adcOpt.source === 'SYSCLK') {
+    edge('sys-adc', 'SYSCLK', 'ADC', true, adcLabel)
+  } else if (adcOpt.source === 'AHB') {
     edge('ahb-adc', 'AHB', 'ADC', true, adcLabel)
   } else if (adcOpt.source === 'APB1') {
     edge('apb1-adc', 'APB1', 'ADC', true, adcLabel)

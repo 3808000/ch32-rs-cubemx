@@ -107,7 +107,7 @@ describe('BLE 接线（D1/D2/D4）', () => {
     expect(e?.message).toContain('embassy')
   })
 
-  it('ble 时时钟模块被强制生成（ble::init 硬编码 SelRTCClock=0，需要 PLL 主频配置）', () => {
+  it('ble 时时钟模块被强制生成（BLE 库需要 PLL 主频配置；M14 起 stack_init 自建配置）', () => {
     const r = gen(bleConfig(), { clock: false })
     expect(r.errors).toEqual([])
     expect(r.files.some((f) => f.path === 'src/generated/clock.rs')).toBe(true)
@@ -139,22 +139,30 @@ describe('BLE 接线（D1/D2/D4）', () => {
   })
 })
 
-describe('时钟 LSI 缺省（M13 实机根因）', () => {
-  it('预设时钟链不追加 .enable_lse()（板子可能无 LSE 晶振）', () => {
+describe('BLE 32K 时钟源（M14 实机裁决：lse 缺省，lsi 回退）', () => {
+  it('缺省 lse：预设时钟链追加 config.clock.enable_lse()（与 SelRTCClock=0 一致）', () => {
     const c = contentOf(gen(bleConfig()), 'src/generated/clock.rs')
     expect(c).toContain('config.clock.use_pll_60mhz();')
-    expect(c).not.toContain('.enable_lse()')
-    expect(c).not.toContain('config.clock.enable_lse')
+    expect(c).toContain('config.clock.enable_lse();')
   })
 
-  it('显式 PLL 分频同样不生成 enable_lse（保持 LSI 缺省）', () => {
+  it('缺省 lse：显式 PLL 分频同样追加 enable_lse', () => {
     const c = contentOf(gen(bleConfig({}, { clock: pllClock(7) })), 'src/generated/clock.rs')
     expect(c).toContain('config.clock.mux = hal::sysctl::ClockSrc::PLL(7);')
-    expect(c).not.toContain('.enable_lse()')
-    expect(c).not.toContain('config.clock.enable_lse')
+    expect(c).toContain('config.clock.enable_lse();')
   })
 
-  it('非 BLE 也不生成 enable_lse（LSI 缺省）', () => {
+  it('clock32k=lsi（无晶振板回退）：不生成 enable_lse', () => {
+    const c = contentOf(gen(bleConfig({ clock32k: 'lsi' })), 'src/generated/clock.rs')
+    expect(c).not.toContain('.enable_lse()')
+  })
+
+  it('旧 cube.json 无 clock32k 字段 → 按 lse 处理（parseBleConfig 缺省）', () => {
+    const c = contentOf(gen(bleConfig({ clock32k: undefined })), 'src/generated/clock.rs')
+    expect(c).toContain('config.clock.enable_lse();')
+  })
+
+  it('非 BLE 不生成 enable_lse（LSI 缺省）', () => {
     expect(contentOf(gen(baseConfig()), 'src/generated/clock.rs')).not.toContain('.enable_lse()')
   })
 
@@ -169,21 +177,21 @@ describe('时钟 LSI 缺省（M13 实机根因）', () => {
   })
 })
 
-describe('MAC 三来源（D1）', () => {
-  it('default → ble::Config::default()（11:22:33:44:55:66）', () => {
+describe('MAC 三来源（D1；M14：mac_addr_lsb 直供 bleConfig_t.MacAddr）', () => {
+  it('default → LSB first [0x66, 0x55, 0x44, 0x33, 0x22, 0x11]（11:22:33:44:55:66）', () => {
     const c = bleOf(gen(bleConfig({ macSource: 'default' })))
-    expect(c).toContain('// 缺省 MAC：ble::Config::default() = 11:22:33:44:55:66')
-    expect(c).not.toContain('use_factory_mac_address')
+    expect(c).toContain('[0x66, 0x55, 0x44, 0x33, 0x22, 0x11]')
+    expect(c).not.toContain('get_mac_address')
   })
 
-  it('factory → config.use_factory_mac_address()', () => {
+  it('factory → hal::isp::get_mac_address()（返回值即 LSB first）', () => {
     const c = bleOf(gen(bleConfig({ macSource: 'factory' })))
-    expect(c).toContain('config.use_factory_mac_address();')
+    expect(c).toContain('hal::isp::get_mac_address()')
   })
 
-  it('custom → MacAddress::from_msb([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF])', () => {
+  it('custom → MSB 反转为 LSB first 字面量', () => {
     const c = bleOf(gen(bleConfig({ macSource: 'custom', mac: 'AA:BB:CC:DD:EE:FF' })))
-    expect(c).toContain('config.mac_addr = ble::MacAddress::from_msb([0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);')
+    expect(c).toContain('[0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA]')
   })
 
   it('custom 非法 MAC → BLE_MAC_INVALID error', () => {
@@ -313,14 +321,69 @@ describe('Cargo（D8）', () => {
   })
 })
 
+describe('stack_init（M14：32K 域一致自建协议栈初始化，替代 ble::init）', () => {
+  it('不再调用 ble::init（其硬编码 SelRTCClock=0 LSE 在无晶振板上连接失败）', () => {
+    for (const role of ['peripheral', 'broadcaster', 'observer'] as const) {
+      const c = bleOf(gen(bleConfig({ role })))
+      expect(c).not.toContain('ble::init(')
+      expect(c).toContain('stack_init(mac_addr_lsb())')
+    }
+  })
+
+  it('bleConfig_t：SelRTCClock=0（LSE 缺省）/1（lsi 回退）+ 堆 6KB + BufMaxLen=27 + ConnectNumber', () => {
+    const c = bleOf(gen(bleConfig()))
+    expect(c).toContain('cfg.SelRTCClock = 0;')
+    // lsi 回退档 → SelRTCClock=1（M14 clock32k 选项）
+    expect(bleOf(gen(bleConfig({ clock32k: 'lsi' })))).toContain('cfg.SelRTCClock = 1;')
+    expect(c).toContain('static mut STACK_HEAP: [core::mem::MaybeUninit<u8>; 6 * 1024]')
+    expect(c).toContain('cfg.MEMAddr = STACK_HEAP.as_ptr() as u32;')
+    expect(c).toContain('cfg.BufMaxLen = 27;')
+    expect(c).toContain('cfg.BufNumber = 5;')
+    expect(c).toContain('cfg.TxPower = LL_TX_POWEER_6_DBM;')
+    expect(c).toContain('cfg.ConnectNumber = (1 & 3) | (3 << 2);')
+    expect(c).toContain('cfg.MacAddr = mac_lsb;')
+  })
+
+  it('初始化链：BLE_LibInit → TMOS_TimerInit → TMOS_ProcessEventRegister → 120s RegInit 定时', () => {
+    const c = bleOf(gen(bleConfig()))
+    const init = c.slice(c.indexOf('fn stack_init('))
+    const i = (s: string) => init.indexOf(s)
+    expect(i('BLE_LibInit(&cfg).unwrap();')).toBeGreaterThanOrEqual(0)
+    expect(i('TMOS_TimerInit(core::ptr::null()).unwrap();')).toBeGreaterThan(i('BLE_LibInit'))
+    expect(i('TMOS_ProcessEventRegister(Some(stack_tmos_task))')).toBeGreaterThan(i('TMOS_TimerInit'))
+    expect(i('tmos_start_task(task_id, HAL_REG_INIT_EVENT, REG_INIT_INTERVAL_TICKS);')).toBeGreaterThan(i('TMOS_ProcessEventRegister'))
+    expect(c).toContain('const REG_INIT_INTERVAL_TICKS: u32 = 120_000 * 1000 / 625;')
+  })
+
+  it('TMOS 任务：SYS_EVENT_MSG → publish_immediate（单订阅者）；RegInit 事件 → BLE_RegInit + 重定时', () => {
+    const c = bleOf(gen(bleConfig()))
+    expect(c).toContain('STACK_CHANNEL.publish_immediate(hal::ble::TmosEvent(msg as _));')
+    expect(c).toContain('tmos_msg_receive(task_id)')
+    expect(c).toContain('BLE_RegInit();')
+    expect(c).toContain('const HAL_REG_INIT_EVENT: u16 = 0x2000;')
+    // 通道参数与 HAL CHANNEL 一致（容量 4 / 2 订阅 / 2 发布）
+    expect(c).toContain('hal::ble::TmosEvent,\n    4,\n    2,\n    2,')
+  })
+
+  it('SysTick 自由运行（随机种子源，只计数不开中断）+ srandCB/tsCB 接线', () => {
+    const c = bleOf(gen(bleConfig()))
+    expect(c).toContain('st.cmp().write(|w| w.bits(0xFFFF_FFFF));')
+    expect(c).toContain('.ste()\n                .set_bit()')
+    expect(c).not.toContain('stie')
+    expect(c).toContain('cfg.srandCB = Some(stack_srand);')
+    expect(c).toContain('cfg.tsCB = Some(hal::ble::temperature_raw);')
+    expect(c).toContain('(&*hal::pac::SYSTICK::PTR).cnt().read().bits()')
+  })
+})
+
 describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
-  it('初始化顺序：run 内 ble::init < 角色 init < 角色参数 < 公共初始化 < 服务注册 < StartDevice < 主循环', () => {
+  it('初始化顺序：run 内 stack_init < 角色 init < 角色参数 < 公共初始化 < 服务注册 < StartDevice < 主循环', () => {
     const c = bleOf(gen(bleConfig()))
     // run 函数体（定义顺序不代表调用顺序，只看 run 内）
     const runBody = c.slice(c.indexOf('pub fn run('))
     const i = (s: string) => runBody.indexOf(s)
     const seq = [
-      'ble::init(config())',
+      'stack_init(mac_addr_lsb())',
       'GAPRole::peripheral_init()',
       'role_profile_init();',
       'common_init();',
@@ -349,11 +412,12 @@ describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
     expect(runBody.indexOf('common_init();')).toBeLessThan(runBody.indexOf('peripheral_service_init();'))
   })
 
-  it('TMOS 泵：busy-poll 主循环 + 300µs 纯忙等 + #[highcode] + TMOS_SystemProcess', () => {
+  it('TMOS 泵：busy-poll 连续轮询（无 delay，M14）+ #[highcode] + TMOS_SystemProcess', () => {
     const c = bleOf(gen(bleConfig()))
     expect(c).toContain('#[highcode]\nfn tmos_poll(mut subscriber: ble::EventSubscriber) -> !')
     expect(c).toContain('TMOS_SystemProcess();')
-    expect(c).toContain('hal::delay_us(300);')
+    // M14 实机修复：delay 会饿死连接事件（官方 C Main_Circulation 为连续轮询）
+    expect(c).not.toContain('hal::delay_us')
     // 不再使用 embassy Timer/Ticker（CH58x SysTick 空闲停计 → 上游时间驱动饿死）
     expect(c).not.toContain('Ticker::every')
     expect(c).not.toContain('embassy_time')
@@ -430,13 +494,18 @@ describe('ble.rs 结构与初始化顺序（D4/D6）', () => {
     expect(c).toContain('*plen = 1;')
   })
 
-  it('notify：GATT_bm_alloc + GATT_Notification + 失败 GATT_bm_free + 循环计数周期 + read_char_cfg', () => {
+  it('notify：GATT_bm_alloc + GATT_Notification + 失败 GATT_bm_free + SysTick 时基周期 + read_char_cfg', () => {
     const c = bleOf(gen(bleConfig()))
     expect(c).toContain('GATT_bm_alloc(conn_handle, ATT_HANDLE_VALUE_NOTI, 1, ptr::null_mut(), 0)')
     expect(c).toContain('GATT_Notification(conn_handle, &noti, 0).is_err()')
     expect(c).toContain('GATT_bm_free(buf as *mut gattMsg_t, ATT_HANDLE_VALUE_NOTI)')
-    expect(c).toContain('const NOTIFY_PERIOD_ITERS: u32 = 1_000_000 / 300;')
-    expect(c).toContain('ticks.wrapping_add(1)')
+    // M14：协议栈自身时基 625µs/tick × 1600 = 1s（连续轮询后不能再数循环圈数）
+    // M14：SysTick CNT 时基（≈HCLK，周期取 clocks().hclk）；TMOS_GetSystemClock 每圈含 u64 软除法弃用
+    expect(c).toContain('let notify_period: u32 = hal::sysctl::clocks().hclk.to_Hz();')
+    expect(c).toContain('(&*hal::pac::SYSTICK::PTR).cnt().read().bits() as u32')
+    expect(c).toContain('now.wrapping_sub(last_notify) >= notify_period')
+    // 注释里会提到弃用原因；只断言不存在实际调用
+    expect(c).not.toContain('unsafe { TMOS_GetSystemClock() }')
     expect(c).toContain('GATTServApp::read_char_cfg(handle')
     expect(c).not.toContain('ticker')
   })
@@ -501,9 +570,10 @@ describe('broadcaster（D4）', () => {
 
   it('broadcaster 不消费 TmosEvent（订阅者立即释放），主循环无 event try-poll', () => {
     const c = bleOf(gen(bleConfig({ role: 'broadcaster' })))
-    expect(c).toContain('let (_task_id, _) = ble::init(config()).unwrap();')
+    expect(c).toContain('let (_task_id, _) = stack_init(mac_addr_lsb());')
     expect(c).not.toContain('subscriber.try_next_message_pure')
-    expect(c).not.toContain('EventSubscriber')
+    // stack_init 签名含 EventSubscriber（所有角色共享），但 broadcaster 主循环不接收订阅者
+    expect(c).not.toContain('fn tmos_poll(mut subscriber')
     expect(c).toContain('fn tmos_poll() -> !')
     expect(c).toContain('GAPRole_BroadcasterStartDevice(&CALLBACKS)')
   })
@@ -655,7 +725,7 @@ describe('cube.json / README（D1/D12）', () => {
     // M13：busy-poll / LSI / GPIO 异步边界
     expect(c).toContain('busy-poll')
     expect(c).toContain('HAL_API_NOTES.md')
-    expect(c).toContain('LSI 缺省，不强制 LSE')
+    expect(c).toContain('32K 时钟源 LSE 缺省（M14 实机裁决）')
     expect(c).toContain('GPIO 异步等待本期 BLE 档不提供')
     expect(c).not.toContain('generated::ble::run(&spawner)')
   })
@@ -699,13 +769,13 @@ describe('M13 busy-poll 运行时（实机修复回归）', () => {
     expect(c.match(/csrs mstatus, 8/g)?.length).toBe(1)
   })
 
-  it('busy loop：TMOS_SystemProcess 后 delay_us(300)，且无 Ticker/Duration/await', () => {
+  it('busy loop：TMOS_SystemProcess 连续轮询（无 delay，M14），且无 Ticker/Duration/await', () => {
     const c = bleOf(gen(bleConfig()))
     const poll = c.slice(c.indexOf('#[highcode]\nfn tmos_poll'))
     const iTmos = poll.indexOf('TMOS_SystemProcess();')
-    const iDelay = poll.indexOf('hal::delay_us(300);')
     expect(iTmos).toBeGreaterThanOrEqual(0)
-    expect(iDelay).toBeGreaterThan(iTmos)
+    // M14 实机修复：300µs 间隙饿死连接事件（官方 C 为连续轮询）
+    expect(poll).not.toContain('delay_us')
     expect(poll).not.toContain('Duration')
     expect(poll).not.toContain('await')
     expect(poll).not.toContain('Ticker')
@@ -745,11 +815,12 @@ describe('M13 busy-poll 运行时（实机修复回归）', () => {
     expect(cargo).toContain('critical-section = "1.2"')
   })
 
-  it('notify 周期为循环计数（≈3333 圈）而非定时器', () => {
+  it('notify 周期为 SysTick 时基（≈1s 随 HCLK）而非 embassy 定时器/TMOS 软除法（M14）', () => {
     const c = bleOf(gen(bleConfig()))
-    expect(c).toContain('1_000_000 / 300')
-    expect(c).toContain('NOTIFY_PERIOD_ITERS')
-    expect(c).toContain('ticks.wrapping_add(1)')
+    expect(c).toContain('hal::sysctl::clocks().hclk.to_Hz()')
+    expect(c).toContain('SYSTICK::PTR).cnt().read()')
+    expect(c).not.toContain('NOTIFY_PERIOD_ITERS')
+    expect(c).not.toContain('unsafe { TMOS_GetSystemClock() }')
     expect(c).not.toContain('embassy_time::Timer')
   })
 

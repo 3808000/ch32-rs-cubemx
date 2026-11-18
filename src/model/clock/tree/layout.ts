@@ -176,6 +176,15 @@ export function buildClockTree(
         { x: SYS_X, y: mc },
       ]
     }
+    // SYSCLK → ADC（无 PLL 芯片如 X035：ADC 直接取自 SYSCLK/CLK_DIV）
+    if (e.from === 'SYSCLK' && e.to === 'ADC') {
+      return [
+        { x: SYS_X + NODE_W, y: sysTop + NODE_H / 2 },
+        { x: PERIPH_X - 80, y: sysTop + NODE_H / 2 },
+        { x: PERIPH_X - 80, y: adcCy },
+        { x: PERIPH_X, y: adcCy },
+      ]
+    }
     // SYSCLK → AHB
     if (e.from === 'SYSCLK') {
       return [

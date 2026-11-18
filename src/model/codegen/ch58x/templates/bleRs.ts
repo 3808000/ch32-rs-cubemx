@@ -3,20 +3,29 @@
 // examples/ble-{blinky,peripheral,broadcaster,scanner}.rs 逐字对照（见契约 §1）。
 //
 // M13 实机修复（docs/HAL_API_NOTES.md §14.2bis）：BLE 档禁用 embassy executor/Timer——
-// CH58x 的 SysTick 在 WFI 空闲期间停计，上游 embassy 时间驱动会整体饿死；改为主循环 busy-poll：
-// `loop { TMOS_SystemProcess(); 事件 try-poll; hal::delay_us(300); }`（主循环忙等，不依赖 Timer/executor；
-// 但 RF 完成中断必需：BLEL/BLEB 经 #[qingke_rt::interrupt] 接库 ISR，见下方接线段）。
+// CH58x 的 SysTick 在 WFI 空闲期间停计，上游 embassy 时间驱动会整体饿死；改为主循环 busy-poll。
+// M14 实机修复（§14.2quater）：busy-poll 必须**连续轮询、无 delay**——官方 C Peripheral 的
+// Main_Circulation 是 `while(1){ TMOS_SystemProcess(); }`（EVT/EXAM/BLE/Peripheral/APP/peripheral_main.c:40）。
+// M13 曾按上游 Rust 示例加 hal::delay_us(300)（该示例走 embassy Timer，在本硅片上从未跑通）。
+// 连接建立失败的实机根因是 32K 域错配（M13 移除 enable_lse 后硬件供 LSI、ble::init 硬编码
+// SelRTCClock=0 按 LSE 定时）：广播正常但 CONNECT_IND 后链路建立失败。M14 修复 =
+// stack_init 自建 bleConfig_t（SelRTCClock 随 ble.clock32k，缺省 lse=0 与 clock.rs enable_lse
+// 一致，实机连接建立已验证）+ 连续轮询。notify 周期用 SysTick CNT（≈HCLK，单次 load）；
+// 不用 TMOS_GetSystemClock（每圈含 __udivdi3，实测占循环 5/6 时间）。
+// RF 完成中断：BLEL/BLEB 经 #[qingke_rt::interrupt] 接库 ISR，见下方接线段。
 // 事件用 embassy-sync 0.6.2 的 `Subscriber::try_next_message_pure()`（实测 API 名，见
 // registry/embassy-sync-0.6.2/src/pubsub/subscriber.rs:58）。
 //
 // 生成物硬约束：单订阅者 / 无 core::sync::atomic（共享状态用 static mut + critical_section）/
-// TMOS 泵 300µs / GATT_bm_alloc。
+// TMOS 泵连续轮询（无 delay）/ GATT_bm_alloc。
 export const BLE_RS_TPL = `// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
 // BLE 协议栈脚手架（ch58x-hal 0.0.2，契约 docs/CH58X_BLE_CONTRACT.md；M13 busy-poll 运行时）：
-// - config(): 协议栈配置（MAC 三来源）
+// - mac_addr_lsb(): MAC 三来源（协议栈序 LSB first）
+// - stack_init(): 自建 bleConfig_t 初始化（M14：SelRTCClock 按 ble.clock32k，替代 ble::init 硬编码）
 // - run(): 初始化顺序 + 角色启动 + busy-poll TMOS 主循环，永不返回
 // - busy-poll：不依赖 embassy 执行器/Timer（CH58x SysTick 在 WFI 空闲期间停计，上游时间驱动会饿死，
 //   证据 docs/HAL_API_NOTES.md §14.2bis）；主入口另需 csrs mstatus,8 显式开全局中断（M13）
+// - 连续轮询无 delay（M14）：对齐官方 C Main_Circulation；delay 会饿死连接事件（§14.2quater）
 // - 事件 try-poll：embassy-sync 0.6.2 的 Subscriber::try_next_message_pure()（已按 subscriber.rs:58 逐字核对）
 // - 单订阅者：TmosEvent 只在主循环 try-poll 一次即 drop（Clone/double-consumer 会 double free）
 // - 不使用原子类型（imc target 无原子能力）：共享状态用 static mut + critical_section
@@ -27,6 +36,9 @@ use core::ptr;
 <% } -%>
 
 use qingke_rt::highcode;
+
+// PubSubBehavior trait 必须在作用域内才能调 publish_immediate（与 HAL src/ble/mod.rs:6 一致）
+use embassy_sync::pubsub::PubSubBehavior;
 
 use ch58x_hal as hal;
 use hal::ble::ffi::*;
@@ -184,9 +196,9 @@ fn with_state<R>(f: impl FnOnce(&mut BleState) -> R) -> R {
     critical_section::with(|_| unsafe { f(&mut STATE) })
 }
 
-/// notify 周期（近似值，非精确定时）：主循环每圈 = TMOS_SystemProcess + delay_us(300)，
-/// 1_000_000 / 300 ≈ 3333 圈 ≈ 1s（hal::delay_us 是校准忙等，实际周期随 SYSCLK/HAL 校准浮动）
-const NOTIFY_PERIOD_ITERS: u32 = 1_000_000 / 300;
+// notify 周期 ≈1s：SysTick 自由运行计数（stack_init 已配置，实测硅片 SysTick=HCLK，M13 §14.2ter），
+// 周期取 hal::sysctl::clocks().hclk（随 PLL 预设自适应）。不用 TMOS_GetSystemClock——
+// 它每圈调用含 __udivdi3（clockGetTickValve 内），实测占主循环 5/6 时间（M14 §14.2quater）。
 
 /// 读回调：offset>0 → ATT_ERR_ATTR_NOT_LONG；未知 UUID → ATT_ERR_ATTR_NOT_FOUND
 unsafe extern "C" fn on_read_attr(
@@ -296,11 +308,14 @@ unsafe fn send_notification(conn_handle: u16, value: u8) {
     }
 }
 
-/// TMOS busy-poll 主循环（peripheral）：协议栈靠 TMOS_SystemProcess 推进，必须每 ~300µs 调一次
-/// （5 个上游 BLE 示例一致，不可省）。hal::delay_us 是纯忙等，不依赖中断/Timer；#[highcode] 放高速 RAM。
+/// TMOS busy-poll 主循环（peripheral）：**连续轮询、无 delay**（M14 实机修复）——
+/// 官方 C Main_Circulation 即 while(1){TMOS_SystemProcess();}（EVT Peripheral/peripheral_main.c:40）；
+/// 300µs 轮询间隙会饿死连接事件的链路层处理（广播正常但连接建立失败，§14.2quater）。
+/// notify 计时用 SysTick CNT（单次 load，≈1s 周期随 HCLK 自适应）。#[highcode] 放高速 RAM。
 #[highcode]
 fn tmos_poll(mut subscriber: ble::EventSubscriber) -> ! {
-    let mut ticks: u32 = 0;
+    let notify_period: u32 = hal::sysctl::clocks().hclk.to_Hz();
+    let mut last_notify: u32 = 0;
     loop {
         unsafe {
             TMOS_SystemProcess();
@@ -308,23 +323,15 @@ fn tmos_poll(mut subscriber: ble::EventSubscriber) -> ! {
 
         // 事件 try-poll（GAP/GATT 事件由协议栈在 TMOS_SystemProcess 内投递到 pubsub）：
         // 单订阅者取到即独占，本轮结束 drop → tmos_msg_deallocate（禁止 clone / 转发）。
+        // 连接期间事件频繁，静默消费——println 走阻塞 UART 会饿死 TMOS 泵（M14）。
         while let Some(event) = subscriber.try_next_message_pure() {
-            match event.message_id() {
-                TmosEvent::GAP_MSG_EVENT => {
-                    let opcode = unsafe { (*(event.0 as *const gapRoleEvent_t)).gap.opcode };
-                    if opcode != GAP_LINK_ESTABLISHED_EVENT && opcode != GAP_LINK_TERMINATED_EVENT {
-                        println!("BLE: GAP event 0x{:02x}", opcode);
-                    }
-                }
-                TmosEvent::GATT_MSG_EVENT => println!("BLE: GATT message"),
-                _ => {}
-            }
+            let _ = event.message_id();
         }
 
         // 约 1s 一次：连接 + CCCD 订阅（read_char_cfg）后发送 1 字节状态
-        ticks = ticks.wrapping_add(1);
-        if ticks >= NOTIFY_PERIOD_ITERS {
-            ticks = 0;
+        let now = unsafe { (&*hal::pac::SYSTICK::PTR).cnt().read().bits() as u32 };
+        if now.wrapping_sub(last_notify) >= notify_period {
+            last_notify = now;
             let (conn, value) = with_state(|s| (s.conn, s.notify_value));
             if let Some(handle) = conn {
                 let cfg = unsafe { GATTServApp::read_char_cfg(handle, CLIENT_CHARCFG.as_ptr()) };
@@ -333,8 +340,6 @@ fn tmos_poll(mut subscriber: ble::EventSubscriber) -> ! {
                 }
             }
         }
-
-        hal::delay_us(300);
     }
 }
 <% } -%>
@@ -351,14 +356,13 @@ unsafe extern "C" fn broadcaster_on_state_change(new_state: gapRole_States_t) {
     }
 }
 
-/// TMOS busy-poll 主循环（broadcaster）：hal::delay_us 为纯忙等，不依赖中断/Timer
+/// TMOS busy-poll 主循环（broadcaster）：连续轮询、无 delay（M14，对齐官方 C Main_Circulation）
 #[highcode]
 fn tmos_poll() -> ! {
     loop {
         unsafe {
             TMOS_SystemProcess();
         }
-        hal::delay_us(300);
     }
 }
 <% } -%>
@@ -387,7 +391,7 @@ unsafe extern "C" fn observer_event_callback(event: &gapRoleEvent_t) {
     }
 }
 
-/// TMOS busy-poll 主循环（observer）：hal::delay_us 为纯忙等，不依赖中断/Timer
+/// TMOS busy-poll 主循环（observer）：连续轮询、无 delay（M14，对齐官方 C Main_Circulation）
 #[highcode]
 fn tmos_poll() -> ! {
     loop {
@@ -400,7 +404,6 @@ fn tmos_poll() -> ! {
                 let _ = GAPRole_ObserverStartDiscovery(OBSERVER_DISCOVERY_MODE, OBSERVER_ACTIVE_SCAN, 0);
             }
         }
-        hal::delay_us(300);
     }
 }
 <% } -%>
@@ -458,27 +461,118 @@ unsafe fn role_profile_init() {
 }
 <% } -%>
 
-/// 协议栈配置（MAC 三来源；设备名/UUID 不在此处）
-pub fn config() -> ble::Config {
+/// MAC 地址（协议栈序 LSB first；三来源与 M12 D1 一致）
+fn mac_addr_lsb() -> [u8; 6] {
 <% if (macSource === 'factory') { -%>
-    let mut config = ble::Config::default();
-    // 出厂 MAC：从 ISP ROM 读取（libISP583.a 由 HAL 无条件链接）
-    config.use_factory_mac_address();
-    config
+    // 出厂 MAC：从 ISP ROM 读取（libISP583.a 由 HAL 无条件链接；返回值即 LSB first）
+    hal::isp::get_mac_address()
 <% } else if (macSource === 'custom' && macBytesLiteral) { -%>
-    let mut config = ble::Config::default();
-    // 自定义 MAC（人读序 MSB first；MacAddress::from_msb 内部反转为协议栈 LSB first）
-    config.mac_addr = ble::MacAddress::from_msb(<%- macBytesLiteral %>);
-    config
+    // 自定义 MAC（配置为人读序 MSB first，此处反转为协议栈 LSB first）
+    <%- macBytesLsbLiteral %>
 <% } else { -%>
-    // 缺省 MAC：ble::Config::default() = 11:22:33:44:55:66
-    ble::Config::default()
+    // 缺省 MAC：11:22:33:44:55:66（MSB）→ LSB first
+    [0x66, 0x55, 0x44, 0x33, 0x22, 0x11]
 <% } -%>
 }
 
-/// BLE 启动（初始化顺序契约）：ble::init → 角色 init → 角色参数 + GAP/GATT 服务 →
+// ---------- 协议栈初始化（M14 实机修复：32K 域与库配置一致，绕开 ble::init 硬编码） ----------
+// ch58x-hal ble::init 硬编码 SelRTCClock=0（外部 LSE 32768Hz）且 rcCB=None
+// （src/ble/mod.rs:190/196），无法适配无 LSE 晶振的板子。M13 移除 enable_lse 后
+// 硬件供 LSI、库仍按 LSE 定时 → 广播正常但连接建立失败（实机复现）；LSE 全链
+// （enable_lse + SelRTCClock=0）实机连接建立已验证。此处经公开 ffi 自建 bleConfig_t，
+// SelRTCClock 由 ble.clock32k 决定（lse 缺省=0 / lsi 回退=1），与 clock.rs 的
+// enable_lse 生成保持一致；不走 ble::init。官方 C 对照：CH58X_BLEInit 用
+// CLK_OSC32K=1（LSI）+ rcCB=Lib_Calibration_LSI（EVT/EXAM/BLE/HAL/MCU.c:111-119）；
+// LSI 校准回调未移植（Calibration_LSI 在 StdPeriphDriver 非库导出），lsi 档连接稳定性未保证。
+// 证据与上游缺陷记录：docs/HAL_API_NOTES.md §14.2quater。
+
+/// 协议栈堆（与 HAL BLE_HEAP 同尺寸 6KB；库内部管理）
+static mut STACK_HEAP: [core::mem::MaybeUninit<u8>; 6 * 1024] =
+    [core::mem::MaybeUninit::uninit(); 6 * 1024];
+
+/// TMOS 事件通道（与 HAL CHANNEL 同参数：容量 4 / 2 订阅者 / 2 发布者；单订阅者约束不变）
+static STACK_CHANNEL: embassy_sync::pubsub::PubSubChannel<
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+    hal::ble::TmosEvent,
+    4,
+    2,
+    2,
+> = embassy_sync::pubsub::PubSubChannel::new();
+
+/// RF 寄存器周期重初始化事件（与 HAL hal_tmos_task 相同）
+const HAL_REG_INIT_EVENT: u16 = 0x2000;
+/// 120s（625µs/tick，与 HAL HAL_TMOS_TASK_INTERVAL 相同）
+const REG_INIT_INTERVAL_TICKS: u32 = 120_000 * 1000 / 625;
+
+/// TMOS 任务回调：SYS_EVENT_MSG → 投递 pubsub（无订阅者时 publish 立即 drop →
+/// TmosEvent::drop 调 tmos_msg_deallocate，embassy-sync 0.6.2 try_publish 无订阅者直接 Ok）；
+/// HAL_REG_INIT_EVENT → BLE_RegInit + 120s 重定时
+unsafe extern "C" fn stack_tmos_task(task_id: u8, events: u16) -> u16 {
+    if events & SYS_EVENT_MSG != 0 {
+        let msg = tmos_msg_receive(task_id);
+        if !msg.is_null() {
+            STACK_CHANNEL.publish_immediate(hal::ble::TmosEvent(msg as _));
+        }
+        events ^ SYS_EVENT_MSG
+    } else if events & HAL_REG_INIT_EVENT != 0 {
+        BLE_RegInit();
+        tmos_start_task(task_id, HAL_REG_INIT_EVENT, REG_INIT_INTERVAL_TICKS);
+        events ^ HAL_REG_INIT_EVENT
+    } else {
+        0
+    }
+}
+
+/// 随机种子：SysTick 自由运行计数（同 C SYS_GetSysTickCnt / HAL srand；PAC bits() 为 u64，截断）
+unsafe extern "C" fn stack_srand() -> u32 {
+    (&*hal::pac::SYSTICK::PTR).cnt().read().bits() as u32
+}
+
+/// 协议栈初始化（替代 ble::init）：返回 (TMOS 任务 id, 事件订阅者)
+fn stack_init(mac_lsb: [u8; 6]) -> (u8, ble::EventSubscriber) {
+    unsafe {
+        // SysTick 自由运行（随机种子源；同 C SysTick_Config + PFIC_DisableIRQ：只计数不开中断）
+        let st = &*hal::pac::SYSTICK::PTR;
+        st.cmp().write(|w| w.bits(0xFFFF_FFFF));
+        st.ctlr().modify(|_, w| {
+            w.init()
+                .set_bit()
+                .mode()
+                .upcount()
+                .stre()
+                .clear_bit()
+                .stclk()
+                .hclk_div8()
+                .ste()
+                .set_bit()
+        });
+
+        let mut cfg: bleConfig_t = core::mem::zeroed();
+        cfg.MEMAddr = STACK_HEAP.as_ptr() as u32;
+        cfg.MEMLen = STACK_HEAP.len() as _;
+        cfg.BufMaxLen = 27; // ATT_MTU=23（与 HAL 一致）
+        cfg.BufNumber = 5;
+        cfg.TxNumEvent = 1;
+        cfg.TxPower = LL_TX_POWEER_6_DBM;
+        cfg.SelRTCClock = <%- selRtcClock %>; // M14：0=LSE 32768Hz（clock32k=lse 缺省，与 clock.rs enable_lse 一致）/ 1=LSI 32000Hz（lsi 回退）
+        cfg.ConnectNumber = (1 & 3) | (3 << 2); // peripheral 1 / central 3（与 HAL 一致）
+        cfg.srandCB = Some(stack_srand);
+        cfg.tsCB = Some(hal::ble::temperature_raw); // RF RC 温度补偿采样（HAL 公开函数）
+        cfg.rcCB = None; // LSI 校准回调：官方 C 为 Lib_Calibration_LSI（StdPeriphDriver 实现，
+        // 非库导出）；先以 None 验证连通性，校准移植为后续增强项
+        cfg.MacAddr = mac_lsb;
+        BLE_LibInit(&cfg).unwrap();
+        TMOS_TimerInit(core::ptr::null()).unwrap();
+        let task_id = TMOS_ProcessEventRegister(Some(stack_tmos_task));
+        tmos_start_task(task_id, HAL_REG_INIT_EVENT, REG_INIT_INTERVAL_TICKS);
+        (task_id, STACK_CHANNEL.subscriber().unwrap())
+    }
+}
+
+/// BLE 启动（初始化顺序契约）：stack_init → 角色 init → 角色参数 + GAP/GATT 服务 →
 /// （peripheral）服务注册 → *StartDevice → busy-poll TMOS 主循环。永不返回。
 /// M13：不再 spawn embassy 任务，也不用 embassy Timer（见文件头 busy-poll 说明）。
+/// M14：stack_init 替代 ble::init（SelRTCClock 按 ble.clock32k，见协议栈初始化段说明）。
 pub fn run() -> ! {
 <% if (logSerial) { -%>
     // 日志串口（D5）：UART1/PA9 未被用户占用 → 设为默认串口，hal::println 生效
@@ -494,15 +588,16 @@ pub fn run() -> ! {
 <% } -%>
     println!("BLE lib: {}", ble::lib_version());
 
-    // 1) 协议栈初始化（32K 低频域走 LSI 缺省：不调用 enable_lse；库在 SelRTCClock=0 时内部回退）
+    // 1) 协议栈初始化（M14：stack_init 自建 bleConfig_t，SelRTCClock 与 clock.rs 32K 域一致；
+    //    不调用 ble::init——其硬编码 SelRTCClock=0 无法适配无晶振板，见上方说明）
 <% if (role === 'peripheral') { -%>
-    let (task_id, subscriber) = ble::init(config()).unwrap();
+    let (task_id, subscriber) = stack_init(mac_addr_lsb());
 <% } else { -%>
     // 非 peripheral 角色不消费 TmosEvent：立即释放订阅者（消息由协议栈自行回收）
-    let (_task_id, _) = ble::init(config()).unwrap();
+    let (_task_id, _) = stack_init(mac_addr_lsb());
 <% } -%>
 
-    // 2) 角色初始化（紧跟 ble::init）
+    // 2) 角色初始化（紧跟 stack_init）
     let _ = GAPRole::<%- role %>_init().unwrap();
 
     // 3) GAP/GATT 服务 + 角色参数（顺序：GGS/GATTServApp → register_service → StartDevice）

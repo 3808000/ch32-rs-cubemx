@@ -37,7 +37,34 @@ import h417peripherals from '../../data/devices/ch32h417qeu6/peripherals.json'
 import h417interrupts from '../../data/devices/ch32h417qeu6/interrupts.json'
 import h417dma from '../../data/devices/ch32h417qeu6/dma.json'
 
-// CH582M（QFN48）：BLE5.3，HAL 后端为 ch58x-hal（代码生成暂未接入，导出被守卫阻止）
+// CH32V103C8T6（LQFP48）：V3A 内核，rcc v1（PLL ÷prediv×mul），afio_v1，stable/imc（M14）
+import v103chip from '../../data/devices/ch32v103c8t6/chip.json'
+import v103remap from '../../data/devices/ch32v103c8t6/remap.json'
+import v103exti from '../../data/devices/ch32v103c8t6/exti.json'
+import v103clock from '../../data/devices/ch32v103c8t6/clock.json'
+import v103peripherals from '../../data/devices/ch32v103c8t6/peripherals.json'
+import v103interrupts from '../../data/devices/ch32v103c8t6/interrupts.json'
+import v103dma from '../../data/devices/ch32v103c8t6/dma.json'
+
+// CH32X035C8T6（LQFP48）：V4C 内核，无 PLL/HSE（HSI 48MHz 仅 AHB 分频），afio_v1，stable/imc（M14）
+import x035chip from '../../data/devices/ch32x035c8t6/chip.json'
+import x035remap from '../../data/devices/ch32x035c8t6/remap.json'
+import x035exti from '../../data/devices/ch32x035c8t6/exti.json'
+import x035clock from '../../data/devices/ch32x035c8t6/clock.json'
+import x035peripherals from '../../data/devices/ch32x035c8t6/peripherals.json'
+import x035interrupts from '../../data/devices/ch32x035c8t6/interrupts.json'
+import x035dma from '../../data/devices/ch32x035c8t6/dma.json'
+
+// CH32V307VCT6（LQFP100）：V4F 内核（硬浮点 ilp32f），自定义 imfc target + nightly/build-std，afio_v1（M14）
+import v307chip from '../../data/devices/ch32v307vct6/chip.json'
+import v307remap from '../../data/devices/ch32v307vct6/remap.json'
+import v307exti from '../../data/devices/ch32v307vct6/exti.json'
+import v307clock from '../../data/devices/ch32v307vct6/clock.json'
+import v307peripherals from '../../data/devices/ch32v307vct6/peripherals.json'
+import v307interrupts from '../../data/devices/ch32v307vct6/interrupts.json'
+import v307dma from '../../data/devices/ch32v307vct6/dma.json'
+
+// CH582M（QFN48）：BLE5.3，HAL 后端为 ch58x-hal（M11 接入；M12/M13 BLE 协议栈生成 + 实机射频闭环）
 import ch582chip from '../../data/devices/ch582m/chip.json'
 import ch582remap from '../../data/devices/ch582m/remap.json'
 import ch582exti from '../../data/devices/ch582m/exti.json'
@@ -80,6 +107,36 @@ register(
   h417peripherals as unknown as PeripheralsData,
   h417interrupts as InterruptsData,
   h417dma as DmaData,
+)
+
+register(
+  v103chip as ChipData,
+  v103remap as RemapData,
+  v103exti as ExtiData,
+  v103clock as unknown as ClockData,
+  v103peripherals as unknown as PeripheralsData,
+  v103interrupts as InterruptsData,
+  v103dma as DmaData,
+)
+
+register(
+  x035chip as ChipData,
+  x035remap as RemapData,
+  x035exti as ExtiData,
+  x035clock as unknown as ClockData,
+  x035peripherals as unknown as PeripheralsData,
+  x035interrupts as InterruptsData,
+  x035dma as DmaData,
+)
+
+register(
+  v307chip as ChipData,
+  v307remap as RemapData,
+  v307exti as ExtiData,
+  v307clock as unknown as ClockData,
+  v307peripherals as unknown as PeripheralsData,
+  v307interrupts as InterruptsData,
+  v307dma as DmaData,
 )
 
 register(

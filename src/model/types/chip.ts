@@ -55,6 +55,8 @@ export interface ChipData {
   halBackend?: string
   target: string
   nightly: boolean
+  /** 自定义 target JSON 内容（M14，如 V307 的 ilp32f spec）：存在且 nightly 时输出 <target>.json 并启用 build-std */
+  targetSpec?: Record<string, unknown>
   remapModel: RemapModel
   /** 该芯片 target 不支持的特性（如 embassy），数据驱动拦截 */
   unsupportedFeatures?: string[]

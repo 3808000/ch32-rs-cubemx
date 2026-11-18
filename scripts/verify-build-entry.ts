@@ -105,8 +105,13 @@ if (spi) {
 }
 
 // I2C：第一实例第一档可用 remap（同上）
+// M14：embassy 档异步 I2C 需要 TX/RX DMA 请求；上游 ch32-data 对个别芯片（如 V103）未定义
+// I2C DMA 映射（ch32-hal build.rs 同源，HAL 亦无 TxDma<I2C> impl）→ 该组合上游不支持，
+// 自动配置跳过 I2C（产品侧 derive.ts 会对用户显式启用给出 REMAP_UNDEFINED 明确报错）。
+const i2cDmaReady = (id: string) =>
+  !embassy || ['_TX', '_RX'].every((s) => (data.dma?.requests ?? []).some((r) => r.request === id + s))
 const i2c = data.peripherals.i2c[0]
-if (i2c) {
+if (i2c && i2cDmaReady(i2c.id)) {
   const r = i2c.remaps.find((x) => {
     const names = [x.scl, x.sda].filter(Boolean)
     return names.every((n) => ioPins.some((p) => p.name === n) && !used.has(n))
@@ -125,7 +130,8 @@ if (i2c) {
 const firstPreset = data.clock.presets[0]
 const pll: Record<string, number> = {}
 if (firstPreset) {
-  for (const param of data.clock.pll.params) {
+  // 无 PLL 芯片（M14，如 X035）clock.pll 缺省：不补 PLL 参数
+  for (const param of data.clock.pll?.params ?? []) {
     const v = (firstPreset.match as Record<string, unknown>)[param.key]
     if (typeof v === 'number') pll[param.key] = v
   }

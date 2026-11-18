@@ -15,7 +15,8 @@ function argOf(name, fallback) {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback
 }
 
-const chips = argOf('--chip', 'CH32V003F4P6,CH32V203C8T6,CH582M').split(',')
+// M14：默认 7 路（H417 未在默认列表，保持现状）；新增三芯片追加在既有顺序之后
+const chips = argOf('--chip', 'CH32V003F4P6,CH32V203C8T6,CH582M,CH32V103C8T6,CH32X035C8T6,CH32V307VCT6').split(',')
 const embassy = process.argv.includes('--embassy')
 const ble = process.argv.includes('--ble')
 const halDir = process.env.CH32_HAL_DIR ?? path.resolve(root, '../reference/ch32-hal')
@@ -57,16 +58,36 @@ function proxyAlive(proxyUrl) {
 if (fs.existsSync(halDir)) env.CH32_HAL_DIR = halDir
 if (fs.existsSync(hal58xDir)) env.CH58X_HAL_DIR = hal58xDir
 
+/**
+ * 读取芯片数据的 toolchain 需求（M14）：nightly 由 chip.json 决定。
+ * - chip.nightly=true（V003 rv32ec / V307 targetSpec）→ nightly；
+ * - 双核 workspace（H417）固定 nightly；
+ * - --embassy 非 BLE 档仍 nightly（ch58x BLE busy-poll 档除外）。
+ * 数据缺失时按 stable（生成阶段会先报未注册芯片）。
+ */
+function toolchainOf(chip) {
+  let info = null
+  try {
+    info = JSON.parse(fs.readFileSync(path.join(root, 'data/devices', chip.toLowerCase(), 'chip.json'), 'utf8'))
+  } catch {
+    info = null
+  }
+  const nightly = !!info?.nightly || (info?.cores?.length ?? 0) > 0 || (embassy && !ble)
+  return nightly ? 'nightly' : 'stable'
+}
+
 let failed = 0
 for (const chip of chips) {
   console.log(`\n[verify:build] === ${chip} ===`)
+  const chipEnv = { ...env, RUSTUP_TOOLCHAIN: toolchainOf(chip) }
+  console.log(`[verify:build] RUSTUP_TOOLCHAIN=${chipEnv.RUSTUP_TOOLCHAIN}`)
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `ch32-cubemx-${chip.toLowerCase()}-`))
 
   // 1. vite-node 运行浏览器同一份生成逻辑
   const entryArgs = [path.join(root, 'node_modules/vite-node/vite-node.mjs'), path.join(root, 'scripts/verify-build-entry.ts'), '--chip', chip, '--out', tmp]
   if (embassy) entryArgs.push('--embassy')
   if (ble) entryArgs.push('--ble')
-  const gen = spawnSync(process.execPath, entryArgs, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  const gen = spawnSync(process.execPath, entryArgs, { cwd: root, env: chipEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   process.stdout.write(gen.stdout ?? '')
   if (gen.status !== 0) {
     console.error(gen.stderr ?? '')
@@ -83,7 +104,7 @@ for (const chip of chips) {
   const args = isWorkspace ? ['xtask', 'build'] : ['build', '--release']
   if (!isWorkspace && target) args.push('--target', target)
   console.log(`[verify:build] cargo ${args.join(' ')}（首次需拉取依赖，可能数分钟）`)
-  const build = spawnSync('cargo', args, { cwd: tmp, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 900000 })
+  const build = spawnSync('cargo', args, { cwd: tmp, env: chipEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 900000 })
   if (build.status !== 0) {
     console.error(build.stderr?.slice(-8000) ?? '')
     console.error(`[verify:build] ${chip}: cargo build 失败（工程保留在 ${tmp}）`)

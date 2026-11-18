@@ -128,6 +128,11 @@ function setActiveScan(v: boolean) {
   store.setBle({ activeScan: v })
 }
 
+/** M14：BLE 32K 时钟源（lse 缺省=enable_lse+SelRTCClock=0；lsi 回退=SelRTCClock=1） */
+function setBleClock32k(v: 'lse' | 'lsi') {
+  store.setBle({ clock32k: v })
+}
+
 /** UUID16 输入显示为 0xFFE0 风格；解析接受带/不带 0x 前缀的十六进制。 */
 function fmtUuid(n: number): string {
   return `0x${(n & 0xffff).toString(16).toUpperCase().padStart(4, '0')}`
@@ -453,8 +458,9 @@ function onGenerate() {
             </div>
           </div>
           <p class="ps-note ps-ble-note">
-            BLE 档使用 busy-poll 运行时（stable）：绕开上游 ch58x-hal embassy 时间驱动（SysTick 空闲停计）与 qingke-rt 启动缺陷（mstatus.MIE=0）。
-            32K 低频域走 LSI 缺省（不生成 enable_lse）：无 32.768kHz 晶振的板子也能启动，库内部会回退 LSI。PA10/PA11（X32KI/X32KO）仍按 M12 契约保留不可分配。
+            BLE 档使用 busy-poll 运行时（stable，连续轮询无 delay）：绕开上游 ch58x-hal embassy 时间驱动（SysTick 空闲停计）与 qingke-rt 启动缺陷（mstatus.MIE=0）。
+            32K 低频域缺省 LSE（外部 32.768kHz 晶振，官方模组标配；M14 实机连接建立已验证）；无晶振板可选 LSI 回退（未移植 LSI 校准，连接稳定性未保证）。
+            PA10/PA11（X32KI/X32KO）仍按 M12 契约保留不可分配。
             固定 ATT MTU 23、TX 6dBm、无绑定存储（SNV）；GPIO 异步等待本期 BLE 档不提供。详见 README「BLE 协议栈」与契约文档。
           </p>
           <div class="ps-rows">
@@ -496,6 +502,20 @@ function onGenerate() {
                   @change="setAdvInterval($event)"
                 />
                 <span class="ps-note">ms；生成换算 0.625ms 单位（TGAP_DISC_ADV_INT_MIN/MAX，范围 20–10240）</span>
+              </div>
+            </div>
+            <div class="ps-row">
+              <div class="ps-label">32K 时钟源</div>
+              <div class="ps-value ps-ble-value">
+                <el-radio-group :model-value="store.ble.clock32k ?? 'lse'" size="small" @change="setBleClock32k($event as 'lse' | 'lsi')">
+                  <el-radio-button value="lse">LSE 外部晶振</el-radio-button>
+                  <el-radio-button value="lsi">LSI 内部</el-radio-button>
+                </el-radio-group>
+                <span class="ps-note" :class="{ 'ps-runtime-warn': (store.ble.clock32k ?? 'lse') === 'lsi' }">
+                  {{ (store.ble.clock32k ?? 'lse') === 'lse'
+                    ? '缺省：32.768kHz 晶振（官方模组标配），生成 enable_lse + SelRTCClock=0；连接建立实机已验证'
+                    : '无晶振板回退：SelRTCClock=1；LSI 校准未移植，连接稳定性未保证（广播可用）' }}
+                </span>
               </div>
             </div>
             <div class="ps-row">

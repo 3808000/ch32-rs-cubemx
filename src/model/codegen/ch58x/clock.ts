@@ -1,6 +1,6 @@
 // clock.rs 渲染：ch58x-hal 时钟配方（预设方法或显式 ClockSrc::PLL(div)）。
-// BLE 档不再追加 enable_lse()（M13）：板子可能无 LSE 晶振，HAL 的 enable_lse() 强制 XT=1 无回退；
-// 保持 LSI 缺省，BLE 库在 SelRTCClock=0 时内部回退（实机 C 固件同配置，证据 HAL notes §14.2bis）。
+// BLE 档 32K 域由 ClockPlan.enableLse 决定（M14：ble.clock32k 缺省 lse → enable_lse()，
+// 与 stack_init SelRTCClock=0 一致；实机连接建立已验证，证据 HAL notes §14.2quater）。
 import type { ClockPlan } from './derive'
 import { render } from '../render'
 import { fmtMhz } from '../util'
@@ -12,6 +12,7 @@ export function renderClock(plan: ClockPlan) {
     presetLabel: plan.presetLabel ?? '',
     div: plan.div ?? 0,
     sysclk: fmtMhz(plan.sysclkMhz),
+    enableLse: plan.enableLse ?? false,
   })
   return { path: 'src/generated/clock.rs', content }
 }

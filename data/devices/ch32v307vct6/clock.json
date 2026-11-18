@@ -1,0 +1,59 @@
+{
+  "chip": "CH32V307VCT6",
+  "sysclkMaxMhz": 144,
+  "defaultSource": "PLL",
+  "sources": [
+    { "id": "HSI", "label": "内部 HSI", "freqMhz": 8 },
+    { "id": "HSE", "label": "外部晶振", "hxtal": { "min": 3, "max": 25, "default": 8 } },
+    { "id": "PLL", "label": "PLL", "pll": true }
+  ],
+  "pll": {
+    "outMaxMhz": 144,
+    "sourceOptions": ["HSI", "HSE"],
+    "params": [
+      { "key": "prediv", "label": "输入预分频", "kind": "select", "options": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], "default": 1, "maxBySource": { "HSI": 2 } },
+      { "key": "mul", "label": "倍频", "kind": "select", "options": [3, 4, 5, 6, 6.5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 18], "default": 18 }
+    ]
+  },
+  "ahb": { "options": [1, 2, 4, 8, 16], "maxMhz": 144, "default": 1 },
+  "apb1": { "options": [1, 2, 4, 8, 16], "maxMhz": 144, "default": 1 },
+  "apb2": { "options": [1, 2, 4, 8, 16], "maxMhz": 144, "default": 1 },
+  "adc": {
+    "options": [{ "id": "APB2_DIV2", "label": "PCLK2/2（ADCPRE 复位默认 ÷2；HAL 不写 ADCPRE）", "source": "APB2", "div": 2 }],
+    "default": "APB2_DIV2",
+    "maxMhz": 14
+  },
+  "timerClock": "apb_x2",
+  "presets": [
+    {
+      "id": "144MHZ_HSI",
+      "label": "144MHz (HSI 8MHz÷1×18，HCLK/PCLK1/PCLK2=144MHz)",
+      "match": { "source": "PLL", "pllSource": "HSI", "prediv": 1, "mul": 18, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "144MHZ_HSE",
+      "label": "144MHz (HSE 8MHz÷1×18，HCLK/PCLK1/PCLK2=144MHz)",
+      "match": { "source": "PLL", "pllSource": "HSE", "hxtalMhz": 8, "prediv": 1, "mul": 18, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "96MHZ_HSI",
+      "label": "96MHz (HSI 8MHz÷1×12，HCLK=96MHz，APB1/APB2=24MHz)",
+      "match": { "source": "PLL", "pllSource": "HSI", "prediv": 1, "mul": 12, "ahb": 1, "apb1": 4, "apb2": 4 }
+    },
+    {
+      "id": "48MHZ_HSE",
+      "label": "48MHz (HSE 8MHz÷1×6，全 DIV1) — HAL 常量误名 SYSCLK_FREQ_96MHZ_HSE",
+      "match": { "source": "PLL", "pllSource": "HSE", "hxtalMhz": 8, "prediv": 1, "mul": 6, "ahb": 1, "apb1": 1, "apb2": 1 }
+    }
+  ],
+  "codegen": {
+    "presetConstMap": {
+      "144MHZ_HSI": "hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSI",
+      "144MHZ_HSE": "hal::rcc::Config::SYSCLK_FREQ_144MHZ_HSE",
+      "96MHZ_HSI": "hal::rcc::Config::SYSCLK_FREQ_96MHZ_HSI",
+      "48MHZ_HSE": "hal::rcc::Config::SYSCLK_FREQ_96MHZ_HSE"
+    },
+    "fallback": "preset_only"
+  },
+  "notes": "依据 ch32-hal src/rcc/v3.rs：HSI=8MHz（:10）；V307 HSE 硬件范围 3~25MHz（CH32V307DS0 V3.9「外部支持 3～25MHz 高速振荡器」），HAL 预设硬编码 8MHz（:106-152）。PllSource 是 HAL 本地枚举 HSI/HSE（:21-32；V307 PAC rcc_v3_d8c 无 Pllsrc）；PllPreDiv=Prediv DIV1..DIV16（metapac rcc_v3_d8c.rs:2838-2870），但 HSI 源只允许 DIV1/DIV2（v3.rs:266-275，data 以 maxBySource.HSI=2 表达），HSE 源 DIV1..DIV16（:277-284）；PllMul=×3..×16/×18/×6.5，无 ×2（rcc_v3_d8c.rs:2680-2712；v3.rs:506-519）。PLL 输出上限 144MHz。presetConstMap 逐字对应 HAL 四个常量：SYSCLK_FREQ_144MHZ_HSI（:153-172）、SYSCLK_FREQ_144MHZ_HSE（:130-152）、SYSCLK_FREQ_96MHZ_HSI（:173-192，APB1/2=DIV4），以及 48MHZ_HSE→SYSCLK_FREQ_96MHZ_HSE（:106-129）。⚠ 命名 bug（逐字记录）：SYSCLK_FREQ_96MHZ_HSE 的字段是 hse 8MHz + PllMul::MUL6 = 48MHz，与其名字 96MHz 矛盾（上游 ch32-hal 错误命名）；数据按实际 48MHz 收录并映射该错名常量，勿按名字理解。AHB 无 ÷32；HAL Div<Hpre> 对 ÷64..÷512 存在 off-by-one（v3.rs:521-534），data 只开放 [1,2,4,8,16]（÷64..÷512 硬件存在但不开放）。ADC=PCLK2 经 ADCPRE（DIV2/4/6/8，复位 ÷2，HAL init 不写 ADCPRE，rcc_v3_d8c.rs:2541-2549）再经 ADC CTLR3.CLK_DIV（4 位原始值，adc_v3.rs:540-551；HAL 默认 0b11，adc.rs:24-42,68-69），max 14MHz（adc.rs:35-36）；ADCPRE+CLK_DIV 组合语义待核实，data 只暴露 APB2_DIV2（HAL 实际生效路径）。timerClock=apb_x2（v3.rs:478-485）。D12 诚实边界：ETH 驱动存在但 V307 Synopsys DWC MAC 未验证（不建模）；OPA/DVP 无 HAL 驱动；PLL2/PLL3 init todo!()（v3.rs:237-242）；DMA2 高通道 TODO（HAL README，importer 只取 DMA1）；LSE/LSI 仅有 LsConfig 字段，init 不消费且 LsConfig::init=todo!()（rcc/mod.rs:192-197）；memory 分割仅默认 c256_r64（ch32-hal 无 memory-config 透传；物理 480K=USR_1+USR_2 合并链接，WCHISPTool ROM/RAM 配置须一致）；非预设 PLL 配方导出待 M15（fallback=preset_only）。"
+}

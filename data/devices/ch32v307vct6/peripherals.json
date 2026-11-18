@@ -1,0 +1,293 @@
+{
+  "chip": "CH32V307VCT6",
+  "usart": [
+    {
+      "id": "USART1",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PA9", "rx": "PA10", "ck": "PA8", "cts": "PA11", "rts": "PA12" },
+        { "remap": 1, "tx": "PB6", "rx": "PB7", "ck": "PA8", "cts": "PA11", "rts": "PA12" },
+        { "remap": 2, "tx": "PB15", "rx": "PA8", "ck": "PA10", "cts": "PA5", "rts": "PA9" },
+        { "remap": 3, "tx": "PA6", "rx": "PA7", "ck": "PA5", "cts": "PC4", "rts": "PC5" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    },
+    {
+      "id": "USART2",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PA2", "rx": "PA3", "ck": "PA4", "cts": "PA0", "rts": "PA1" },
+        { "remap": 1, "tx": "PD5", "rx": "PD6", "ck": "PD7", "cts": "PD3", "rts": "PD4" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    },
+    {
+      "id": "USART3",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PB10", "rx": "PB11", "ck": "PB12", "cts": "PB13", "rts": "PB14" },
+        { "remap": 1, "tx": "PC10", "rx": "PC11", "ck": "PC12", "cts": "PB13", "rts": "PB14" },
+        { "remap": 3, "tx": "PD8", "rx": "PD9", "ck": "PD10", "cts": "PD11", "rts": "PD12" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    },
+    {
+      "id": "USART4",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PC10", "rx": "PC11" },
+        { "remap": 1, "tx": "PB0", "rx": "PB1" },
+        { "remap": 2, "tx": "PE0", "rx": "PE1" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    },
+    {
+      "id": "USART5",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PC12", "rx": "PD2" },
+        { "remap": 1, "tx": "PB4", "rx": "PB5" },
+        { "remap": 2, "tx": "PE8", "rx": "PE9" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    },
+    {
+      "id": "USART6",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PC0", "rx": "PC1" },
+        { "remap": 1, "tx": "PB8", "rx": "PB9" },
+        { "remap": 2, "tx": "PE10", "rx": "PE11" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    },
+    {
+      "id": "USART7",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PC2", "rx": "PC3" },
+        { "remap": 1, "tx": "PA6", "rx": "PA7" },
+        { "remap": 2, "tx": "PE12", "rx": "PE13" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    },
+    {
+      "id": "USART8",
+      "modes": [
+        { "id": "asynchronous", "label": "Asynchronous", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx", "rx"] },
+        { "id": "half-duplex", "label": "Half-duplex", "params": ["baudrate", "wordLength", "stopBits", "parity", "detectPreviousOverrun"], "pins": ["tx"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "tx": "PC4", "rx": "PC5" },
+        { "remap": 1, "tx": "PA14", "rx": "PA15" }
+      ],
+      "params": {
+        "baudrate": { "kind": "number", "label": "波特率", "default": 115200, "min": 1200, "max": 9000000 },
+        "wordLength": { "kind": "select", "label": "字长", "options": ["DataBits8", "DataBits9"], "default": "DataBits8" },
+        "stopBits": { "kind": "select", "label": "停止位", "options": ["STOP1", "STOP2", "STOP0P5", "STOP1P5"], "default": "STOP1" },
+        "parity": { "kind": "select", "label": "校验", "options": ["ParityNone", "ParityEven", "ParityOdd"], "default": "ParityNone" },
+        "detectPreviousOverrun": { "kind": "boolean", "label": "检测先前溢出", "default": false }
+      }
+    }
+  ],
+  "spi": [
+    {
+      "id": "SPI1",
+      "modes": [
+        { "id": "full-duplex", "label": "Full-Duplex", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi", "miso"] },
+        { "id": "receive-only", "label": "Receive Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "miso"], "codegen": false },
+        { "id": "transmit-only", "label": "Transmit Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi"], "codegen": false },
+        { "id": "transmit-only-no-sck", "label": "Transmit Only (No SCK)", "params": ["bitOrder", "frequency"], "pins": ["mosi"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "sck": "PA5", "mosi": "PA7", "miso": "PA6", "nss": "PA4" },
+        { "remap": 1, "sck": "PB3", "mosi": "PB5", "miso": "PB4", "nss": "PA15" }
+      ],
+      "params": {
+        "mode": { "kind": "select", "label": "CPOL/CPHA 模式", "options": ["MODE_0", "MODE_1", "MODE_2", "MODE_3"], "default": "MODE_0" },
+        "bitOrder": { "kind": "select", "label": "位序", "options": ["MsbFirst", "LsbFirst"], "default": "MsbFirst" },
+        "frequency": { "kind": "number", "label": "频率 (Hz)", "default": 1000000, "min": 1000, "max": 72000000 }
+      }
+    },
+    {
+      "id": "SPI2",
+      "modes": [
+        { "id": "full-duplex", "label": "Full-Duplex", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi", "miso"] },
+        { "id": "receive-only", "label": "Receive Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "miso"], "codegen": false },
+        { "id": "transmit-only", "label": "Transmit Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi"], "codegen": false },
+        { "id": "transmit-only-no-sck", "label": "Transmit Only (No SCK)", "params": ["bitOrder", "frequency"], "pins": ["mosi"], "codegen": false }
+      ],
+      "remaps": [{ "remap": 0, "sck": "PB13", "mosi": "PB15", "miso": "PB14", "nss": "PB12" }],
+      "params": {
+        "mode": { "kind": "select", "label": "CPOL/CPHA 模式", "options": ["MODE_0", "MODE_1", "MODE_2", "MODE_3"], "default": "MODE_0" },
+        "bitOrder": { "kind": "select", "label": "位序", "options": ["MsbFirst", "LsbFirst"], "default": "MsbFirst" },
+        "frequency": { "kind": "number", "label": "频率 (Hz)", "default": 1000000, "min": 1000, "max": 72000000 }
+      }
+    },
+    {
+      "id": "SPI3",
+      "modes": [
+        { "id": "full-duplex", "label": "Full-Duplex", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi", "miso"] },
+        { "id": "receive-only", "label": "Receive Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "miso"], "codegen": false },
+        { "id": "transmit-only", "label": "Transmit Only", "params": ["mode", "bitOrder", "frequency"], "pins": ["sck", "mosi"], "codegen": false },
+        { "id": "transmit-only-no-sck", "label": "Transmit Only (No SCK)", "params": ["bitOrder", "frequency"], "pins": ["mosi"], "codegen": false }
+      ],
+      "remaps": [
+        { "remap": 0, "sck": "PB3", "mosi": "PB5", "miso": "PB4", "nss": "PA15" },
+        { "remap": 1, "sck": "PC10", "mosi": "PC12", "miso": "PC11", "nss": "PA4" }
+      ],
+      "params": {
+        "mode": { "kind": "select", "label": "CPOL/CPHA 模式", "options": ["MODE_0", "MODE_1", "MODE_2", "MODE_3"], "default": "MODE_0" },
+        "bitOrder": { "kind": "select", "label": "位序", "options": ["MsbFirst", "LsbFirst"], "default": "MsbFirst" },
+        "frequency": { "kind": "number", "label": "频率 (Hz)", "default": 1000000, "min": 1000, "max": 72000000 }
+      }
+    }
+  ],
+  "i2c": [
+    {
+      "id": "I2C1",
+      "modes": [{ "id": "master", "label": "Master", "params": ["speed", "duty"], "pins": ["scl", "sda"] }],
+      "remaps": [
+        { "remap": 0, "scl": "PB6", "sda": "PB7" },
+        { "remap": 1, "scl": "PB8", "sda": "PB9" }
+      ],
+      "params": {
+        "speed": { "kind": "select", "label": "速率模式 (100k/400k)", "options": [100000, 400000], "default": 100000 },
+        "duty": { "kind": "select", "label": "占空比", "options": ["Duty2_1", "Duty16_9"], "default": "Duty2_1" }
+      }
+    },
+    {
+      "id": "I2C2",
+      "modes": [{ "id": "master", "label": "Master", "params": ["speed", "duty"], "pins": ["scl", "sda"] }],
+      "remaps": [{ "remap": 0, "scl": "PB10", "sda": "PB11" }],
+      "params": {
+        "speed": { "kind": "select", "label": "速率模式 (100k/400k)", "options": [100000, 400000], "default": 100000 },
+        "duty": { "kind": "select", "label": "占空比", "options": ["Duty2_1", "Duty16_9"], "default": "Duty2_1" }
+      }
+    }
+  ],
+  "adc": [
+    {
+      "id": "ADC1",
+      "channels": [
+        { "channel": "ADC_IN0", "pin": "PA0" },
+        { "channel": "ADC_IN1", "pin": "PA1" },
+        { "channel": "ADC_IN2", "pin": "PA2" },
+        { "channel": "ADC_IN3", "pin": "PA3" },
+        { "channel": "ADC_IN4", "pin": "PA4" },
+        { "channel": "ADC_IN5", "pin": "PA5" },
+        { "channel": "ADC_IN6", "pin": "PA6" },
+        { "channel": "ADC_IN7", "pin": "PA7" },
+        { "channel": "ADC_IN8", "pin": "PB0" },
+        { "channel": "ADC_IN9", "pin": "PB1" },
+        { "channel": "ADC_IN10", "pin": "PC0" },
+        { "channel": "ADC_IN11", "pin": "PC1" },
+        { "channel": "ADC_IN12", "pin": "PC2" },
+        { "channel": "ADC_IN13", "pin": "PC3" },
+        { "channel": "ADC_IN14", "pin": "PC4" },
+        { "channel": "ADC_IN15", "pin": "PC5" }
+      ],
+      "params": {
+        "sampleTime": {
+          "kind": "select",
+          "label": "采样时间",
+          "options": ["CYCLES1_5", "CYCLES7_5", "CYCLES13_5", "CYCLES28_5", "CYCLES41_5", "CYCLES55_5", "CYCLES71_5", "CYCLES239_5"],
+          "default": "CYCLES71_5"
+        }
+      }
+    },
+    {
+      "id": "ADC2",
+      "channels": [
+        { "channel": "ADC_IN0", "pin": "PA0" },
+        { "channel": "ADC_IN1", "pin": "PA1" },
+        { "channel": "ADC_IN2", "pin": "PA2" },
+        { "channel": "ADC_IN3", "pin": "PA3" },
+        { "channel": "ADC_IN4", "pin": "PA4" },
+        { "channel": "ADC_IN5", "pin": "PA5" },
+        { "channel": "ADC_IN6", "pin": "PA6" },
+        { "channel": "ADC_IN7", "pin": "PA7" },
+        { "channel": "ADC_IN8", "pin": "PB0" },
+        { "channel": "ADC_IN9", "pin": "PB1" },
+        { "channel": "ADC_IN10", "pin": "PC0" },
+        { "channel": "ADC_IN11", "pin": "PC1" },
+        { "channel": "ADC_IN12", "pin": "PC2" },
+        { "channel": "ADC_IN13", "pin": "PC3" },
+        { "channel": "ADC_IN14", "pin": "PC4" },
+        { "channel": "ADC_IN15", "pin": "PC5" }
+      ],
+      "params": {
+        "sampleTime": {
+          "kind": "select",
+          "label": "采样时间",
+          "options": ["CYCLES1_5", "CYCLES7_5", "CYCLES13_5", "CYCLES28_5", "CYCLES41_5", "CYCLES55_5", "CYCLES71_5", "CYCLES239_5"],
+          "default": "CYCLES71_5"
+        }
+      }
+    }
+  ],
+  "notes": "USART1-8 / SPI1-3 / I2C1-2 / ADC1-2 来自 ch32-data CH32V307VCT6.yaml include_peripherals + FV2x_V3x_*.yaml（与 ch32-hal 同源）；remap 档位逐档照 ch32-data，不补臆造档位。USART1 是特例：ch32-data 的 remap 字段被注释（complex RM），引脚表仍给 0..3 四档；HAL 把 2-bit REMAP 拆到 PCFR1.USART1_RM(bit0) + PCFR2.USART1_RM2(bit1)（HAL/src/patches.rs:16-27），因此必须保留 0..3 四档（校验器不能按 1-bit 拒绝 2/3）。USART3 数据只给 remap 0/1/3（无 2），照录。USART4-8 的 ch32-data 只列 TX/RX（无 CK/CTS/RTS），照录；USART8 remap2 只给 TX=PE14、缺 RX（ch32-data 缺 PE15），故 USART8 只收录 0/1 两档并在 remap.json 保留 PE14 TX。SPI2/I2C2/SDIO 无 remap 字段（HAL patches.rs 对 REMAP 为 no-op），只录 remap 0；SPI2/SPI3 的 CK/SD/WS/MCK 是 I2S 信号，不在 SPI.schema 建模。params 逐字对应 ch32-hal：usart DataBits8/9、StopBits::STOP1/STOP0P5/STOP2/STOP1P5、Parity*、detectPreviousOverrun；spi MODE_0..3 + BitOrder::MsbFirst/LsbFirst；i2c 构造只收 Hertz 且断言 ≤400kHz，speed 用 100k/400k 两档；ADC 12 位、采样时间变体取自 adc_v3（CYCLESn，同 V203）。SPI 频率上限=PCLK/2=72MHz（144MHz PCLK），USART 波特率上限=PCLK2/16=9MHz。ADC1/ADC2 共用同一组 16 个外部通道（IN0-15→PA0-7/PB0-1/PC0-5），照 V203 双 ADC 样板两实例同通道表。不建模 ETH（V307 Synopsys DWC MAC 未验证）/OPA/DVP/USBHS/USB_OTG_FS/CAN1-2/SDIO/DAC/RNG/RTC：现有 peripherals schema kind 集合（usart/spi/i2c/adc/timer）之外，且 OPA/DVP 无 HAL 驱动、RTC 仅 H4 驱动。"
+}

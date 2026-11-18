@@ -1,0 +1,191 @@
+{
+  "chip": "CH32V103C8T6",
+  "entries": [
+    {
+      "pin": "PC13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PD0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PD1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PA0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PA1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PA2",
+      "channel": 2,
+      "irq": "EXTI2"
+    },
+    {
+      "pin": "PA3",
+      "channel": 3,
+      "irq": "EXTI3"
+    },
+    {
+      "pin": "PA4",
+      "channel": 4,
+      "irq": "EXTI4"
+    },
+    {
+      "pin": "PA5",
+      "channel": 5,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA6",
+      "channel": 6,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA7",
+      "channel": 7,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PB1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PB2",
+      "channel": 2,
+      "irq": "EXTI2"
+    },
+    {
+      "pin": "PB10",
+      "channel": 10,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB11",
+      "channel": 11,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB12",
+      "channel": 12,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA8",
+      "channel": 8,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA9",
+      "channel": 9,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA10",
+      "channel": 10,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA11",
+      "channel": 11,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA12",
+      "channel": 12,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB3",
+      "channel": 3,
+      "irq": "EXTI3"
+    },
+    {
+      "pin": "PB4",
+      "channel": 4,
+      "irq": "EXTI4"
+    },
+    {
+      "pin": "PB5",
+      "channel": 5,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB6",
+      "channel": 6,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB7",
+      "channel": 7,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB8",
+      "channel": 8,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB9",
+      "channel": 9,
+      "irq": "EXTI9_5"
+    }
+  ],
+  "notes": "V103 16 条 EXTI 线（ch32-hal src/exti.rs 非 ch32v0/ch32m0 启用 _exti_16lines；ch32-data CH32V1.yaml 中断表 EXTI0..EXTI4/EXTI9_5/EXTI15_10），LQFP48 全部 37 个 GPIO 均可作外部中断；channel=端口内引脚号；IRQ 名与 interrupts.json（ch32-data interrupts/CH32V1.yaml）一致"
+}

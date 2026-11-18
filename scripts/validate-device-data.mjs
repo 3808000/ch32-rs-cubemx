@@ -203,7 +203,8 @@ function validateDevice(dir) {
   // ---- 5. clock.json 预设可复现 ----
   for (const p of clock.presets) {
     const pll = {}
-    for (const param of clock.pll.params) {
+    // 无 PLL 芯片（M14，如 X035）：clock.pll 缺省，无 PLL 参数可复现
+    for (const param of clock.pll?.params ?? []) {
       if (p.match[param.key] !== undefined) pll[param.key] = p.match[param.key]
     }
     const cfg = clockLib.mergeClockConfig(clock, {
@@ -220,8 +221,11 @@ function validateDevice(dir) {
     const errs = issues.filter((i) => i.level === 'error')
     if (errs.length) err('clock.json', `预设 ${p.id} 非法：${errs.map((i) => i.message).join('；')}`)
     const target = parseInt(p.id, 10) // '48MHZ_HSE' → 48
-    if (!Number.isNaN(target) && Math.abs(f.sysclkMhz - target) > 1e-6) {
-      err('clock.json', `预设 ${p.id} 复现频率 ${f.sysclkMhz}MHz ≠ 标称 ${target}MHz`)
+    // 无 PLL 芯片（M14，如 X035）：HAL 的 SYSCLK_FREQ_*MHZ_HSI 常量实际只设 AHB 分频，
+    // sysclk 恒为源频率（HSI 48），标称频率对应 HCLK（见 ch32-hal src/rcc/x0.rs:48-63,97-113）。
+    const nominalMhz = clock.pll === undefined ? f.hclkMhz : f.sysclkMhz
+    if (!Number.isNaN(target) && Math.abs(nominalMhz - target) > 1e-6) {
+      err('clock.json', `预设 ${p.id} 复现频率 ${nominalMhz}MHz ≠ 标称 ${target}MHz`)
     }
     const matched = clockLib.matchPreset(clock, cfg)
     if (!matched || matched.id !== p.id) err('clock.json', `预设 ${p.id} 无法被 matchPreset 命中`)

@@ -29,6 +29,8 @@ export interface ClockParamSpec {
   options: number[]
   default: number
   fixed?: boolean // 固定值（如 V003 PLL ×2），UI 置灰
+  /** 参数按 PLL 源的上限（M14，可选）：如 V307 prediv 在 HSI 源下最大 2（HSE 源 16） */
+  maxBySource?: Record<string, number>
 }
 
 export interface ClockDividerSpec {
@@ -46,6 +48,8 @@ export interface ClockPreset {
     hxtalMhz?: number
     mul?: number
     div?: number
+    /** prediv 等其余 PLL 参数键也可出现在预设 match 中（V103/V307） */
+    prediv?: number
     ahb: number
     apb1: number
     apb2: number
@@ -58,7 +62,8 @@ export interface ClockData {
   sources: ClockSource[]
   /** 默认时钟源（M12）：缺省=第一个非 PLL 源；CH582M 等「仅 PLL 可生成」芯片显式指定 PLL，避免新建工程默认落在不可生成源 */
   defaultSource?: string
-  pll: {
+  /** PLL 模型；可选——无 PLL 的芯片（如 CH32X035）省略。缺省时 PLL 相关校验/解算跳过。 */
+  pll?: {
     outMaxMhz: number
     sourceOptions: string[]
     params: ClockParamSpec[]

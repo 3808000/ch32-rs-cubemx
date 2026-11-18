@@ -79,7 +79,8 @@ function toggleLock() {
 
 const hse = computed(() => spec.value.sources.find((s) => s.id === 'HSE'))
 const showHxtal = computed(() => props.nodeId === 'HSE' && !!hse.value?.hxtal)
-const showPll = computed(() => props.nodeId === 'PLL')
+// 无 PLL 芯片（M14，如 X035）：不渲染 PLL 控件
+const showPll = computed(() => props.nodeId === 'PLL' && !!spec.value.pll)
 const showSysSource = computed(() => props.nodeId === 'SYSCLK')
 const busKey = computed<'ahb' | 'apb1' | 'apb2' | null>(() => {
   if (props.nodeId === 'AHB') return 'ahb'
@@ -93,7 +94,7 @@ const showTim = computed(() => props.nodeId === 'TIM1' || props.nodeId === 'TIM2
 
 const sourceOptions = computed(() => spec.value.sources.map((s) => ({ value: s.id, label: s.label })))
 const pllSourceOptions = computed(() =>
-  spec.value.pll.sourceOptions.map((id) => {
+  (spec.value.pll?.sourceOptions ?? []).map((id) => {
     const s = spec.value.sources.find((x) => x.id === id)
     return { value: id, label: s?.label ?? id }
   }),
@@ -191,7 +192,7 @@ function sourceLabel(id: string): string {
               <el-option v-for="o in pllSourceOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
           </div>
-          <div v-for="p in spec.pll.params" :key="p.key" class="form-row">
+          <div v-for="p in spec.pll?.params ?? []" :key="p.key" class="form-row">
             <span class="form-label">{{ p.label }}</span>
             <el-select
               :model-value="cfg.pll?.[p.key] ?? p.default"

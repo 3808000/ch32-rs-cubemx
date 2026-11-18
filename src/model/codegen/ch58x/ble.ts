@@ -269,6 +269,10 @@ interface BleTplData {
   writeUuid: string
   macSource: BleMacSource
   macBytesLiteral: string
+  /** 协议栈序（LSB first）MAC 字面量：M14 stack_init 直接喂 bleConfig_t.MacAddr */
+  macBytesLsbLiteral: string
+  /** bleConfig_t.SelRTCClock（M14）：0=LSE 32768Hz（clock32k=lse 缺省）/ 1=LSI 32000Hz（lsi 回退） */
+  selRtcClock: number
   logSerial: boolean
   connIntervalMin: number
   connIntervalMax: number
@@ -296,6 +300,8 @@ export function renderBle(config: ProjectConfig, logSerial: boolean): GeneratedF
     writeUuid: hex16(plan.writeUuid),
     macSource: plan.macSource,
     macBytesLiteral: plan.macBytes ? macLiteral(plan.macBytes) : '',
+    macBytesLsbLiteral: plan.macBytes ? macLiteral([...plan.macBytes].reverse()) : '',
+    selRtcClock: (config.ble?.clock32k ?? 'lse') === 'lsi' ? 1 : 0,
     logSerial,
     connIntervalMin: BLE_CONN_INTERVAL_MIN,
     connIntervalMax: BLE_CONN_INTERVAL_MAX,

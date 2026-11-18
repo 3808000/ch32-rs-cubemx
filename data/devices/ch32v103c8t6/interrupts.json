@@ -1,0 +1,165 @@
+{
+  "chip": "CH32V103C8T6",
+  "irqs": [
+    {
+      "name": "WWDG",
+      "number": 16
+    },
+    {
+      "name": "PVD",
+      "number": 17
+    },
+    {
+      "name": "TAMPER",
+      "number": 18
+    },
+    {
+      "name": "RTC",
+      "number": 19
+    },
+    {
+      "name": "FLASH",
+      "number": 20
+    },
+    {
+      "name": "RCC",
+      "number": 21
+    },
+    {
+      "name": "EXTI0",
+      "number": 22
+    },
+    {
+      "name": "EXTI1",
+      "number": 23
+    },
+    {
+      "name": "EXTI2",
+      "number": 24
+    },
+    {
+      "name": "EXTI3",
+      "number": 25
+    },
+    {
+      "name": "EXTI4",
+      "number": 26
+    },
+    {
+      "name": "DMA1_CHANNEL1",
+      "number": 27
+    },
+    {
+      "name": "DMA1_CHANNEL2",
+      "number": 28
+    },
+    {
+      "name": "DMA1_CHANNEL3",
+      "number": 29
+    },
+    {
+      "name": "DMA1_CHANNEL4",
+      "number": 30
+    },
+    {
+      "name": "DMA1_CHANNEL5",
+      "number": 31
+    },
+    {
+      "name": "DMA1_CHANNEL6",
+      "number": 32
+    },
+    {
+      "name": "DMA1_CHANNEL7",
+      "number": 33
+    },
+    {
+      "name": "ADC",
+      "number": 34
+    },
+    {
+      "name": "EXTI9_5",
+      "number": 39
+    },
+    {
+      "name": "TIM1_BRK",
+      "number": 40
+    },
+    {
+      "name": "TIM1_UP",
+      "number": 41
+    },
+    {
+      "name": "TIM1_TRG_COM",
+      "number": 42
+    },
+    {
+      "name": "TIM1_CC",
+      "number": 43
+    },
+    {
+      "name": "TIM2",
+      "number": 44
+    },
+    {
+      "name": "TIM3",
+      "number": 45
+    },
+    {
+      "name": "TIM4",
+      "number": 46
+    },
+    {
+      "name": "I2C1_EV",
+      "number": 47
+    },
+    {
+      "name": "I2C1_ER",
+      "number": 48
+    },
+    {
+      "name": "I2C2_EV",
+      "number": 49
+    },
+    {
+      "name": "I2C2_ER",
+      "number": 50
+    },
+    {
+      "name": "SPI1",
+      "number": 51
+    },
+    {
+      "name": "SPI2",
+      "number": 52
+    },
+    {
+      "name": "USART1",
+      "number": 53
+    },
+    {
+      "name": "USART2",
+      "number": 54
+    },
+    {
+      "name": "USART3",
+      "number": 55
+    },
+    {
+      "name": "EXTI15_10",
+      "number": 56
+    },
+    {
+      "name": "RTCALARM",
+      "number": 57
+    },
+    {
+      "name": "USB_WKUP",
+      "number": 58
+    },
+    {
+      "name": "USBHD",
+      "number": 59
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 // mergeClockConfig / matchPreset / nearestPreset / sourceFreqMhz / pllOutMhz
 // 数据：真实 CH32V003F4P6（HSI 24MHz、PLL 固定 ×2、AHB 1..256、APB2 1/2/4/8/16、APB1 固定 1）
 import { describe, it, expect } from 'vitest'
-import type { ClockConfig } from '@/model/types'
+import type { ClockConfig, ClockData } from '@/model/types'
 import {
   computeClock,
   validateClock,
@@ -13,8 +13,10 @@ import {
   nearestPreset,
   sourceFreqMhz,
   pllOutMhz,
+  isClockNodeLockable,
 } from '@/model/clock'
 import { getDeviceData } from '@/model/device'
+import { buildClockTree } from '@/model/clock/tree'
 
 const spec = getDeviceData('CH32V003F4P6').clock
 
@@ -390,5 +392,171 @@ describe('nearestPreset', () => {
 
   it('目标 0 → 24MHZ_HSE（差 24 < 48）', () => {
     expect(nearestPreset(spec, 0)?.id).toBe('24MHZ_HSE')
+  })
+})
+
+// ---------- M14：三芯片接入的通用时钟能力（向后兼容追加） ----------
+
+/** V103/V307 风格：PLL = in / prediv × mul。 */
+const predivSpec: ClockData = {
+  chip: 'TEST_PREDIV',
+  sysclkMaxMhz: 144,
+  sources: [
+    { id: 'HSI', label: '内部 HSI', freqMhz: 8 },
+    { id: 'HSE', label: '外部 HSE', hxtal: { min: 8, max: 25, default: 8 } },
+    { id: 'PLL', label: 'PLL', pll: true },
+  ],
+  pll: {
+    outMaxMhz: 144,
+    sourceOptions: ['HSI', 'HSE'],
+    params: [
+      { key: 'prediv', label: '预分频', kind: 'select', options: [1, 2, 4], default: 1, maxBySource: { HSI: 2 } },
+      { key: 'mul', label: '倍频', kind: 'select', options: [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 18], default: 18 },
+    ],
+  },
+  ahb: { options: [1, 2, 4], maxMhz: 144, default: 1 },
+  apb1: { options: [1, 2, 4], maxMhz: 144, default: 1 },
+  apb2: { options: [1, 2, 4], maxMhz: 144, default: 1 },
+  adc: { options: [{ id: 'APB2_DIV2', label: 'APB2/2', source: 'APB2', div: 2 }], default: 'APB2_DIV2', maxMhz: 14 },
+  timerClock: 'apb_x2',
+  presets: [],
+  codegen: { presetConstMap: {}, fallback: 'explicit' },
+}
+
+/** X035 风格：无 PLL、仅 HSI，ADC 来自 SYSCLK/CLK_DIV。 */
+const noPllSpec: ClockData = {
+  chip: 'TEST_NOPLL',
+  sysclkMaxMhz: 48,
+  sources: [{ id: 'HSI', label: '内部 HSI', freqMhz: 48 }],
+  ahb: { options: [1, 2, 3, 4, 8], maxMhz: 48, default: 1 },
+  apb1: { options: [1], maxMhz: 48, default: 1 },
+  apb2: { options: [1], maxMhz: 48, default: 1 },
+  adc: { options: [{ id: 'SYS', label: 'SYSCLK/8', source: 'SYSCLK', div: 8 }], default: 'SYS', maxMhz: 14 },
+  timerClock: 'apb_x2',
+  presets: [{ id: '48MHZ_HSI', label: '48MHz (HSI, AHB÷1)', match: { source: 'HSI', ahb: 1, apb1: 1, apb2: 1 } }],
+  codegen: { presetConstMap: { '48MHZ_HSI': 'hal::rcc::Config::SYSCLK_FREQ_48MHZ_HSI' }, fallback: 'preset_only' },
+}
+
+describe('M14 pllOutMhz：prediv 做除法、mul 做乘法', () => {
+  it('8MHz / prediv2 × mul9 = 36MHz', () => {
+    expect(pllOutMhz(predivSpec, 8, { prediv: 2, mul: 9 })).toBe(36)
+  })
+  it('缺省参数取 data 默认值：8 / 1 × 18 = 144MHz', () => {
+    expect(pllOutMhz(predivSpec, 8, {})).toBe(144)
+  })
+  it('固定 VCO 模型（fixedOutMhz ÷ div）不受 prediv 语义影响', () => {
+    const fixed: ClockData = {
+      ...predivSpec,
+      pll: { ...predivSpec.pll!, fixedOutMhz: 480, params: [{ key: 'div', label: '分频', kind: 'select', options: [2, 4], default: 2 }] },
+    }
+    expect(pllOutMhz(fixed, 8, { div: 4 })).toBe(120)
+  })
+  it('computeClock 走 prediv：PLL HSI /2 ×9 = 36MHz', () => {
+    const f = computeClock(predivSpec, {
+      source: 'PLL',
+      pllSource: 'HSI',
+      pll: { prediv: 2, mul: 9 },
+      ahb: 1,
+      apb1: 1,
+      apb2: 1,
+      adc: 'APB2_DIV2',
+    })
+    expect(f.pllInMhz).toBe(8)
+    expect(f.pllOutMhz).toBe(36)
+    expect(f.sysclkMhz).toBe(36)
+  })
+})
+
+describe('M14 无 PLL 芯片（ClockData.pll 缺省）', () => {
+  it('defaultClock 不写 pllSource/pll，源为 HSI', () => {
+    const d = defaultClock(noPllSpec)
+    expect(Object.keys(d)).toEqual(['source', 'hxtalMhz', 'ahb', 'apb1', 'apb2', 'adc'])
+    expect(d.source).toBe('HSI')
+    expect('pllSource' in d).toBe(false)
+    expect('pll' in d).toBe(false)
+  })
+
+  it('computeClock：HSI 48MHz、ADC = SYSCLK/8 = 6MHz、无 PLL', () => {
+    const f = computeClock(noPllSpec, defaultClock(noPllSpec))
+    expect(f.pllInMhz).toBeNull()
+    expect(f.pllOutMhz).toBeNull()
+    expect(f.sysclkMhz).toBe(48)
+    expect(f.adcMhz).toBe(6)
+  })
+
+  it('validateClock 默认配置无问题；source=PLL 时报 SYSCLK 为 0', () => {
+    expect(validateClock(noPllSpec, defaultClock(noPllSpec))).toEqual([])
+    const issues = validateClock(noPllSpec, { source: 'PLL', ahb: 1, apb1: 1, apb2: 1 })
+    expect(issues.some((i) => i.level === 'error' && i.message.includes('SYSCLK 为 0'))).toBe(true)
+  })
+
+  it('solvePll 恒返回空列表', () => {
+    expect(solvePll(noPllSpec, 48)).toEqual([])
+    expect(solvePll(noPllSpec, 48, 'HSI')).toEqual([])
+  })
+
+  it('mergeClockConfig 不补 pllSource/pll', () => {
+    const m = mergeClockConfig(noPllSpec, { ahb: 2 })
+    expect(m.ahb).toBe(2)
+    expect('pllSource' in m).toBe(false)
+    expect('pll' in m).toBe(false)
+  })
+
+  it('matchPreset / nearestPreset 容忍无 PLL', () => {
+    const d = defaultClock(noPllSpec)
+    expect(matchPreset(noPllSpec, d)?.id).toBe('48MHZ_HSI')
+    expect(nearestPreset(noPllSpec, 24)?.id).toBe('48MHZ_HSI')
+  })
+
+  it('PLL 节点不可锁定（无 PLL 芯片不渲染 PLL）', () => {
+    expect(isClockNodeLockable(noPllSpec, 'PLL')).toBe(false)
+    expect(isClockNodeLockable(predivSpec, 'PLL')).toBe(true)
+  })
+
+  it('computeClock ADC SYSCLK 分支取 sysclk 而非 pclk2：ahb=2 时仍为 48/8', () => {
+    const f = computeClock(noPllSpec, { source: 'HSI', ahb: 2, apb1: 1, apb2: 1, adc: 'SYS' })
+    expect(f.hclkMhz).toBe(24)
+    expect(f.adcMhz).toBe(6)
+  })
+
+  it('时钟树不渲染 PLL 节点/分组，ADC 连线直接来自 SYSCLK', () => {
+    const d = defaultClock(noPllSpec)
+    const tree = buildClockTree(noPllSpec, d, computeClock(noPllSpec, d), validateClock(noPllSpec, d))
+    expect(tree.nodes.some((n) => n.id === 'PLL')).toBe(false)
+    expect(tree.groups.some((g) => g.id === 'g-pll')).toBe(false)
+    expect(tree.nodes.some((n) => n.id === 'SYSCLK')).toBe(true)
+    expect(tree.edges.find((e) => e.id === 'sys-adc')?.from).toBe('SYSCLK')
+    expect(tree.edges.some((e) => e.to === 'PLL' || e.from === 'PLL')).toBe(false)
+  })
+})
+
+describe('M14 ClockParamSpec.maxBySource：参数按 PLL 源上限', () => {
+  const cfg = (pllSource: string, prediv: number): ClockConfig => ({
+    source: 'PLL',
+    pllSource,
+    pll: { prediv, mul: 6 },
+    ahb: 1,
+    apb1: 1,
+    apb2: 1,
+    adc: 'APB2_DIV2',
+  })
+
+  it('HSI 源 prediv=4 超过上限 2 → error（消息含参数名/源/上限）', () => {
+    const issues = validateClock(predivSpec, cfg('HSI', 4))
+    const e = issues.find((i) => i.level === 'error' && i.message.includes('prediv'))
+    expect(e).toBeDefined()
+    expect(e!.node).toBe('PLL')
+    expect(e!.message).toContain('HSI')
+    expect(e!.message).toContain('上限 2')
+  })
+
+  it('HSI 源 prediv=2 在上限内 → 无该 error', () => {
+    const issues = validateClock(predivSpec, cfg('HSI', 2))
+    expect(issues.some((i) => i.message.includes('上限'))).toBe(false)
+  })
+
+  it('HSE 源无 maxBySource 限制：prediv=4 合法', () => {
+    const issues = validateClock(predivSpec, cfg('HSE', 4))
+    expect(issues.some((i) => i.message.includes('上限'))).toBe(false)
   })
 })

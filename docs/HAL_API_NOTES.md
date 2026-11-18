@@ -583,6 +583,35 @@ Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）�
 
 **闭环证据**：M13 固件烧录 Verified OK 后 bluez 扫到 `Device 0C:3D:5E:A6:62:94 CH582M`（出厂 MAC 与 C 同源）；gdb 证实属性表句柄已分配（handle=0x0e）、GAP adv 数据指针/TLV 合法（flags 06 + 厂商 D7 07 + UUID FFE0 + 短名；scan-rsp 完整名 CH582M）、TMOS 泵运行（pc 在 delay_us 循环）。**CH58x BLE 从代码生成到实机射频全链路打通**。
 
+> **M14 更正**：上文第 3 条「库内部回退 LSI」推断有误——C 固件是**显式配置 LSI**（CLK_OSC32K=1 + rcCB 校准），并非库自动回退；ch58x-hal 的 ble::init 反而硬编码 SelRTCClock=0（LSE）。详见 §14.2quater。
+
+### 14.2quater M14 连接路径攻坚（2026-11-18）：广播之上，连接为何失败
+
+**目标**：M13 广播闭环后验证 BLE 连接 + GATT 读写/notify（bluez D-Bus，免手机）。
+
+**实机现象（M13 固件，可复现）**：bluez `Device1.Connect` → `le-connection-abort-by-local`（约 2s）或 `Connection timed out`（约 25s）；失败后**广播停止且不恢复**（wlink reset 后恢复广播）。广播本身始终正常。→ 连接建立路径独立缺陷，非广播问题。
+
+**根因 #5（源码对照级，高置信；实机确认待修复固件烧录）**：
+- ch58x-hal `ble::init` 硬编码 `cfg.SelRTCClock = 0`（src/ble/mod.rs:190，注释自述 0=外部 LSE 32768Hz）且 `cfg.rcCB = None`（:196，"use LSE, no calibrate"）。
+- `SelRTCClock` 编码（官方 CH58xBLE_LIB.h:143-145）：bit0-1 `00=LSE(32768Hz) / 01=LSI(32000Hz) / 10=LSI(32768Hz)`；bit7=BLE timer 走 HSE（须禁睡眠）。
+- 本板**无 LSE 晶振**（M13 已证）。sysctl 级 32K 域虽缺省 LSI（sysctl.rs:123-128 正确上电内部 32K），但**库自身被告知用 LSE** → 连接事件定时基准死源 → 建立失败；广播间隔定时容忍度高故仍工作。
+- 官方 C 对照（EVT/EXAM/BLE/HAL/MCU.c:79-145 `CH58X_BLEInit`）：`cfg.SelRTCClock = CLK_OSC32K`（LSI 构建=1）+ `cfg.rcCB = Lib_Calibration_LSI`（:111-119）+ `SysTick_Config(max)` 自由运行供 srandCB + `PFIC_DisableIRQ(SysTick_IRQn)`；LSI 上电/校准另见 HAL/RTC.c:74-85。M13 所见 C 运行态 CK32K_CONFIG=0x8a（XT=0）是**显式 LSI 配置的结果**，非自动回退。
+- `Calibration_LSI` 实现于 StdPeriphDriver/CH58x_clk.c:138（寄存器级 OSC_CAL 校准，**非 BLE 库导出符号**，nm 两版 libCH58xBLE.a 均无）；Level_64≈2.2ms/800ppm@32M。
+
+**生成器侧修复（未改 HAL 源码，契约 D20–D22）**：
+1. `stack_init()` 替代 `ble::init`：经公开 ffi 自建 `bleConfig_t`——**SelRTCClock 随 `ble.clock32k`（新增选项，缺省 lse=0，lsi 回退=1）**、自有 6KB 堆（与 HAL BLE_HEAP 同尺寸）、自有 embassy-sync PubSub 通道（同参数 4/2/2）+ TMOS 任务（SYS_EVENT_MSG→publish；0x2000 事件→BLE_RegInit+120s 重定时，与 HAL hal_tmos_task 等价）、srandCB=SysTick CNT（stack_init 内配自由运行：CMP=0xFFFFFFFF、CTLR 只 STE 不开中断）、tsCB=hal::ble::temperature_raw（HAL 公开）、**rcCB=None**（校准移植为后续增强）。clock.rs 同步：lse 缺省生成 `config.clock.enable_lse()`（与 SelRTCClock=0 一致）；lsi 不生成。
+2. `mac_addr_lsb()` 替代 `config()`：MacAddress 元组字段私有（mod.rs:266）无法从 ble::Config 取字节 → 生成器直接产出 LSB-first 数组（factory=hal::isp::get_mac_address()；custom=MSB 反转；default=[0x66..0x11]）。
+3. **busy-poll 连续轮询无 delay**：官方 C Main_Circulation = `while(1){TMOS_SystemProcess();}`（peripheral_main.c:40）；M13 的 delay_us(300) 取自上游 embassy Rust 示例（该示例走 SysTick Timer，在本硅片从未跑通，§14.2bis）。notify 周期最终用 **SysTick CNT**（周期=`clocks().hclk`≈1s，单次 load）；曾试 TMOS_GetSystemClock 时基——它**非纯 getter**（调 pfnTimerCBs 累加 gTmosPara，反汇编核实），每圈含一次 __udivdi3（clockGetTickValve 内），PC 采样实测占主循环 5/6 时间，弃用。连接期间 GAP/GATT 事件静默消费（阻塞 UART println 会饿死 TMOS 泵）。
+
+**烧录工具链事故（诚实记录）**：`wlink flash <elf>`（无 verify）烧 M14 首版后**广播消失**；wlink dump 读外设/RAM 出现与运行态矛盾的值（CLK_SYS_CFG/pfnTimerCBs 等，halted 与 running 读一致但和固件行为不符——wlink dump 外设读可靠性存疑，本节不以其为证据）。改 **MRS OpenOCD `program <elf> verify reset exit` → Verified OK 后广播立即恢复**。结论：CH58x 烧录一律走 OpenOCD program verify（M13 流程），wlink flash 产物不可信；寄存器证据以 OpenOCD+gdb 为准。另：WCH-Link 当日多次自发 USB 掉线重枚举（内核日志可查），掉线期间 OpenOCD 读全零/attach 失败——取证前先确认探针在线。
+
+**闭环（2026-11-18 上午）**：
+- **LSE 全链固件（enable_lse + SelRTCClock=0）实机连接建立成功 ×3**（bluez Device1.Connect → Connected=true；M13 固件从未连上）。根因 #5 坐实：32K 域错配（硬件 LSI vs 库 LSE）。
+- **宿主适配器定位**：连上后 GATT 发现极慢（~30s）且链路 ~30s 掉（ATT 超时）；**官方 C Peripheral.hex 对照现象完全相同**；内核日志每次连接时刻报 `Bluetooth: Unexpected continuation frame (len 7)`（L2CAP 孤儿续帧=起始帧丢失）。**用户手机 nRF Connect 对照：C 固件秒级发现 FFE0+FFE1–FFE5、FFE1 读写成功** → 板子 RF/协议栈正常，**卡点在本机 Intel AX210 适配器 LE 数据通路**（WiFi/BT 共存或固件问题；适配器 D-Bus 断电重启无效）。宿主侧 GATT 验证改由手机承担。
+- **发货配置**：`ble.clock32k` 缺省 **lse**（官方模组标配晶振，连接已验证）；lsi 回退保留（无晶振板，校准未移植、连接稳定性未保证，UI 有警告文案）。发货版 Rust 固件（LSE + stack_init + 连续轮询 + SysTick notify）已 OpenOCD Verified OK 烧录，广播 CH582M 正常；手机对 Rust 固件的 FFE1/FFE2 读写+notify 验证进行中。
+- 生成服务语义（手机验证判据）：读 FFE1=00 → 写 FFE2=42 → 读 FFE1=42 + notify 订阅每秒收 42（write 落 notify_value，read/notify 返回它）。
+- **手机对 Rust 发货固件读写成功（用户实测确认）**：CH582M 连接 → FFE0/FFE1/FFE2 发现 → FFE2 写 → FFE1 读回一致。**Rust 生成固件 BLE 全链路（广播→连接→GATT 发现→读写）实机闭环**。notify 订阅发送路径编译 verified，周期待实测确认（不宣称已验证）。
+
 ### 14.3 M12 验证状态
 
 - 1222 测试全绿（+124：ch58xBleCodegen 70 / bleRules 23 / bleProjectFile 15 / ideConfig ch58x 13 / 默认时钟 3）；tsc/eslint/validate/build ✓。

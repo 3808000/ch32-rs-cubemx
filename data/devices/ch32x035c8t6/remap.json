@@ -1,0 +1,916 @@
+{
+  "chip": "CH32X035C8T6",
+  "entries": [
+    {
+      "pin": "PA10",
+      "signal": "I2C1_SCL",
+      "remap": 0
+    },
+    {
+      "pin": "PA13",
+      "signal": "I2C1_SCL",
+      "remap": 1
+    },
+    {
+      "pin": "PC16",
+      "signal": "I2C1_SCL",
+      "remap": 2
+    },
+    {
+      "pin": "PC17",
+      "signal": "I2C1_SCL",
+      "remap": 4
+    },
+    {
+      "pin": "PC18",
+      "signal": "I2C1_SCL",
+      "remap": 5
+    },
+    {
+      "pin": "PC19",
+      "signal": "I2C1_SCL",
+      "remap": 3
+    },
+    {
+      "pin": "PA11",
+      "signal": "I2C1_SDA",
+      "remap": 0
+    },
+    {
+      "pin": "PA14",
+      "signal": "I2C1_SDA",
+      "remap": 1
+    },
+    {
+      "pin": "PC16",
+      "signal": "I2C1_SDA",
+      "remap": 4
+    },
+    {
+      "pin": "PC17",
+      "signal": "I2C1_SDA",
+      "remap": 2
+    },
+    {
+      "pin": "PC18",
+      "signal": "I2C1_SDA",
+      "remap": 3
+    },
+    {
+      "pin": "PC19",
+      "signal": "I2C1_SDA",
+      "remap": 5
+    },
+    {
+      "pin": "PB5",
+      "signal": "I2C1_SMBA",
+      "remap": 0
+    },
+    {
+      "pin": "PB9",
+      "signal": "RCC_MCO",
+      "remap": 0
+    },
+    {
+      "pin": "PA6",
+      "signal": "SPI1_MISO",
+      "remap": 0
+    },
+    {
+      "pin": "PA9",
+      "signal": "SPI1_MISO",
+      "remap": 2
+    },
+    {
+      "pin": "PA10",
+      "signal": "SPI1_MOSI",
+      "remap": 2
+    },
+    {
+      "pin": "PA7",
+      "signal": "SPI1_MOSI",
+      "remap": 0
+    },
+    {
+      "pin": "PA12",
+      "signal": "SPI1_NSS",
+      "remap": 2
+    },
+    {
+      "pin": "PA4",
+      "signal": "SPI1_NSS",
+      "remap": 0
+    },
+    {
+      "pin": "PA11",
+      "signal": "SPI1_SCK",
+      "remap": 2
+    },
+    {
+      "pin": "PA5",
+      "signal": "SPI1_SCK",
+      "remap": 0
+    },
+    {
+      "pin": "PA6",
+      "signal": "TIM1_BKIN",
+      "remap": 1
+    },
+    {
+      "pin": "PB5",
+      "signal": "TIM1_BKIN",
+      "remap": 0
+    },
+    {
+      "pin": "PB5",
+      "signal": "TIM1_BKIN",
+      "remap": 2
+    },
+    {
+      "pin": "PB9",
+      "signal": "TIM1_CH1",
+      "remap": 0
+    },
+    {
+      "pin": "PB9",
+      "signal": "TIM1_CH1",
+      "remap": 1
+    },
+    {
+      "pin": "PB9",
+      "signal": "TIM1_CH1",
+      "remap": 2
+    },
+    {
+      "pin": "PA7",
+      "signal": "TIM1_CH1N",
+      "remap": 1
+    },
+    {
+      "pin": "PB6",
+      "signal": "TIM1_CH1N",
+      "remap": 0
+    },
+    {
+      "pin": "PB6",
+      "signal": "TIM1_CH1N",
+      "remap": 2
+    },
+    {
+      "pin": "PB10",
+      "signal": "TIM1_CH2",
+      "remap": 0
+    },
+    {
+      "pin": "PB10",
+      "signal": "TIM1_CH2",
+      "remap": 1
+    },
+    {
+      "pin": "PB10",
+      "signal": "TIM1_CH2",
+      "remap": 2
+    },
+    {
+      "pin": "PB0",
+      "signal": "TIM1_CH2N",
+      "remap": 1
+    },
+    {
+      "pin": "PB7",
+      "signal": "TIM1_CH2N",
+      "remap": 0
+    },
+    {
+      "pin": "PB7",
+      "signal": "TIM1_CH2N",
+      "remap": 2
+    },
+    {
+      "pin": "PC6",
+      "signal": "TIM1_CH2N",
+      "remap": 3
+    },
+    {
+      "pin": "PB11",
+      "signal": "TIM1_CH3",
+      "remap": 0
+    },
+    {
+      "pin": "PB11",
+      "signal": "TIM1_CH3",
+      "remap": 1
+    },
+    {
+      "pin": "PB11",
+      "signal": "TIM1_CH3",
+      "remap": 2
+    },
+    {
+      "pin": "PB1",
+      "signal": "TIM1_CH3N",
+      "remap": 1
+    },
+    {
+      "pin": "PB8",
+      "signal": "TIM1_CH3N",
+      "remap": 0
+    },
+    {
+      "pin": "PB8",
+      "signal": "TIM1_CH3N",
+      "remap": 2
+    },
+    {
+      "pin": "PC7",
+      "signal": "TIM1_CH3N",
+      "remap": 3
+    },
+    {
+      "pin": "PB12",
+      "signal": "TIM1_CH4",
+      "remap": 2
+    },
+    {
+      "pin": "PC16",
+      "signal": "TIM1_CH4",
+      "remap": 0
+    },
+    {
+      "pin": "PC16",
+      "signal": "TIM1_CH4",
+      "remap": 1
+    },
+    {
+      "pin": "PC17",
+      "signal": "TIM1_ETR",
+      "remap": 0
+    },
+    {
+      "pin": "PC17",
+      "signal": "TIM1_ETR",
+      "remap": 1
+    },
+    {
+      "pin": "PC18",
+      "signal": "TIM1_ETR",
+      "remap": 2
+    },
+    {
+      "pin": "PC18",
+      "signal": "TIM1_ETR",
+      "remap": 3
+    },
+    {
+      "pin": "PA20",
+      "signal": "TIM2_BKIN",
+      "remap": 0
+    },
+    {
+      "pin": "PA20",
+      "signal": "TIM2_BKIN",
+      "remap": 2
+    },
+    {
+      "pin": "PA9",
+      "signal": "TIM2_BKIN",
+      "remap": 1
+    },
+    {
+      "pin": "PA9",
+      "signal": "TIM2_BKIN",
+      "remap": 3
+    },
+    {
+      "pin": "PB4",
+      "signal": "TIM2_BKIN",
+      "remap": 5
+    },
+    {
+      "pin": "PB4",
+      "signal": "TIM2_BKIN",
+      "remap": 6
+    },
+    {
+      "pin": "PA0",
+      "signal": "TIM2_CH1",
+      "remap": 0
+    },
+    {
+      "pin": "PA0",
+      "signal": "TIM2_CH1",
+      "remap": 2
+    },
+    {
+      "pin": "PC19",
+      "signal": "TIM2_CH1",
+      "remap": 5
+    },
+    {
+      "pin": "PC19",
+      "signal": "TIM2_CH1",
+      "remap": 6
+    },
+    {
+      "pin": "PA12",
+      "signal": "TIM2_CH1N",
+      "remap": 1
+    },
+    {
+      "pin": "PA12",
+      "signal": "TIM2_CH1N",
+      "remap": 3
+    },
+    {
+      "pin": "PA21",
+      "signal": "TIM2_CH1N",
+      "remap": 0
+    },
+    {
+      "pin": "PB11",
+      "signal": "TIM2_CH1N",
+      "remap": 6
+    },
+    {
+      "pin": "PC18",
+      "signal": "TIM2_CH1N",
+      "remap": 5
+    },
+    {
+      "pin": "PA1",
+      "signal": "TIM2_CH2",
+      "remap": 0
+    },
+    {
+      "pin": "PA1",
+      "signal": "TIM2_CH2",
+      "remap": 2
+    },
+    {
+      "pin": "PA12",
+      "signal": "TIM2_CH2",
+      "remap": 5
+    },
+    {
+      "pin": "PC14",
+      "signal": "TIM2_CH2",
+      "remap": 6
+    },
+    {
+      "pin": "PA13",
+      "signal": "TIM2_CH2N",
+      "remap": 1
+    },
+    {
+      "pin": "PA13",
+      "signal": "TIM2_CH2N",
+      "remap": 3
+    },
+    {
+      "pin": "PA22",
+      "signal": "TIM2_CH2N",
+      "remap": 0
+    },
+    {
+      "pin": "PA22",
+      "signal": "TIM2_CH2N",
+      "remap": 2
+    },
+    {
+      "pin": "PB12",
+      "signal": "TIM2_CH2N",
+      "remap": 5
+    },
+    {
+      "pin": "PB12",
+      "signal": "TIM2_CH2N",
+      "remap": 6
+    },
+    {
+      "pin": "PA13",
+      "signal": "TIM2_CH3",
+      "remap": 5
+    },
+    {
+      "pin": "PA2",
+      "signal": "TIM2_CH3",
+      "remap": 0
+    },
+    {
+      "pin": "PA2",
+      "signal": "TIM2_CH3",
+      "remap": 1
+    },
+    {
+      "pin": "PB3",
+      "signal": "TIM2_CH3",
+      "remap": 2
+    },
+    {
+      "pin": "PB3",
+      "signal": "TIM2_CH3",
+      "remap": 3
+    },
+    {
+      "pin": "PC15",
+      "signal": "TIM2_CH3",
+      "remap": 6
+    },
+    {
+      "pin": "PA14",
+      "signal": "TIM2_CH3N",
+      "remap": 1
+    },
+    {
+      "pin": "PA14",
+      "signal": "TIM2_CH3N",
+      "remap": 3
+    },
+    {
+      "pin": "PA23",
+      "signal": "TIM2_CH3N",
+      "remap": 0
+    },
+    {
+      "pin": "PA23",
+      "signal": "TIM2_CH3N",
+      "remap": 2
+    },
+    {
+      "pin": "PB3",
+      "signal": "TIM2_CH3N",
+      "remap": 5
+    },
+    {
+      "pin": "PB3",
+      "signal": "TIM2_CH3N",
+      "remap": 6
+    },
+    {
+      "pin": "PA3",
+      "signal": "TIM2_CH4",
+      "remap": 0
+    },
+    {
+      "pin": "PA3",
+      "signal": "TIM2_CH4",
+      "remap": 1
+    },
+    {
+      "pin": "PB4",
+      "signal": "TIM2_CH4",
+      "remap": 2
+    },
+    {
+      "pin": "PB4",
+      "signal": "TIM2_CH4",
+      "remap": 3
+    },
+    {
+      "pin": "PA18",
+      "signal": "TIM2_ETR",
+      "remap": 1
+    },
+    {
+      "pin": "PA18",
+      "signal": "TIM2_ETR",
+      "remap": 3
+    },
+    {
+      "pin": "PA19",
+      "signal": "TIM2_ETR",
+      "remap": 0
+    },
+    {
+      "pin": "PA19",
+      "signal": "TIM2_ETR",
+      "remap": 2
+    },
+    {
+      "pin": "PA2",
+      "signal": "TIM2_ETR",
+      "remap": 5
+    },
+    {
+      "pin": "PA2",
+      "signal": "TIM2_ETR",
+      "remap": 6
+    },
+    {
+      "pin": "PA3",
+      "signal": "TIM3_CH1",
+      "remap": 3
+    },
+    {
+      "pin": "PA6",
+      "signal": "TIM3_CH1",
+      "remap": 0
+    },
+    {
+      "pin": "PB4",
+      "signal": "TIM3_CH1",
+      "remap": 1
+    },
+    {
+      "pin": "PC19",
+      "signal": "TIM3_CH1",
+      "remap": 2
+    },
+    {
+      "pin": "PA4",
+      "signal": "TIM3_CH2",
+      "remap": 3
+    },
+    {
+      "pin": "PA7",
+      "signal": "TIM3_CH2",
+      "remap": 0
+    },
+    {
+      "pin": "PB5",
+      "signal": "TIM3_CH2",
+      "remap": 1
+    },
+    {
+      "pin": "PC18",
+      "signal": "TIM3_CH2",
+      "remap": 2
+    },
+    {
+      "pin": "PB12",
+      "signal": "USART1_CK",
+      "remap": 3
+    },
+    {
+      "pin": "PB5",
+      "signal": "USART1_CK",
+      "remap": 2
+    },
+    {
+      "pin": "PB9",
+      "signal": "USART1_CK",
+      "remap": 0
+    },
+    {
+      "pin": "PB9",
+      "signal": "USART1_CK",
+      "remap": 1
+    },
+    {
+      "pin": "PA13",
+      "signal": "USART1_CTS",
+      "remap": 3
+    },
+    {
+      "pin": "PA9",
+      "signal": "USART1_CTS",
+      "remap": 2
+    },
+    {
+      "pin": "PC16",
+      "signal": "USART1_CTS",
+      "remap": 0
+    },
+    {
+      "pin": "PC16",
+      "signal": "USART1_CTS",
+      "remap": 1
+    },
+    {
+      "pin": "PA14",
+      "signal": "USART1_RTS",
+      "remap": 3
+    },
+    {
+      "pin": "PA8",
+      "signal": "USART1_RTS",
+      "remap": 2
+    },
+    {
+      "pin": "PC17",
+      "signal": "USART1_RTS",
+      "remap": 0
+    },
+    {
+      "pin": "PC17",
+      "signal": "USART1_RTS",
+      "remap": 1
+    },
+    {
+      "pin": "PA11",
+      "signal": "USART1_RX",
+      "remap": 1
+    },
+    {
+      "pin": "PB11",
+      "signal": "USART1_RX",
+      "remap": 0
+    },
+    {
+      "pin": "PB11",
+      "signal": "USART1_RX",
+      "remap": 2
+    },
+    {
+      "pin": "PB2",
+      "signal": "USART1_RX",
+      "remap": 3
+    },
+    {
+      "pin": "PA10",
+      "signal": "USART1_TX",
+      "remap": 1
+    },
+    {
+      "pin": "PA7",
+      "signal": "USART1_TX",
+      "remap": 3
+    },
+    {
+      "pin": "PB10",
+      "signal": "USART1_TX",
+      "remap": 0
+    },
+    {
+      "pin": "PB10",
+      "signal": "USART1_TX",
+      "remap": 2
+    },
+    {
+      "pin": "PA22",
+      "signal": "USART2_CK",
+      "remap": 2
+    },
+    {
+      "pin": "PA22",
+      "signal": "USART2_CK",
+      "remap": 4
+    },
+    {
+      "pin": "PA23",
+      "signal": "USART2_CK",
+      "remap": 1
+    },
+    {
+      "pin": "PA4",
+      "signal": "USART2_CK",
+      "remap": 0
+    },
+    {
+      "pin": "PA0",
+      "signal": "USART2_CTS",
+      "remap": 0
+    },
+    {
+      "pin": "PA1",
+      "signal": "USART2_CTS",
+      "remap": 1
+    },
+    {
+      "pin": "PA17",
+      "signal": "USART2_CTS",
+      "remap": 2
+    },
+    {
+      "pin": "PA17",
+      "signal": "USART2_CTS",
+      "remap": 4
+    },
+    {
+      "pin": "PA1",
+      "signal": "USART2_RTS",
+      "remap": 0
+    },
+    {
+      "pin": "PA2",
+      "signal": "USART2_RTS",
+      "remap": 1
+    },
+    {
+      "pin": "PA21",
+      "signal": "USART2_RTS",
+      "remap": 2
+    },
+    {
+      "pin": "PA16",
+      "signal": "USART2_RX",
+      "remap": 2
+    },
+    {
+      "pin": "PA16",
+      "signal": "USART2_RX",
+      "remap": 4
+    },
+    {
+      "pin": "PA19",
+      "signal": "USART2_RX",
+      "remap": 1
+    },
+    {
+      "pin": "PA3",
+      "signal": "USART2_RX",
+      "remap": 0
+    },
+    {
+      "pin": "PA15",
+      "signal": "USART2_TX",
+      "remap": 2
+    },
+    {
+      "pin": "PA15",
+      "signal": "USART2_TX",
+      "remap": 4
+    },
+    {
+      "pin": "PA2",
+      "signal": "USART2_TX",
+      "remap": 0
+    },
+    {
+      "pin": "PA20",
+      "signal": "USART2_TX",
+      "remap": 1
+    },
+    {
+      "pin": "PB5",
+      "signal": "USART3_CK",
+      "remap": 0
+    },
+    {
+      "pin": "PB5",
+      "signal": "USART3_CK",
+      "remap": 1
+    },
+    {
+      "pin": "PB6",
+      "signal": "USART3_CTS",
+      "remap": 0
+    },
+    {
+      "pin": "PB6",
+      "signal": "USART3_CTS",
+      "remap": 1
+    },
+    {
+      "pin": "PB7",
+      "signal": "USART3_RTS",
+      "remap": 0
+    },
+    {
+      "pin": "PB7",
+      "signal": "USART3_RTS",
+      "remap": 1
+    },
+    {
+      "pin": "PB4",
+      "signal": "USART3_RX",
+      "remap": 0
+    },
+    {
+      "pin": "PC19",
+      "signal": "USART3_RX",
+      "remap": 1
+    },
+    {
+      "pin": "PB3",
+      "signal": "USART3_TX",
+      "remap": 0
+    },
+    {
+      "pin": "PC18",
+      "signal": "USART3_TX",
+      "remap": 1
+    },
+    {
+      "pin": "PA6",
+      "signal": "USART4_CK",
+      "remap": 1
+    },
+    {
+      "pin": "PA8",
+      "signal": "USART4_CK",
+      "remap": 4
+    },
+    {
+      "pin": "PB2",
+      "signal": "USART4_CK",
+      "remap": 0
+    },
+    {
+      "pin": "PB2",
+      "signal": "USART4_CK",
+      "remap": 2
+    },
+    {
+      "pin": "PB2",
+      "signal": "USART4_CK",
+      "remap": 5
+    },
+    {
+      "pin": "PB8",
+      "signal": "USART4_CK",
+      "remap": 3
+    },
+    {
+      "pin": "PA14",
+      "signal": "USART4_CTS",
+      "remap": 3
+    },
+    {
+      "pin": "PA5",
+      "signal": "USART4_CTS",
+      "remap": 4
+    },
+    {
+      "pin": "PA7",
+      "signal": "USART4_CTS",
+      "remap": 1
+    },
+    {
+      "pin": "PA13",
+      "signal": "USART4_RTS",
+      "remap": 3
+    },
+    {
+      "pin": "PA6",
+      "signal": "USART4_RTS",
+      "remap": 4
+    },
+    {
+      "pin": "PA8",
+      "signal": "USART4_RTS",
+      "remap": 0
+    },
+    {
+      "pin": "PA8",
+      "signal": "USART4_RTS",
+      "remap": 2
+    },
+    {
+      "pin": "PA8",
+      "signal": "USART4_RTS",
+      "remap": 5
+    },
+    {
+      "pin": "PA10",
+      "signal": "USART4_RX",
+      "remap": 3
+    },
+    {
+      "pin": "PA9",
+      "signal": "USART4_RX",
+      "remap": 1
+    },
+    {
+      "pin": "PB1",
+      "signal": "USART4_RX",
+      "remap": 0
+    },
+    {
+      "pin": "PC16",
+      "signal": "USART4_RX",
+      "remap": 5
+    },
+    {
+      "pin": "PC17",
+      "signal": "USART4_RX",
+      "remap": 2
+    },
+    {
+      "pin": "PC19",
+      "signal": "USART4_RX",
+      "remap": 4
+    },
+    {
+      "pin": "PA5",
+      "signal": "USART4_TX",
+      "remap": 1
+    },
+    {
+      "pin": "PB0",
+      "signal": "USART4_TX",
+      "remap": 0
+    },
+    {
+      "pin": "PB13",
+      "signal": "USART4_TX",
+      "remap": 4
+    },
+    {
+      "pin": "PB9",
+      "signal": "USART4_TX",
+      "remap": 3
+    },
+    {
+      "pin": "PC16",
+      "signal": "USART4_TX",
+      "remap": 2
+    },
+    {
+      "pin": "PC17",
+      "signal": "USART4_TX",
+      "remap": 5
+    }
+  ],
+  "notes": "由 import-ch32data.mjs 从 ch32-data family/CH32X0.yaml + peripherals/X035_I2C1.yaml + peripherals/X035_USBPD.yaml 合并生成，PCFR 分组 remap 值与 ch32-hal const 泛型一致；再按 CH32X035DS0 V2.3 表 2-1 的 LQFP48 引脚表裁剪：剔除 LQFP48 未引出的引脚（PB14/PB15/PB16-PB19/PB20/PB21/PC0-PC5）相关条目 37 条；剔除整档不可用的外设 remap（USART3 remap2 的 RX 在 PB14、SPI1 remap1 的 SCK 在 PB15、SPI1 remap3 的 SCK 在 PC5，均未引出）8 条；补录 SPI1_SCK@PA11 remap2（ch32-data CH32X0.yaml SPI1 pins 注释「10: Mapping (NSS/PA12, CK/PA11, MISO/PA9, MOSI/PA10)」漏写的 SCK 条目，数据手册表 2-3 PA11 亦标注 SCK_2，HAL const 泛型 SPI1 remap2 需要它）。"
+}

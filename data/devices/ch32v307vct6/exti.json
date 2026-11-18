@@ -1,0 +1,406 @@
+{
+  "chip": "CH32V307VCT6",
+  "entries": [
+    {
+      "pin": "PA0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PA1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PA2",
+      "channel": 2,
+      "irq": "EXTI2"
+    },
+    {
+      "pin": "PA3",
+      "channel": 3,
+      "irq": "EXTI3"
+    },
+    {
+      "pin": "PA4",
+      "channel": 4,
+      "irq": "EXTI4"
+    },
+    {
+      "pin": "PA5",
+      "channel": 5,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA6",
+      "channel": 6,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA7",
+      "channel": 7,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA8",
+      "channel": 8,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA9",
+      "channel": 9,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PA10",
+      "channel": 10,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA11",
+      "channel": 11,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA12",
+      "channel": 12,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PA15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PB1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PB2",
+      "channel": 2,
+      "irq": "EXTI2"
+    },
+    {
+      "pin": "PB3",
+      "channel": 3,
+      "irq": "EXTI3"
+    },
+    {
+      "pin": "PB4",
+      "channel": 4,
+      "irq": "EXTI4"
+    },
+    {
+      "pin": "PB5",
+      "channel": 5,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB6",
+      "channel": 6,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB7",
+      "channel": 7,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB8",
+      "channel": 8,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB9",
+      "channel": 9,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PB10",
+      "channel": 10,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB11",
+      "channel": 11,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB12",
+      "channel": 12,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PB15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PC1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PC2",
+      "channel": 2,
+      "irq": "EXTI2"
+    },
+    {
+      "pin": "PC3",
+      "channel": 3,
+      "irq": "EXTI3"
+    },
+    {
+      "pin": "PC4",
+      "channel": 4,
+      "irq": "EXTI4"
+    },
+    {
+      "pin": "PC5",
+      "channel": 5,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PC6",
+      "channel": 6,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PC7",
+      "channel": 7,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PC8",
+      "channel": 8,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PC9",
+      "channel": 9,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PC10",
+      "channel": 10,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC11",
+      "channel": 11,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC12",
+      "channel": 12,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PC15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PD0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PD1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PD2",
+      "channel": 2,
+      "irq": "EXTI2"
+    },
+    {
+      "pin": "PD3",
+      "channel": 3,
+      "irq": "EXTI3"
+    },
+    {
+      "pin": "PD4",
+      "channel": 4,
+      "irq": "EXTI4"
+    },
+    {
+      "pin": "PD5",
+      "channel": 5,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PD6",
+      "channel": 6,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PD7",
+      "channel": 7,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PD8",
+      "channel": 8,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PD9",
+      "channel": 9,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PD10",
+      "channel": 10,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PD11",
+      "channel": 11,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PD12",
+      "channel": 12,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PD13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PD14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PD15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PE0",
+      "channel": 0,
+      "irq": "EXTI0"
+    },
+    {
+      "pin": "PE1",
+      "channel": 1,
+      "irq": "EXTI1"
+    },
+    {
+      "pin": "PE2",
+      "channel": 2,
+      "irq": "EXTI2"
+    },
+    {
+      "pin": "PE3",
+      "channel": 3,
+      "irq": "EXTI3"
+    },
+    {
+      "pin": "PE4",
+      "channel": 4,
+      "irq": "EXTI4"
+    },
+    {
+      "pin": "PE5",
+      "channel": 5,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PE6",
+      "channel": 6,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PE7",
+      "channel": 7,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PE8",
+      "channel": 8,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PE9",
+      "channel": 9,
+      "irq": "EXTI9_5"
+    },
+    {
+      "pin": "PE10",
+      "channel": 10,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PE11",
+      "channel": 11,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PE12",
+      "channel": 12,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PE13",
+      "channel": 13,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PE14",
+      "channel": 14,
+      "irq": "EXTI15_10"
+    },
+    {
+      "pin": "PE15",
+      "channel": 15,
+      "irq": "EXTI15_10"
+    }
+  ],
+  "notes": "V307 16 条 EXTI 线（ch32-hal src/exti.rs：非 ch32v0/ch32m0 启用 _exti_16lines；家族 YAML 中断表 EXTI0..4/EXTI9_5/EXTI15_10，importer interrupts.json 已核对：EXTI0=22..EXTI4=26、EXTI9_5=39、EXTI15_10=56）。LQFP100 的 80 个 GPIO（PA0-15/PB0-15/PC0-15/PD0-15/PE0-15）逐脚录入，channel=端口内引脚号；12/13 脚为专用 HSE OSC_IN/OSC_OUT（special=osc，非 GPIO 端口，不能作为 EXTI 线），故不录入；17 个 POWER 与 1 个 NC（73 脚）不录入。"
+}

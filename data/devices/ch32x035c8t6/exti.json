@@ -1,0 +1,235 @@
+{
+  "chip": "CH32X035C8T6",
+  "entries": [
+    {
+      "pin": "PA0",
+      "channel": 0,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA1",
+      "channel": 1,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA2",
+      "channel": 2,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA3",
+      "channel": 3,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA4",
+      "channel": 4,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA5",
+      "channel": 5,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA6",
+      "channel": 6,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA7",
+      "channel": 7,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PA8",
+      "channel": 8,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA9",
+      "channel": 9,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA10",
+      "channel": 10,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA11",
+      "channel": 11,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA12",
+      "channel": 12,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA13",
+      "channel": 13,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA14",
+      "channel": 14,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA15",
+      "channel": 15,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PA16",
+      "channel": 16,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PA17",
+      "channel": 17,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PA18",
+      "channel": 18,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PA19",
+      "channel": 19,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PA20",
+      "channel": 20,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PA21",
+      "channel": 21,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PA22",
+      "channel": 22,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PA23",
+      "channel": 23,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PB0",
+      "channel": 0,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB1",
+      "channel": 1,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB2",
+      "channel": 2,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB3",
+      "channel": 3,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB4",
+      "channel": 4,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB5",
+      "channel": 5,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB6",
+      "channel": 6,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB7",
+      "channel": 7,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PB8",
+      "channel": 8,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PB9",
+      "channel": 9,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PB10",
+      "channel": 10,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PB11",
+      "channel": 11,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PB12",
+      "channel": 12,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PB13",
+      "channel": 13,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PC6",
+      "channel": 6,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PC7",
+      "channel": 7,
+      "irq": "EXTI7_0"
+    },
+    {
+      "pin": "PC14",
+      "channel": 14,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PC15",
+      "channel": 15,
+      "irq": "EXTI15_8"
+    },
+    {
+      "pin": "PC16",
+      "channel": 16,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PC17",
+      "channel": 17,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PC18",
+      "channel": 18,
+      "irq": "EXTI25_16"
+    },
+    {
+      "pin": "PC19",
+      "channel": 19,
+      "irq": "EXTI25_16"
+    }
+  ]
+}

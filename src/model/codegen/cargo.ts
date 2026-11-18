@@ -24,7 +24,10 @@ export function renderSkeletonFiles(
   }
   const packageName = sanitizePackageName(config.projectName)
   const nightly = data.chip.nightly
-  const jsonTarget = nightly && data.chip.target === 'riscv32ec-unknown-none-elf'
+  // 自定义 target JSON：内建 tier-3 rv32ec（V003）或芯片数据自带 targetSpec（M14，如 V307）
+  const targetSpec = data.chip.targetSpec
+  const jsonTarget = nightly && (data.chip.target === 'riscv32ec-unknown-none-elf' || targetSpec != null)
+  const jsonTargetFile = targetSpec != null ? `${data.chip.target}.json` : 'riscv32ec-unknown-none-elf.json'
   const feats = [data.chip.halFeature]
   if (embassy) feats.push('embassy', 'time-driver-tim2')
   feats.push('rt', 'exti', 'memory-x')
@@ -49,12 +52,18 @@ export function renderSkeletonFiles(
     content: render(T.CARGO_CONFIG_TPL, {
       target: data.chip.target,
       jsonTarget,
-      jsonTargetFile: 'riscv32ec-unknown-none-elf.json',
+      jsonTargetFile,
     }),
   })
   files.push({ path: 'build.rs', content: render(T.BUILD_RS_TPL, {}) })
   files.push({ path: '.gitignore', content: T.GITIGNORE_TPL })
-  if (jsonTarget) files.push({ path: 'riscv32ec-unknown-none-elf.json', content: T.TARGET_RISCV32EC_TPL })
+  // targetSpec：内容逐字来自数据（JSON.stringify + 末尾换行）；V003 旧路径保持内置模板逐字节不变
+  if (jsonTarget) {
+    files.push({
+      path: jsonTargetFile,
+      content: targetSpec != null ? `${JSON.stringify(targetSpec, null, 2)}\n` : T.TARGET_RISCV32EC_TPL,
+    })
+  }
   files.push(...renderIdeConfigFiles(config, data, sel))
   return files
 }

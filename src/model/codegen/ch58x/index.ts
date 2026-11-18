@@ -40,8 +40,9 @@ export function generateCh58xProject(
   // 生成骨架按 busy-poll 运行时处理：不用 embassy executor/Timer、不用 nightly feature。
   // 因此“运行时 embassy”只看非 BLE 工程——ble 分支生成器完全忽略 features.embassy。
   const embassy = (config.features?.embassy ?? false) && !ble
-  // 时钟生成被 BLE 强制打开：ble::init 硬编码 SelRTCClock=0，需要 clock.rs 生成 PLL 主频配置。
-  // M13：BLE 档不再追加 enable_lse()（板子可能无 LSE 晶振；库在 SelRTCClock=0 时内部回退 LSI）。
+  // 时钟生成被 BLE 强制打开：协议栈需要 PLL 主频配置 + 32K 低频域。
+  // M14：ble.clock32k 缺省 lse → enable_lse() + stack_init SelRTCClock=0（实机连接建立已验证）；
+  // lsi 选项（无晶振板）→ 不追加 enable_lse + SelRTCClock=1（LSI 校准未移植，连接稳定性未保证）。
   const clockUsed = sel.clock || ble
 
   // 1. 配置期冲突（error 阻止导出）；unlockedPins 与 preflight 保持一致（CH582M 的 PB23=nrst 可解锁）
@@ -56,8 +57,11 @@ export function generateCh58xProject(
   // 2b. BLE 生成期兜底（D2/D3/D7；冲突链已报的 code 不重复报）
   errors.push(...bleGenerationErrors(config, new Set(errors.map((e) => e.code))))
 
-  // 3. 时钟：只支持 PLL（预设方法或显式 ClockSrc::PLL(div)）
-  const clockPlan = resolveClock(config, data)
+  // 3. 时钟：只支持 PLL（预设方法或显式 ClockSrc::PLL(div)）；BLE 档按 clock32k 决定 LSE
+  const clockPlan = {
+    ...resolveClock(config, data),
+    enableLse: ble && (config.ble?.clock32k ?? 'lse') === 'lse',
+  }
   if (clockUsed && clockPlan.error) errors.push(clockPlan.error)
 
   if (errors.length > 0) return { files: [], errors }

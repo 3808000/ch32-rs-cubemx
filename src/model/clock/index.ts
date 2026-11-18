@@ -9,7 +9,9 @@ export function isClockNodeLocked(cfg: ClockConfig, nodeId: string): boolean {
 
 /** 节点是否可锁定：有可编辑参数的时钟节点（HSE 晶振 / PLL / SYSCLK / 总线 / ADC）。 */
 export function isClockNodeLockable(spec: ClockData, nodeId: string): boolean {
-  if (nodeId === 'PLL' || nodeId === 'SYSCLK' || nodeId === 'AHB' || nodeId === 'APB1' || nodeId === 'APB2' || nodeId === 'ADC') {
+  // 无 PLL 芯片（M14，如 X035）不存在 PLL 节点，自然不可锁定
+  if (nodeId === 'PLL') return !!spec.pll
+  if (nodeId === 'SYSCLK' || nodeId === 'AHB' || nodeId === 'APB1' || nodeId === 'APB2' || nodeId === 'ADC') {
     return true
   }
   // 源节点：只有带晶振频率的源（HSE）存在可保留的配置值
@@ -25,17 +27,24 @@ export function sourceFreqMhz(spec: ClockData, sourceId: string, cfg: ClockConfi
   return src.freqMhz ?? null
 }
 
-/** PLL 输出频率：固定 VCO 模型（fixedOutMhz ÷ div，如 CH582）或输入×倍频参数乘积（V003 固定 mul=2）。 */
+/**
+ * PLL 输出频率：固定 VCO 模型（fixedOutMhz ÷ div，如 CH582）或输入×倍频参数乘积。
+ * 非固定模型下参数键 `prediv` 做除法（in / prediv × mul，V1/V3），其余键做乘法（V003 固定 mul=2）。
+ * 无 PLL 数据时原样返回输入（仅防御，调用方不应在无 PLL 芯片上走 PLL 链）。
+ */
 export function pllOutMhz(spec: ClockData, pllIn: number, pllParams: Record<string, number>): number {
-  if (spec.pll.fixedOutMhz !== undefined) {
-    const divSpec = spec.pll.params.find((p) => p.key === 'div')
+  const pll = spec.pll
+  if (!pll) return pllIn
+  if (pll.fixedOutMhz !== undefined) {
+    const divSpec = pll.params.find((p) => p.key === 'div')
     const div = pllParams.div ?? divSpec?.default ?? 1
-    return spec.pll.fixedOutMhz / div
+    return pll.fixedOutMhz / div
   }
   let out = pllIn
-  for (const p of spec.pll.params) {
+  for (const p of pll.params) {
     const v = pllParams[p.key] ?? p.default
-    out *= v
+    if (p.key === 'prediv') out /= v
+    else out *= v
   }
   return out
 }
@@ -46,11 +55,14 @@ export function computeClock(spec: ClockData, cfg: ClockConfig): ClockFrequencie
   let pllOut: number | null = null
   let sysclk: number
 
-  if (cfg.source === 'PLL') {
+  if (cfg.source === 'PLL' && spec.pll) {
     const srcId = cfg.pllSource ?? spec.pll.sourceOptions[0]
     pllIn = sourceFreqMhz(spec, srcId, cfg)
     pllOut = pllIn === null ? null : pllOutMhz(spec, pllIn, cfg.pll ?? {})
     sysclk = pllOut ?? 0
+  } else if (cfg.source === 'PLL') {
+    // 无 PLL 数据的芯片选了 PLL：无有效时钟（validateClock 会报 SYSCLK 为 0）
+    sysclk = 0
   } else {
     sysclk = sourceFreqMhz(spec, cfg.source, cfg) ?? 0
   }
@@ -60,7 +72,9 @@ export function computeClock(spec: ClockData, cfg: ClockConfig): ClockFrequencie
   const pclk2 = hclk / cfg.apb2
 
   const adcOpt = spec.adc.options.find((o) => o.id === (cfg.adc ?? spec.adc.default)) ?? spec.adc.options[0]
-  const adcBase = adcOpt.source === 'AHB' ? hclk : adcOpt.source === 'APB1' ? pclk1 : pclk2
+  // ADC 源：X035 由 SYSCLK 经 CLK_DIV 分频（M14）；其余分支保持原语义
+  const adcBase =
+    adcOpt.source === 'SYSCLK' ? sysclk : adcOpt.source === 'AHB' ? hclk : adcOpt.source === 'APB1' ? pclk1 : pclk2
   const adc = adcBase / adcOpt.div
 
   // 定时器域：V003 直接 SYSCLK；其它家族 APB 分频>1 时 ×2（由数据字段 timerClock 决定）
@@ -95,18 +109,30 @@ export function validateClock(spec: ClockData, cfg: ClockConfig): ClockIssue[] {
     }
   }
 
-  if (cfg.source === 'PLL') {
-    if (!spec.pll.sourceOptions.includes(cfg.pllSource ?? '')) {
+  // 无 PLL 芯片（spec.pll 缺省）：跳过全部 PLL 校验；source=PLL 会由下方 SYSCLK 为 0 报错
+  if (cfg.source === 'PLL' && spec.pll) {
+    const pll = spec.pll
+    const pllSource = cfg.pllSource ?? ''
+    if (!pll.sourceOptions.includes(pllSource)) {
       issues.push({ node: 'PLL', level: 'error', message: `PLL 源 ${cfg.pllSource} 不合法` })
     }
-    for (const p of spec.pll.params) {
+    for (const p of pll.params) {
       const v = cfg.pll?.[p.key] ?? p.default
       if (!p.options.includes(v)) {
         issues.push({ node: 'PLL', level: 'error', message: `PLL 参数 ${p.label}=${v} 不在可选档位` })
       }
+      // 参数按当前 PLL 源的上限（M14，如 V307 prediv 在 HSI 源下 ≤2）
+      const maxBySource = p.maxBySource?.[pllSource]
+      if (maxBySource !== undefined && v > maxBySource) {
+        issues.push({
+          node: 'PLL',
+          level: 'error',
+          message: `PLL 参数 ${p.key}（${p.label}）=${v} 超出源 ${pllSource} 上限 ${maxBySource}`,
+        })
+      }
     }
-    if (f.pllOutMhz !== null && f.pllOutMhz > spec.pll.outMaxMhz) {
-      issues.push({ node: 'PLL', level: 'error', message: `PLL 输出 ${f.pllOutMhz}MHz 超过上限 ${spec.pll.outMaxMhz}MHz` })
+    if (f.pllOutMhz !== null && f.pllOutMhz > pll.outMaxMhz) {
+      issues.push({ node: 'PLL', level: 'error', message: `PLL 输出 ${f.pllOutMhz}MHz 超过上限 ${pll.outMaxMhz}MHz` })
     }
   }
 
@@ -156,23 +182,26 @@ export interface SolvePllOptions {
 /** 自动解算：枚举 PLL 源 × 参数档位，返回命中目标频率的候选（按源优先级排序）。 */
 export function solvePll(spec: ClockData, targetMhz: number, sourceId?: string, opts: SolvePllOptions = {}): PllCandidate[] {
   const out: PllCandidate[] = []
+  // 无 PLL 芯片（M14，如 X035）：无候选
+  if (!spec.pll) return out
+  const pll = spec.pll
   const locked = new Set(opts.locked ?? [])
   // SYSCLK 锁定在非 PLL 源时，无法切到 PLL → 无候选
   if (locked.has('SYSCLK') && opts.current && opts.current.source !== 'PLL') return []
-  let sources = sourceId ? [sourceId] : spec.pll.sourceOptions
+  let sources = sourceId ? [sourceId] : pll.sourceOptions
   // PLL 锁定：源与倍频参数都必须保留当前值
   if (locked.has('PLL')) {
-    const fixedSource = opts.current?.pllSource ?? spec.pll.sourceOptions[0]
+    const fixedSource = opts.current?.pllSource ?? pll.sourceOptions[0]
     sources = sources.filter((s) => s === fixedSource)
   }
   const paramCombos: Record<string, number>[] = []
   if (locked.has('PLL')) {
     const params: Record<string, number> = {}
-    for (const p of spec.pll.params) params[p.key] = opts.current?.pll?.[p.key] ?? p.default
+    for (const p of pll.params) params[p.key] = opts.current?.pll?.[p.key] ?? p.default
     paramCombos.push(params)
   } else {
     paramCombos.push({})
-    for (const p of spec.pll.params) {
+    for (const p of pll.params) {
       const next: Record<string, number>[] = []
       for (const combo of paramCombos) {
         for (const opt of p.options) next.push({ ...combo, [p.key]: opt })
@@ -193,7 +222,7 @@ export function solvePll(spec: ClockData, targetMhz: number, sourceId?: string, 
       if (inMhz === null) continue
       for (const params of paramCombos) {
         const outMhz = pllOutMhz(spec, inMhz, params)
-        if (Math.abs(outMhz - targetMhz) < 1e-6 && outMhz <= spec.pll.outMaxMhz) {
+        if (Math.abs(outMhz - targetMhz) < 1e-6 && outMhz <= pll.outMaxMhz) {
           out.push({ source: src, hxtalMhz: hxtal, params, outMhz })
         }
       }
@@ -205,11 +234,22 @@ export function solvePll(spec: ClockData, targetMhz: number, sourceId?: string, 
 /** 芯片默认档：第一个非 PLL 时钟源（通常 HSI，无 HSI 芯片则 HSE）+ 各分频默认值。 */
 export function defaultClock(spec: ClockData): ClockConfig {
   const hse = spec.sources.find((s) => s.id === 'HSE')
-  const pllDefaults: Record<string, number> = {}
-  for (const p of spec.pll.params) pllDefaults[p.key] = p.default
   // 不能写死 'HSI'：CH582M 等芯片只有 HSE + PLL，写死会导致默认 SYSCLK=0
   // M12：defaultSource 数据驱动优先（CH582M 指定 PLL——HSE 直连需 div=1 被 HAL assert 拒绝，不可生成）
   const defaultSource = spec.defaultSource ?? spec.sources.find((s) => !s.pll)?.id ?? spec.sources[0]?.id ?? ''
+  // 无 PLL 芯片（M14）：不写 pllSource/pll
+  if (!spec.pll) {
+    return {
+      source: defaultSource,
+      hxtalMhz: hse?.hxtal?.default,
+      ahb: spec.ahb.default,
+      apb1: spec.apb1.default,
+      apb2: spec.apb2.default,
+      adc: spec.adc.default,
+    }
+  }
+  const pllDefaults: Record<string, number> = {}
+  for (const p of spec.pll.params) pllDefaults[p.key] = p.default
   return {
     source: defaultSource,
     hxtalMhz: hse?.hxtal?.default,
@@ -229,8 +269,13 @@ export function mergeClockConfig(spec: ClockData, partial?: Partial<ClockConfig>
   const merged: ClockConfig = {
     source: partial.source ?? d.source,
     hxtalMhz: partial.hxtalMhz ?? d.hxtalMhz,
-    pllSource: partial.pllSource ?? d.pllSource,
-    pll: { ...d.pll, ...(partial.pll ?? {}) },
+    // 有 PLL：补默认参数；无 PLL（M14）：不补 pllSource/pll，仅保留旧配置里显式存在的值
+    ...(spec.pll
+      ? { pllSource: partial.pllSource ?? d.pllSource, pll: { ...d.pll, ...(partial.pll ?? {}) } }
+      : {
+          ...(partial.pllSource !== undefined ? { pllSource: partial.pllSource } : {}),
+          ...(partial.pll !== undefined ? { pll: { ...partial.pll } } : {}),
+        }),
     ahb: partial.ahb ?? d.ahb,
     apb1: partial.apb1 ?? d.apb1,
     apb2: partial.apb2 ?? d.apb2,
@@ -244,16 +289,19 @@ export function mergeClockConfig(spec: ClockData, partial?: Partial<ClockConfig>
 export function presetToConfig(spec: ClockData, preset: ClockPreset, base: ClockConfig): ClockConfig {
   const d = mergeClockConfig(spec, base)
   const m = preset.match
-  const pll = { ...d.pll }
-  for (const p of spec.pll.params) {
-    const v = (m as Record<string, unknown>)[p.key]
-    if (typeof v === 'number') pll[p.key] = v
+  let pllFields: { pllSource: string | undefined; pll: Record<string, number> } | Record<string, never> = {}
+  if (spec.pll) {
+    const pll = { ...d.pll }
+    for (const p of spec.pll.params) {
+      const v = (m as Record<string, unknown>)[p.key]
+      if (typeof v === 'number') pll[p.key] = v
+    }
+    pllFields = { pllSource: m.pllSource ?? spec.pll.sourceOptions[0], pll }
   }
   const next: ClockConfig = {
     source: m.source,
     hxtalMhz: m.hxtalMhz ?? d.hxtalMhz,
-    pllSource: m.pllSource ?? spec.pll.sourceOptions[0],
-    pll,
+    ...pllFields,
     ahb: m.ahb,
     apb1: m.apb1,
     apb2: m.apb2,
@@ -269,10 +317,10 @@ export function presetToConfig(spec: ClockData, preset: ClockPreset, base: Clock
  */
 export function applyClockPreset(spec: ClockData, cfg: ClockConfig, preset: ClockPreset): ClockConfig {
   const t = presetToConfig(spec, preset, cfg)
-  const next: ClockConfig = { ...cfg, pll: { ...(cfg.pll ?? {}) } }
+  const next: ClockConfig = spec.pll ? { ...cfg, pll: { ...(cfg.pll ?? {}) } } : { ...cfg }
   if (!isClockNodeLocked(cfg, 'SYSCLK')) next.source = t.source
   if (!isClockNodeLocked(cfg, 'HSE') && t.hxtalMhz !== undefined) next.hxtalMhz = t.hxtalMhz
-  if (!isClockNodeLocked(cfg, 'PLL')) {
+  if (spec.pll && !isClockNodeLocked(cfg, 'PLL')) {
     next.pllSource = t.pllSource
     next.pll = { ...(cfg.pll ?? {}), ...(t.pll ?? {}) }
   }
@@ -294,22 +342,25 @@ export interface MatchPresetOptions {
  * UI 高亮/解算偏好可传 { skipLocked: true }，跳过锁定节点对应的字段。
  */
 export function matchPreset(spec: ClockData, cfg: ClockConfig, opts: MatchPresetOptions = {}): ClockPreset | null {
-  const pllKeys = spec.pll.params.map((p) => p.key)
+  const pll = spec.pll
+  const pllKeys = pll?.params.map((p) => p.key) ?? []
   const locked = opts.skipLocked ? new Set(cfg.locked ?? []) : new Set<string>()
   for (const p of spec.presets) {
     const m = p.match
     if (!locked.has('SYSCLK') && m.source !== cfg.source) continue
-    if (m.source === 'PLL') {
+    // 无 PLL 数据：不存在可命中的 PLL 预设
+    if (m.source === 'PLL' && !pll) continue
+    if (m.source === 'PLL' && pll) {
       if (!locked.has('PLL')) {
-        const wantSrc = m.pllSource ?? spec.pll.sourceOptions[0]
-        const gotSrc = cfg.pllSource ?? spec.pll.sourceOptions[0]
+        const wantSrc = m.pllSource ?? pll.sourceOptions[0]
+        const gotSrc = cfg.pllSource ?? pll.sourceOptions[0]
         if (wantSrc !== gotSrc) continue
-        // 逐键比较 PLL 参数（mul/div/…），缺省取数据层默认值
+        // 逐键比较 PLL 参数（mul/div/prediv…），缺省取数据层默认值
         let pllOk = true
         for (const key of pllKeys) {
           const want = (m as Record<string, unknown>)[key]
           if (want === undefined) continue
-          const def = spec.pll.params.find((x) => x.key === key)?.default ?? 1
+          const def = pll.params.find((x) => x.key === key)?.default ?? 1
           const got = cfg.pll?.[key] ?? def
           if (want !== got) {
             pllOk = false
@@ -340,7 +391,7 @@ export interface ClockFixResult {
 /** PLL 参数全组合（空参数返回 [{}]）。 */
 function pllParamCombos(spec: ClockData): Record<string, number>[] {
   const combos: Record<string, number>[] = [{}]
-  for (const p of spec.pll.params) {
+  for (const p of spec.pll?.params ?? []) {
     const next: Record<string, number>[] = []
     for (const combo of combos) {
       for (const opt of p.options) next.push({ ...combo, [p.key]: opt })
@@ -369,7 +420,7 @@ function countConfigChanges(spec: ClockData, a: ClockConfig, b: ClockConfig): nu
   if (a.source !== b.source) n++
   if ((a.hxtalMhz ?? 0) !== (b.hxtalMhz ?? 0)) n++
   if ((a.pllSource ?? '') !== (b.pllSource ?? '')) n++
-  for (const p of spec.pll.params) {
+  for (const p of spec.pll?.params ?? []) {
     if ((a.pll?.[p.key] ?? p.default) !== (b.pll?.[p.key] ?? p.default)) n++
   }
   if (a.ahb !== b.ahb) n++
@@ -390,14 +441,15 @@ export function resolveClockIssues(spec: ClockData, cfg: ClockConfig): ClockFixR
 
   const locked = new Set(cfg.locked ?? [])
   const hse = spec.sources.find((s) => s.id === 'HSE' && s.hxtal)
+  const pllSourceOptions = spec.pll?.sourceOptions ?? []
   const basePll: Record<string, number> = {}
-  for (const p of spec.pll.params) basePll[p.key] = cfg.pll?.[p.key] ?? p.default
+  for (const p of spec.pll?.params ?? []) basePll[p.key] = cfg.pll?.[p.key] ?? p.default
 
   const curFreq = computeClock(spec, cfg)
   const targetSys = curFreq.sysclkMhz > 0 ? curFreq.sysclkMhz : spec.sysclkMaxMhz
 
   const sourceIds = locked.has('SYSCLK') ? [cfg.source] : spec.sources.map((s) => s.id)
-  const pllSourceIds = locked.has('PLL') ? [cfg.pllSource ?? spec.pll.sourceOptions[0]] : spec.pll.sourceOptions
+  const pllSourceIds = locked.has('PLL') ? [cfg.pllSource ?? pllSourceOptions[0]] : pllSourceOptions
   const allPllCombos = locked.has('PLL') ? [basePll] : pllParamCombos(spec)
   const ahbOptions = locked.has('AHB') ? [cfg.ahb] : spec.ahb.options
   const apb1Options = locked.has('APB1') ? [cfg.apb1] : spec.apb1.options
@@ -412,7 +464,7 @@ export function resolveClockIssues(spec: ClockData, cfg: ClockConfig): ClockFixR
   let best: Scored | null = null
 
   for (const source of sourceIds) {
-    const pllSources = source === 'PLL' ? pllSourceIds : [cfg.pllSource ?? spec.pll.sourceOptions[0]]
+    const pllSources = source === 'PLL' ? pllSourceIds : [cfg.pllSource ?? pllSourceOptions[0]]
     for (const pllSource of pllSources) {
       const usesHse = source === 'HSE' || (source === 'PLL' && pllSource === 'HSE')
       const hxtals = usesHse ? hxtalChoices(hse?.hxtal, cfg.hxtalMhz, locked.has('HSE')) : [cfg.hxtalMhz]
@@ -472,7 +524,7 @@ export function nearestPreset(spec: ClockData, targetMhz: number): ClockPreset |
   let bestDiff = Infinity
   for (const p of spec.presets) {
     const pll: Record<string, number> = {}
-    for (const param of spec.pll.params) {
+    for (const param of spec.pll?.params ?? []) {
       const v = (p.match as Record<string, unknown>)[param.key]
       if (typeof v === 'number') pll[param.key] = v
     }

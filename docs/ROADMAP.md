@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-17 深夜）：M1–M13 十三个里程碑核心项全部完成并推送。** 测试 380→1236，40 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build（六路：V003/V203/H417/CH582M blocking/embassy/BLE）/ 浏览器验收；M13 追加实机射频闭环（CH582M 广播被 bluez 扫描确认）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
+> **总体进度（2026-11-18）：M1–M14 十四个里程碑核心项全部完成。** 测试 380→1331，46 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配；GATT 卡点经手机对照定位宿主 AX210 适配器）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -255,6 +255,26 @@
 | 13.3 | 对照实验与诊断归档 | docs §14.2bis/ter、契约 D17–D19 | C hex 对照 + 寄存器证据 |
 
 **暂缓**：central 角色、配对策略 UI、MTU>23、BLE+GPIO 异步共存、中断模式 BLE（PFIC 使能路径）、上游 issue 提交（证据包已备）。
+
+---
+
+## M14（v0.15）三芯片接入 + BLE 连接闭环 —— 「加芯片=JSON 的架构验证 + 广播之上建连接」 ✅ 已完成（2026-11-18）
+
+> **落地状态**：CH32V103C8T6 / CH32X035C8T6 / CH32V307VCT6 三芯片全链接入（数据手册级引脚表 + HAL 逐字时钟核实 + 真实 cargo 编译）；BLE 连接建立实机打通（根因 #5：32K 域错配），**手机对 Rust 发货固件 GATT 读写成功——BLE 全链路实机闭环**；宿主 bluez GATT 卡点经手机对照定位 AX210 适配器。**1331 测试 / 60 文件**全绿；verify:build blocking **6/6** + embassy **6/6** + BLE **1/1**；validate:device **7 芯片 0/0**；浏览器验收三芯片页内生成 0 冲突。4 个实现子智能体分域并行（主机重启中断后由主控收尾集成）+ 2 个调研子智能体。
+> **契约**：[M14_CHIP_INTAKE_CONTRACT.md](M14_CHIP_INTAKE_CONTRACT.md)（D1–D12）；BLE 修复 [CH58X_BLE_CONTRACT §3ter](CH58X_BLE_CONTRACT.md)（D20–D22）；证据 [HAL_API_NOTES §14.2quater](HAL_API_NOTES.md)。
+> **架构结论**：「加芯片=JSON」基本成立——V103/V307 纯数据接入；X035 退化时钟（无 PLL/HSE，仅 AHB 分频）触发一次**通用**模型扩展（pll 可选/prediv 除法/SYSCLK ADC 源/targetSpec 数据驱动），扩完后同类芯片仍纯 JSON。V307 硬浮点 imfc 自定义 target + nightly/build-std 由 chip.json targetSpec 驱动（V003 旧路径逐字节不变）。
+> **BLE 根因 #5（实机）**：M13「板无 LSE」系误判（用户证实板载晶振）；移除 enable_lse 造成硬件 LSI / 库 LSE 错配 → 广播正常但连接必败。修：`ble.clock32k` 选项（缺省 lse：enable_lse + stack_init SelRTCClock=0，连接建立实机 ×3 验证；lsi 回退保留）+ 连续轮询无 delay（对齐官方 C）+ SysTick notify 时基（弃 TMOS_GetSystemClock 每圈 u64 软除法）。
+> **宿主适配器定位（对照实验）**：官方 C hex 与 Rust 固件在宿主 bluez 上 GATT 发现同样慢/掉线；内核每次连接报 `Unexpected continuation frame`；**手机 nRF Connect 对 C 固件秒级发现 FFE0+FFE1–FFE5、读写成功** → Intel AX210 LE 数据通路问题，非固件。Rust 固件手机端到端验证：**FFE1/FFE2 读写成功（用户实测）**，notify 周期待实测确认。
+> **工具链教训**：wlink flash 无 verify 产坏镜像（一律 OpenOCD program verify）；wlink dump 外设读不可信（gdb 为准）；WCH-Link 自发 USB 掉线需先确认在线再取证。
+
+| # | 任务 | 改动落点 | 验收 |
+|---|---|---|---|
+| 14.1 | 三芯片数据（引脚/时钟/外设/EXTI/remap/irq/dma） | data/devices/{ch32v103c8t6,ch32x035c8t6,ch32v307vct6}/**、importer 运行 | validate 7 芯片 0/0；数据测试 ×3 |
+| 14.2 | 时钟模型通用扩展 + targetSpec + verify 7 芯片 | model/clock、types/{clock,chip}、codegen/cargo、scripts/verify-build* | prediv/无PLL/SYSCLK 测试；V003 快照不变；blocking 6/6 + embassy 6/6 |
+| 14.3 | 注册表 + UI + 集成缺口 | model/device.ts、chipPicker 测试更新、verify entry I2C-DMA 守卫（V103 上游无 I2C DMA） | 浏览器三芯片全链路；1331 测试 |
+| 14.4 | BLE 连接闭环（clock32k + stack_init + 连续轮询 + SysTick notify） | ch58x templates/{bleRs,clockRs,readme}、ble/clock/index/derive、types/project、projectFile、ProjectSettingsView | 连接建立实机 ×3；verify --ble；手机对照定位宿主 |
+
+**暂缓**：LSI 校准移植（Calibration_LSI 寄存器级，StdPeriphDriver）、宿主 AX210 修复/换 dongle、central 角色、配对策略 UI、V103/V307 非预设 PLL 显式导出（explicit 不写 cfg.pll，M15）、X035 AHB÷5..256 显式导出、上游 issue 提交（证据包已备：qingke-rt MIE + ch58x-hal embassy 时间驱动 + ble::init SelRTCClock 硬编码）。
 
 ---
 

@@ -1,0 +1,71 @@
+{
+  "chip": "CH32V103C8T6",
+  "sysclkMaxMhz": 80,
+  "defaultSource": "PLL",
+  "sources": [
+    { "id": "HSI", "label": "内部 HSI", "freqMhz": 8 },
+    { "id": "HSE", "label": "外部晶振", "hxtal": { "min": 8, "max": 25, "default": 8 } },
+    { "id": "PLL", "label": "PLL", "pll": true }
+  ],
+  "pll": {
+    "outMaxMhz": 80,
+    "sourceOptions": ["HSI", "HSE"],
+    "params": [
+      { "key": "prediv", "label": "输入预分频", "kind": "select", "options": [1, 2], "default": 1 },
+      { "key": "mul", "label": "倍频", "kind": "select", "options": [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], "default": 6 }
+    ]
+  },
+  "ahb": { "options": [1, 2, 4, 8, 16], "maxMhz": 80, "default": 1 },
+  "apb1": { "options": [1, 2, 4, 8, 16], "maxMhz": 80, "default": 1 },
+  "apb2": { "options": [1, 2, 4, 8, 16], "maxMhz": 80, "default": 1 },
+  "adc": {
+    "options": [{ "id": "APB2_DIV2", "label": "PCLK2/2（复位默认；HAL 不写 ADCPRE）", "source": "APB2", "div": 2 }],
+    "default": "APB2_DIV2",
+    "maxMhz": 14
+  },
+  "timerClock": "apb_x2",
+  "presets": [
+    {
+      "id": "48MHZ_HSI",
+      "label": "48MHz (HSI 8MHz×6)",
+      "match": { "source": "PLL", "pllSource": "HSI", "prediv": 1, "mul": 6, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "72MHZ_HSI",
+      "label": "72MHz (HSI 8MHz×9, APB1/APB2÷2)",
+      "match": { "source": "PLL", "pllSource": "HSI", "prediv": 1, "mul": 9, "ahb": 1, "apb1": 2, "apb2": 2 }
+    },
+    {
+      "id": "48MHZ_HSE",
+      "label": "48MHz (HSE 8MHz×6)",
+      "match": { "source": "PLL", "pllSource": "HSE", "hxtalMhz": 8, "prediv": 1, "mul": 6, "ahb": 1, "apb1": 1, "apb2": 1 }
+    },
+    {
+      "id": "72MHZ_HSE",
+      "label": "72MHz (HSE 8MHz×9, APB1/APB2÷2)",
+      "match": { "source": "PLL", "pllSource": "HSE", "hxtalMhz": 8, "prediv": 1, "mul": 9, "ahb": 1, "apb1": 2, "apb2": 2 }
+    },
+    {
+      "id": "80MHZ_HSI",
+      "label": "80MHz (HSI 8MHz×10, APB1/APB2÷2)",
+      "match": { "source": "PLL", "pllSource": "HSI", "prediv": 1, "mul": 10, "ahb": 1, "apb1": 2, "apb2": 2 }
+    },
+    {
+      "id": "80MHZ_HSE",
+      "label": "80MHz (HSE 8MHz×10, APB1/APB2÷2)",
+      "match": { "source": "PLL", "pllSource": "HSE", "hxtalMhz": 8, "prediv": 1, "mul": 10, "ahb": 1, "apb1": 2, "apb2": 2 }
+    }
+  ],
+  "codegen": {
+    "presetConstMap": {
+      "48MHZ_HSI": "hal::rcc::Config::SYSCLK_FREQ_48MHZ_HSI",
+      "72MHZ_HSI": "hal::rcc::Config::SYSCLK_FREQ_72MHZ_HSI",
+      "48MHZ_HSE": "hal::rcc::Config::SYSCLK_FREQ_48MHZ_HSE",
+      "72MHZ_HSE": "hal::rcc::Config::SYSCLK_FREQ_72MHZ_HSE",
+      "80MHZ_HSI": "{ let mut c = hal::rcc::Config::SYSCLK_FREQ_72MHZ_HSI; c.pll = Some(hal::rcc::Pll { prediv: hal::rcc::PllPreDiv::DIV1, mul: hal::pac::rcc::vals::PllMul::MUL10 }); c }",
+      "80MHZ_HSE": "{ let mut c = hal::rcc::Config::SYSCLK_FREQ_72MHZ_HSE; c.pll = Some(hal::rcc::Pll { prediv: hal::rcc::PllPreDiv::DIV1, mul: hal::pac::rcc::vals::PllMul::MUL10 }); c }"
+    },
+    "fallback": "explicit"
+  },
+  "notes": "依据 ch32-hal src/rcc/v1.rs：HSI=8MHz（:17）、LSI=40kHz（:18）。sysclkMaxMhz=80 取 CH32V103DS0 V1.2 数据手册（「最高 80MHz 系统主频」「PLLCLK Max=80MHz」「APB1/APB2 Fmax=80MHz」；典型 72MHz，ch32-data CH32V103C8T6.yaml 的 _raw.Freq=80 正确、product_type 的 72M 是典型值）。HSE 范围 8–25MHz 取 DS 表 3-10「FHSE_ext 外部时钟频率 8..25MHz」，默认 8MHz（典型晶振电路）。PllPreDiv=DIV1/DIV2（:20-24），PllMul=×2..×16（metapac rcc_v1.rs:1772-1804，MUL16_ALT 亦为 ×16），无 ×18；PLL 输出按「输入 ÷ prediv × mul」计算（v1.rs:180-181）。预设 48/72MHZ_HSI/HSE 映射到 HAL 常量（v1.rs:50-118，prediv 均 DIV1；72 档 apb1/apb2=DIV2，照 HAL 常量配方）；80MHZ_HSI/HSE 无 HAL 常量，presetConstMap 用块表达式基于 SYSCLK_FREQ_72MHZ_* 常量覆写 pll（prediv DIV1 + PllMul::MUL10），6 个预设已逐档 cargo build --release 核实。HAL 的 SYSCLK_FREQ_96MHZ_*（8×12=96）超 80MHz 上限，不收录。AHB 档位 [1,2,4,8,16]：metapac Hpre 硬件还有 ÷64..÷512，但 HAL clocks() 的 Div<Hpre> 对 raw>=0b1000 有 off-by-one（v1.rs:348-361，DIV64 被算成 ÷32），会低估 UART/SPI/I2C 波特率，故不开放（硬件档位仍存在，generate 不暴露）。APB1/APB2 档位 1/2/4/8/16，上限 80MHz（DS 明写）。ADC 只暴露 APB2_DIV2：HAL init 只写 sw/hpre/ppre1/ppre2（v1.rs:242-247），不写 ADCPRE，复位缺省 ÷2 是 HAL 实际生效路径；ADC 上限 14MHz（src/adc.rs:35-36），48/72/80MHz 预设下 ADC 时钟（24/18/20MHz）高于 14MHz，validateClock 会给出 warning（非 error），使用 ADC 时应降低 APB2 或手写 PAC ADCPRE。timerClock=apb_x2（v1.rs:302-309 + shared.rs:12-18）。defaultSource=PLL：defaultClock = PLL + HSI + prediv 1 + mul 6 + 总线全 1，命中 48MHZ_HSI 且 validate 0 error。fallback=explicit：显式兜底路径不写 cfg.pll（src/model/codegen/clock.ts），非预设 PLL 配置导出会丢 PLL，非预设 PLL 配方待 M15（已在本 notes 与 README 能力边界注明）。诚实边界（D12）：USBFS/RTC 无 HAL 驱动（不建模）；AHB ÷64..÷512 硬件存在但 HAL 不开放；prediv 除法语义依赖 D3.1 时钟模型扩展（数据按 HAL 语义录入；模型未扩展前 computeClock 会把 prediv 当乘法，集成时复核）。"
+}

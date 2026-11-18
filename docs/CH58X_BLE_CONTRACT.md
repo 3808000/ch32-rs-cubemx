@@ -53,10 +53,17 @@
 
 ## 3bis. M13 实机修复决策（D17–D19，覆盖 D2/D3/D4 部分表述）
 
-- **D17 busy-poll 运行时**：BLE 档 = `#[qingke_rt::entry]` blocking main + 入口 `csrs mstatus,8` + `generated::ble::run()` 全同步忙等泵（TMOS_SystemProcess + delay_us(300) + try_next_message_pure）；**stable 工具链**；无 embassy-executor/embassy-time/nightly feature；features 仍 ["embassy","ble"]（编译耦合）；features.embassy 被 ble 分支忽略。根因：SysTick WFI 停计 + qingke-rt MIE 启动缺陷（§14.2bis/ter）。
-- **D18 LSI 缺省**：BLE 档不追加 enable_lse()（板可能无 LSE；C 库自动回退 LSI 实机证实）；SelRTCClock=0 HAL 硬编码保留。PA10/PA11 保守保留不可分配。
+- **D17 busy-poll 运行时**：BLE 档 = `#[qingke_rt::entry]` blocking main + 入口 `csrs mstatus,8` + `generated::ble::run()` 全同步忙等泵（TMOS_SystemProcess + try_next_message_pure）；**stable 工具链**；无 embassy-executor/embassy-time/nightly feature；features 仍 ["embassy","ble"]（编译耦合）；features.embassy 被 ble 分支忽略。根因：SysTick WFI 停计 + qingke-rt MIE 启动缺陷（§14.2bis/ter）。**M14 更新（D21）：原 delay_us(300) 已移除——连续轮询对齐官方 C。**
+- **D18 LSI 缺省**：BLE 档不追加 enable_lse()（板可能无 LSE）；PA10/PA11 保守保留不可分配。**M14 更新（D20）：原「C 库自动回退 LSI」系误判（C 为显式 CLK_OSC32K=1 配置）；「SelRTCClock=0 HAL 硬编码保留」已废止——该硬编码正是连接失败根因，生成器改自建 bleConfig_t（SelRTCClock=1）。**
 - **D19 广播 flags 必带 discoverable**：`GAP_ADTYPE_FLAGS_GENERAL | GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED`（0x06）；仅 0x04 会被 bluez 发现流程过滤（实机对照证实）。RF ISR 接线（BLEL/BLEB → LLE/BB_IRQLibHandler）保留生成（PFIC 未使能时不触发，与 C 一致）。
 - 状态共享：busy-poll 单执行上下文 → `static mut + critical_section`（禁 atomic）；embassy-sync 仅 try API 类型依赖。
+
+## 3ter. M14 连接路径修复决策（D20–D22，覆盖 D17/D18 部分表述；证据 HAL notes §14.2quater）
+
+- **D20 stack_init 替代 ble::init + ble.clock32k 选项（32K 域一致）**：ch58x-hal ble::init 硬编码 SelRTCClock=0（LSE）+ rcCB=None（mod.rs:190/196），无法适配无 LSE 板；M13 移除 enable_lse 后硬件供 LSI、库仍按 LSE 定时 → 广播正常但连接建立必败（实机复现）。生成代码经公开 ffi 自建 bleConfig_t：**SelRTCClock 随新增 `ble.clock32k`（缺省 lse=0 / lsi 回退=1）**，clock.rs 同步生成/不生成 `config.clock.enable_lse()`；自有 6KB 堆、自有 PubSub 通道（CriticalSectionRawMutex/TmosEvent/4/2/2，与 HAL 同参）+ TMOS 任务（SYS_EVENT_MSG→publish_immediate；0x2000→BLE_RegInit+120s）、srandCB=SysTick CNT（自由运行，CTLR 只 STE）、tsCB=hal::ble::temperature_raw、rcCB=None（Calibration_LSI 在 StdPeriphDriver 非库导出，校准移植=后续增强；lsi 档连接稳定性未保证，UI 警告）。MAC 改 `mac_addr_lsb() -> [u8;6]`（MacAddress 字段私有）：factory=get_mac_address() / custom=MSB 反转 / default=[0x66,0x55,0x44,0x33,0x22,0x11]。`config()` 移除。cube.json 宽松解析 clock32k（缺省 lse）。
+- **D21 连续轮询无 delay + SysTick notify 时基**：三角色主循环 `loop { TMOS_SystemProcess(); … }` 无 hal::delay_us——官方 C Main_Circulation 逐字对齐（peripheral_main.c:40）；M13 的 300µs 源自未跑通的 embassy 示例。peripheral notify 周期 = **SysTick CNT 差值 ≥ clocks().hclk（≈1s）**；不用 TMOS_GetSystemClock（非纯 getter，每圈含 __udivdi3，PC 采样占循环 5/6 时间）。连接期间 GAP/GATT 事件静默消费（阻塞 UART println 饿死 TMOS 泵）。
+- **D22 烧录工具链**：CH58x 烧录一律 MRS OpenOCD `program <elf> verify reset exit`；wlink flash（无 verify）实测产出坏镜像（广播消失），不可信。wlink dump 外设读可靠性存疑（与运行态矛盾），寄存器证据以 OpenOCD+gdb 为准。WCH-Link 自发 USB 掉线重枚举时取证无效，先确认探针在线。
+- **验证状态（诚实，2026-11-18 上午）**：①LSE 全链 Rust 固件实机**连接建立成功 ×3**（bluez Connected=true；M13 固件从未连上）——根因 #5（32K 错配）坐实。②宿主 GATT 发现慢/掉线：**官方 C hex 对照同现象** + 内核 `Unexpected continuation frame` + **手机 nRF Connect 对 C 固件秒级发现/读写成功** → 卡点定位本机 AX210 适配器，非固件。③发货版 Rust 固件（LSE 缺省 + stack_init + 连续轮询 + SysTick notify）stable/imc 编译通过、OpenOCD Verified OK 烧录、广播正常；**手机对 Rust 发货固件 FFE1/FFE2 读写成功（用户实测确认）——Rust 生成固件 BLE 全链路（广播→连接→GATT 发现→读写）实机闭环**；notify 订阅发送编译 verified，周期待实测确认。④verify:build --ble 通过（发货模板）。
 
 ## 4. 文件域（排他）
 

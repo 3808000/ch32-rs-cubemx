@@ -103,6 +103,10 @@ export interface BleConfig {
   /** observer 扫描窗口 ms（0.625ms 单位，TGAP_DISC_SCAN）与主动扫描开关 */
   scanMs: number
   activeScan: boolean
+  /** BLE 32K 低频时钟源（M14）：lse=外部 32.768kHz 晶振（缺省，官方模组标配；enable_lse + SelRTCClock=0，
+   * 实机连接建立已验证）；lsi=内部 32K（无晶振板回退；SelRTCClock=1，未移植 LSI 校准，连接稳定性未保证）。
+   * 可选字段，旧 cube.json 缺省按 lse 处理。 */
+  clock32k?: 'lse' | 'lsi'
 }
 
 /** BLE 缺省配置（M12）：peripheral + 出厂 MAC + 100ms 广播 + FFE0/FFE1/FFE2 服务（对齐上游 ble-blinky 示例 UUID）。 */
@@ -116,6 +120,7 @@ export const DEFAULT_BLE_CONFIG: BleConfig = {
   writeUuid16: 0xffe2,
   scanMs: 3000,
   activeScan: false,
+  clock32k: 'lse',
 }
 
 /** 冲突策略模式：safe=M1 安全网默认；update=Update files on change（冲突默认覆盖）；custom=逐组自定义。 */

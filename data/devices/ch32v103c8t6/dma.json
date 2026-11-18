@@ -1,0 +1,141 @@
+{
+  "chip": "CH32V103C8T6",
+  "requests": [
+    {
+      "request": "ADC1",
+      "channel": 1
+    },
+    {
+      "request": "DAC1_CH1",
+      "channel": 3
+    },
+    {
+      "request": "DAC1_CH2",
+      "channel": 4
+    },
+    {
+      "request": "SPI1_RX",
+      "channel": 2
+    },
+    {
+      "request": "SPI1_TX",
+      "channel": 3
+    },
+    {
+      "request": "SPI2_RX",
+      "channel": 4
+    },
+    {
+      "request": "SPI2_TX",
+      "channel": 5
+    },
+    {
+      "request": "USART3_TX",
+      "channel": 2
+    },
+    {
+      "request": "USART3_RX",
+      "channel": 3
+    },
+    {
+      "request": "USART1_TX",
+      "channel": 4
+    },
+    {
+      "request": "USART1_RX",
+      "channel": 5
+    },
+    {
+      "request": "USART2_RX",
+      "channel": 6
+    },
+    {
+      "request": "USART2_TX",
+      "channel": 7
+    },
+    {
+      "request": "TIM1_CH1",
+      "channel": 2
+    },
+    {
+      "request": "TIM1_CH2",
+      "channel": 3
+    },
+    {
+      "request": "TIM1_CH4",
+      "channel": 4
+    },
+    {
+      "request": "TIM1_TRIG",
+      "channel": 4
+    },
+    {
+      "request": "TIM1_COM",
+      "channel": 4
+    },
+    {
+      "request": "TIM1_UP",
+      "channel": 5
+    },
+    {
+      "request": "TIM1_CH3",
+      "channel": 6
+    },
+    {
+      "request": "TIM2_CH3",
+      "channel": 1
+    },
+    {
+      "request": "TIM2_UP",
+      "channel": 2
+    },
+    {
+      "request": "TIM2_CH1",
+      "channel": 5
+    },
+    {
+      "request": "TIM2_CH2",
+      "channel": 7
+    },
+    {
+      "request": "TIM2_CH4",
+      "channel": 7
+    },
+    {
+      "request": "TIM3_CH3",
+      "channel": 2
+    },
+    {
+      "request": "TIM3_CH4",
+      "channel": 3
+    },
+    {
+      "request": "TIM3_UP",
+      "channel": 3
+    },
+    {
+      "request": "TIM3_CH1",
+      "channel": 6
+    },
+    {
+      "request": "TIM3_TRIG",
+      "channel": 6
+    },
+    {
+      "request": "TIM4_CH1",
+      "channel": 1
+    },
+    {
+      "request": "TIM4_CH2",
+      "channel": 4
+    },
+    {
+      "request": "TIM4_CH3",
+      "channel": 5
+    },
+    {
+      "request": "TIM4_UP",
+      "channel": 7
+    }
+  ]
+}

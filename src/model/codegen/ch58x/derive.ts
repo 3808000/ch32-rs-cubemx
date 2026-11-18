@@ -30,6 +30,9 @@ export interface ClockPlan {
   /** 非预设 PLL 的 VCO 分频（480MHz ÷ div） */
   div?: number
   sysclkMhz: number
+  /** BLE 档 32K 域走 LSE（M14：ble.clock32k 缺省 lse → config.clock.enable_lse()；
+   * 与 stack_init SelRTCClock=0 一致；实机连接建立已验证。lsi 选项不追加） */
+  enableLse?: boolean
 }
 
 /** ch58x-hal 只实现 SPI0（CH583 的 SPI1 未在 HAL 中启用）。 */

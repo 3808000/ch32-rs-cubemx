@@ -3,10 +3,11 @@
 import { describe, it, expect } from 'vitest'
 import { getDeviceData } from '@/model/device'
 import { computeClock, mergeClockConfig } from '@/model/clock'
-import type { ClockConfig, ClockPreset } from '@/model/types'
+import type { ClockConfig, ClockData, ClockPreset } from '@/model/types'
 
 const data = getDeviceData('CH582M')
-const clock = data.clock
+// CH582M 必然有 PLL（M14 将 ClockData.pll 改为可选）：此处收窄类型，保持下方既有断言不变
+const clock = data.clock as ClockData & { pll: NonNullable<ClockData['pll']> }
 
 /** 按预设构造完整时钟配置（与 validate-device-data.mjs 的复现逻辑一致）。 */
 function presetConfig(preset: ClockPreset): ClockConfig {

@@ -155,7 +155,12 @@ describe('filterChipRows：搜索', () => {
   it('按封装匹配，大小写不敏感', () => {
     expect(filterChipRows(registeredRows, 'tssop20').map((r) => r.chip)).toEqual(['CH32V003F4P6'])
     expect(filterChipRows(registeredRows, 'QFN48').map((r) => r.chip)).toEqual(['CH582M'])
-    expect(filterChipRows(registeredRows, 'lqfp').map((r) => r.chip)).toEqual(['CH32V203C8T6'])
+    expect(filterChipRows(registeredRows, 'lqfp').map((r) => r.chip)).toEqual([
+      'CH32V103C8T6',
+      'CH32V203C8T6',
+      'CH32V307VCT6',
+      'CH32X035C8T6',
+    ])
   })
 
   it('按内核匹配，大小写不敏感', () => {
@@ -209,12 +214,15 @@ describe('sortChipRows：全列排序三态', () => {
       })
       .map((r) => r.chip)
     expect(byPackage.map((r) => r.chip)).toEqual(expected)
-    // 48 引脚的两颗芯片同值时按芯片名升序（CH32V203C8T6 在 CH582M 前）
+    // 48 引脚的四颗芯片同值时按芯片名升序（M14：V103/V203/X035/CH582M）
     const byPins = sortChipRows(registeredRows, 'pinCount', 'asc')
     expect(byPins.map((r) => r.chip)).toEqual([
       'CH32V003F4P6',
+      'CH32V103C8T6',
       'CH32V203C8T6',
+      'CH32X035C8T6',
       'CH582M',
+      'CH32V307VCT6',
       'CH32H417QEU6',
     ])
   })
@@ -239,7 +247,10 @@ describe('filterChipRowsByColumn：逐列过滤', () => {
       'CH582M',
     ])
     expect(filterChipRowsByColumn(registeredRows, { package: 'LQFP' }).map((r) => r.chip)).toEqual([
+      'CH32V103C8T6',
       'CH32V203C8T6',
+      'CH32V307VCT6',
+      'CH32X035C8T6',
     ])
     expect(filterChipRowsByColumn(registeredRows, { chip: 'v003' }).map((r) => r.chip)).toEqual([
       'CH32V003F4P6',
@@ -258,7 +269,10 @@ describe('filterChipRowsByColumn：逐列过滤', () => {
   it('与全局搜索叠加（先全局、再逐列）', () => {
     const global = filterChipRows(registeredRows, 'ch32')
     expect(filterChipRowsByColumn(global, { package: 'lqfp' }).map((r) => r.chip)).toEqual([
+      'CH32V103C8T6',
       'CH32V203C8T6',
+      'CH32V307VCT6',
+      'CH32X035C8T6',
     ])
     expect(filterChipRowsByColumn(global, { package: 'qfn48' })).toEqual([])
   })
@@ -285,17 +299,15 @@ describe('paginateRows / chipPageCount：分页', () => {
       'CH32V003F4P6',
     ])
     expect(paginateRows(registeredRows, 2, 2).map((r) => r.chip)).toEqual([
+      'CH32V103C8T6',
       'CH32V203C8T6',
-      'CH582M',
     ])
     expect(paginateRows(registeredRows, 0, 2).map((r) => r.chip)).toEqual([
       'CH32H417QEU6',
       'CH32V003F4P6',
     ])
-    expect(paginateRows(registeredRows, 99, 2).map((r) => r.chip)).toEqual([
-      'CH32V203C8T6',
-      'CH582M',
-    ])
+    // 7 颗芯片 size=2 → 4 页，末页单行（M14）
+    expect(paginateRows(registeredRows, 99, 2).map((r) => r.chip)).toEqual(['CH582M'])
   })
 
   it('总页数至少 1；空表返回空切片', () => {
@@ -312,8 +324,13 @@ describe('paginateRows / chipPageCount：分页', () => {
     expect([...CHIP_PAGE_SIZES]).toEqual([5, 10, 20])
   })
 
-  it('末页切片：size=3 时第 4 行出现在第 2 页', () => {
-    expect(paginateRows(registeredRows, 2, 3).map((r) => r.chip)).toEqual(['CH582M'])
+  it('分页切片：size=3 时第 2 页为第 4–6 行，末页单行（M14：7 颗芯片）', () => {
+    expect(paginateRows(registeredRows, 2, 3).map((r) => r.chip)).toEqual([
+      'CH32V203C8T6',
+      'CH32V307VCT6',
+      'CH32X035C8T6',
+    ])
+    expect(paginateRows(registeredRows, 3, 3).map((r) => r.chip)).toEqual(['CH582M'])
   })
 })
 
@@ -400,24 +417,24 @@ describe('ChipPicker 容量列数值排序（M9 验收修复：MX2 按数值而�
     expect(Number.isNaN(memoryValue('abc'))).toBe(true)
   })
 
-  it('Flash 升序为 16K < 64K < 448K < 960K（非字典序 16K<448K<64K）', () => {
+  it('Flash 升序按数值（M14：16K < 62K < 64K=64K < 256K < 448K < 960K）', () => {
     const sorted = sortChipRows(rows, 'flash', 'asc')
-    expect(sorted.map((r) => r.flash)).toEqual(['16K', '64K', '448K', '960K'])
+    expect(sorted.map((r) => r.flash)).toEqual(['16K', '62K', '64K', '64K', '256K', '448K', '960K'])
   })
 
   it('Flash 降序反向且同值芯片名兜底', () => {
     const sorted = sortChipRows(rows, 'flash', 'desc')
-    expect(sorted.map((r) => r.flash)).toEqual(['960K', '448K', '64K', '16K'])
+    expect(sorted.map((r) => r.flash)).toEqual(['960K', '448K', '256K', '64K', '64K', '62K', '16K'])
   })
 
-  it('RAM 升序按数值（2K < 20K < 32K < 896K）', () => {
+  it('RAM 升序按数值（M14：2K < 20K×3 < 32K < 64K < 896K）', () => {
     const sorted = sortChipRows(rows, 'sram', 'asc')
-    expect(sorted.map((r) => r.sram)).toEqual(['2K', '20K', '32K', '896K'])
+    expect(sorted.map((r) => r.sram)).toEqual(['2K', '20K', '20K', '20K', '32K', '64K', '896K'])
   })
 
-  it('引脚数升序仍按数值（20 < 48 = 48 < 128，同值芯片名序）', () => {
+  it('引脚数升序仍按数值（20 < 48×4 < 100 < 128，同值芯片名序）', () => {
     const sorted = sortChipRows(rows, 'pinCount', 'asc')
-    expect(sorted.map((r) => r.pinCount)).toEqual([20, 48, 48, 128])
+    expect(sorted.map((r) => r.pinCount)).toEqual([20, 48, 48, 48, 48, 100, 128])
     expect(sorted[1].chip < sorted[2].chip).toBe(true)
   })
 })

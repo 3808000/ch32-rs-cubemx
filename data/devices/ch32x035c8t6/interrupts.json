@@ -1,0 +1,157 @@
+{
+  "chip": "CH32X035C8T6",
+  "irqs": [
+    {
+      "name": "WWDG",
+      "number": 16
+    },
+    {
+      "name": "PVD",
+      "number": 17
+    },
+    {
+      "name": "FLASH",
+      "number": 18
+    },
+    {
+      "name": "EXTI7_0",
+      "number": 20
+    },
+    {
+      "name": "AWU",
+      "number": 21
+    },
+    {
+      "name": "DMA1_CHANNEL1",
+      "number": 22
+    },
+    {
+      "name": "DMA1_CHANNEL2",
+      "number": 23
+    },
+    {
+      "name": "DMA1_CHANNEL3",
+      "number": 24
+    },
+    {
+      "name": "DMA1_CHANNEL4",
+      "number": 25
+    },
+    {
+      "name": "DMA1_CHANNEL5",
+      "number": 26
+    },
+    {
+      "name": "DMA1_CHANNEL6",
+      "number": 27
+    },
+    {
+      "name": "DMA1_CHANNEL7",
+      "number": 28
+    },
+    {
+      "name": "ADC1",
+      "number": 29
+    },
+    {
+      "name": "I2C1_EV",
+      "number": 30
+    },
+    {
+      "name": "I2C1_ER",
+      "number": 31
+    },
+    {
+      "name": "USART1",
+      "number": 32
+    },
+    {
+      "name": "SPI1",
+      "number": 33
+    },
+    {
+      "name": "TIM1_BRK",
+      "number": 34
+    },
+    {
+      "name": "TIM1_UP",
+      "number": 35
+    },
+    {
+      "name": "TIM1_TRG_COM",
+      "number": 36
+    },
+    {
+      "name": "TIM1_CC",
+      "number": 37
+    },
+    {
+      "name": "TIM2_UP",
+      "number": 38
+    },
+    {
+      "name": "USART2",
+      "number": 39
+    },
+    {
+      "name": "EXTI15_8",
+      "number": 40
+    },
+    {
+      "name": "EXTI25_16",
+      "number": 41
+    },
+    {
+      "name": "USART3",
+      "number": 42
+    },
+    {
+      "name": "USART4",
+      "number": 43
+    },
+    {
+      "name": "DMA1_CHANNEL8",
+      "number": 44
+    },
+    {
+      "name": "USBFS",
+      "number": 45
+    },
+    {
+      "name": "USBFS_WKUP",
+      "number": 46
+    },
+    {
+      "name": "PIOC",
+      "number": 47
+    },
+    {
+      "name": "OPA",
+      "number": 48
+    },
+    {
+      "name": "USBPD",
+      "number": 49
+    },
+    {
+      "name": "USBPD_WKUP",
+      "number": 50
+    },
+    {
+      "name": "TIM2_CC",
+      "number": 51
+    },
+    {
+      "name": "TIM2_TRG_COM",
+      "number": 52
+    },
+    {
+      "name": "TIM2_BRK",
+      "number": 53
+    },
+    {
+      "name": "TIM3",
+      "number": 54
+    }
+  ]
+}

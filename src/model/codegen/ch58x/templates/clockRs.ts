@@ -1,13 +1,18 @@
 // src/generated/clock.rs（ch58x-hal：固定 480MHz VCO ÷ div，或 sysctl 预设方法）
 //
-// BLE 档同样**不生成** enable_lse()（M13 实机根因，证据 docs/HAL_API_NOTES.md §14.2bis）：
-// - ch58x-hal 的 enable_lse() 强制 XT=1 且没有就绪超时/回退，板子无 32.768kHz 晶振时会挂在时钟等待；
-// - 官方 C 库在 SelRTCClock=0（HAL 硬编码，src/ble/mod.rs:190）时内部自动回退 LSI，
-//   实机广播成功的 C 固件就是 LSI 缺省配置；
-// - 因此保持 LSI 缺省，与实机成功配置一致（不追加 enable_lse）。
+// BLE 档 32K 低频域（M14 实机裁决，证据 docs/HAL_API_NOTES.md §14.2quater）：
+// - ble.clock32k 缺省 lse：生成 config.clock.enable_lse()，与 stack_init SelRTCClock=0 一致。
+//   M13 曾误判「板无 LSE 晶振」而移除 enable_lse，造成硬件供 LSI、库按 LSE 定时的错配——
+//   广播正常但连接建立必败；LSE 全链实机连接建立已验证（官方模组标配 32.768kHz 晶振）。
+// - ble.clock32k=lsi（无晶振板回退）：不生成 enable_lse，stack_init SelRTCClock=1；
+//   LSI 校准（官方 C 的 Lib_Calibration_LSI）未移植，连接稳定性未保证。
 export const CLOCK_RS_TPL = `// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
 // ch58x-hal 时钟：SYSCLK=<%- sysclk %>（HCLK 同频，无 AHB/APB 分频器）
-// 32K 低频域保持 LSI 缺省：不调用 enable_lse()（BLE 库按 SelRTCClock=0 内部回退，见 README）
+<% if (enableLse) { -%>
+// 32K 低频域走 LSE（ble.clock32k=lse 缺省）：与 BLE 库 SelRTCClock=0 一致（M14 实机验证）
+<% } else { -%>
+// 32K 低频域保持 LSI 缺省（非 BLE 工程，或 ble.clock32k=lsi 回退；见 README）
+<% } -%>
 
 use ch58x_hal as hal;
 
@@ -20,6 +25,10 @@ pub fn config() -> hal::Config {
 <% } else { -%>
     // 非预设 PLL 分频：480MHz VCO ÷ <%- div %> = <%- sysclk %>
     config.clock.mux = hal::sysctl::ClockSrc::PLL(<%- div %>);
+<% } -%>
+<% if (enableLse) { -%>
+    // BLE 32K 时钟源 LSE（外部 32.768kHz 晶振；官方模组标配）
+    config.clock.enable_lse();
 <% } -%>
     config
 }

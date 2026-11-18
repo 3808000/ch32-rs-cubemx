@@ -117,6 +117,8 @@ export function parseBleConfig(raw: unknown): BleConfig | undefined {
     writeUuid16: intInRange(raw.writeUuid16, 0, 0xffff, d.writeUuid16),
     scanMs: intInRange(raw.scanMs, BLE_SCAN_MIN_MS, BLE_SCAN_MAX_MS, d.scanMs),
     activeScan: typeof raw.activeScan === 'boolean' ? raw.activeScan : d.activeScan,
+    // M14：32K 时钟源；旧 cube.json 无此字段 → 缺省 lse（实机连接验证配置）
+    clock32k: raw.clock32k === 'lsi' ? 'lsi' : 'lse',
   }
   if (typeof raw.mac === 'string') ble.mac = raw.mac
   return ble

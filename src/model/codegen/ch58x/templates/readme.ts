@@ -22,7 +22,7 @@ export const README_TPL = `# <%- projectName %>
 | 目标 triple | <%- target %> |
 | 时钟 | <%- clockSummary %> |
 <% if (ble) { -%>
-| BLE | 启用（\`features = ["embassy", "ble"]\`，busy-poll 运行时，32K 低频域 LSI 缺省） |
+| BLE | 启用（\`features = ["embassy", "ble"]\`，busy-poll 连续轮询运行时，32K 低频域 LSE 缺省） |
 <% } -%>
 | HAL 源码 | <%- vendorHal ? 'vendor/ch58x-hal（path 依赖，可跳转阅读）' : 'git + 锁定 rev' %> |
 
@@ -80,22 +80,23 @@ ch58x-hal 只提供 PLL 时钟源（固定 **480MHz VCO ÷ div**，div 合法 2.
 - 非预设 PLL 分频生成 \`config.clock.mux = hal::sysctl::ClockSrc::PLL(div);\`；
 - HSE/CK32K 源本期**不生成**（HSE 直连 32MHz 需要 div=1，HAL 明确 assert 拒绝；CK32K 未建模），会在生成期报 \`CLOCK_PRESET_UNAVAILABLE\`。
 
-\`enable_lse()\` <%- ble ? '**不生成**（M13：板子可能无 32.768kHz 晶振，HAL 的 enable_lse() 强制 XT=1 且无回退；BLE 库在 SelRTCClock=0 时内部回退 LSI，与实机广播成功的官方 C 固件配置一致）' : '本期不生成（无 LSE UI 建模），32K 低频域默认 **LSI**' %>。
+\`enable_lse()\` <%- ble ? '按 **BLE 32K 时钟源**设置生成：缺省 **lse**（外部 32.768kHz 晶振，官方模组标配）→ 生成 \`config.clock.enable_lse()\`，与 \`stack_init\` 的 \`SelRTCClock=0\` 一致（M14 实机连接建立已验证）；**lsi** 回退（无晶振板）→ 不生成，\`SelRTCClock=1\`（LSI 校准未移植，连接稳定性未保证）' : '本期不生成（无 LSE UI 建模），32K 低频域默认 **LSI**' %>。
 <% if (ble) { -%>
 
 ## BLE 协议栈（ch58x-hal + WCH BLE 库，busy-poll 运行时）
 
-本工程生成 \`src/generated/ble.rs\`（\`config()\` + \`run()\`）；\`src/main.rs\` 的 \`#[qingke_rt::entry]\` 入口先显式
+本工程生成 \`src/generated/ble.rs\`（\`mac_addr_lsb()\` + \`stack_init()\` + \`run()\`）；\`src/main.rs\` 的 \`#[qingke_rt::entry]\` 入口先显式
 \`unsafe { core::arch::asm!("csrs mstatus, 8") }\` 开全局中断，再 \`hal::init(...)\`，末尾调用 \`generated::ble::run()\`。
 
 **为什么是 busy-poll（M13 实机修复，证据 docs/HAL_API_NOTES.md §14.2bis）**：
 
 - qingke-rt 0.5 启动后 \`mstatus.MIE=0\`（注释称由 mret 置位，实机未生效）→ 所有 ISR 不执行；入口显式 \`csrs mstatus, 8\` 补 MIE（放在 \`hal::init\` 之前）。
-- ch58x-hal 的 embassy SysTick 时间驱动在 CH58x 上因 **WFI 空闲停计**而饿死（空闲期 CNT 几乎不走）；BLE 档因此**不使用 embassy 执行器/Timer**，TMOS 泵改为阻塞主循环：每圈 \`TMOS_SystemProcess()\` + \`hal::delay_us(300)\`（纯忙等，不依赖中断/时基）。
-- GAP/GATT 事件用 \`embassy-sync\` 的 \`Subscriber::try_next_message_pure()\` 非阻塞轮询（单订阅者，取到即 drop）；notify 周期用循环计数近似 1s（1_000_000 / 300 ≈ 3333 圈，非精确定时）+ \`read_char_cfg\` 判断 CCCD 订阅。
+- ch58x-hal 的 embassy SysTick 时间驱动在 CH58x 上因 **WFI 空闲停计**而饿死（空闲期 CNT 几乎不走）；BLE 档因此**不使用 embassy 执行器/Timer**，TMOS 泵改为阻塞主循环 \`loop { TMOS_SystemProcess(); … }\`。
+- **连续轮询、无 delay（M14 实机修复，§14.2quater）**：官方 C Peripheral 的 Main_Circulation 即 \`while(1){ TMOS_SystemProcess(); }\`；M13 曾按上游 Rust 示例加 \`hal::delay_us(300)\`（该示例走 embassy Timer，在本硅片上从未跑通），实机表现为广播正常但 CONNECT_IND 后链路建立失败（bluez le-connection-abort-by-local）——轮询间隙饿死连接事件的链路层处理。
+- GAP/GATT 事件用 \`embassy-sync\` 的 \`Subscriber::try_next_message_pure()\` 非阻塞轮询（单订阅者，取到即 drop，连接期间静默消费——阻塞 UART println 会饿死 TMOS 泵）；notify 周期用 **SysTick CNT**（stack_init 配自由运行，实测硅片 SysTick=HCLK，周期取 \`clocks().hclk\` ≈1s）+ \`read_char_cfg\` 判断 CCCD 订阅。不用 \`TMOS_GetSystemClock()\` 计时——它每圈调用含 64 位软除法，实测占主循环 5/6 时间。
 - 工具链因此固定 **stable**（无 nightly feature）；Cargo 没有 \`embassy-executor\`/\`embassy-time\` 直接依赖。
 
-初始化顺序：\`hal::init\` → \`ble::init\` → \`GAPRole::*_init\` → \`GGS_AddService\` + \`GATTServApp::add_service\` → （peripheral）\`register_service\` → \`*StartDevice\` → busy-poll 主循环（TMOS 每 **300µs** 推进一次，不可省）。
+初始化顺序：\`hal::init\` → \`stack_init\`（自建 bleConfig_t + TMOS 任务/通道，**替代 ble::init**——其硬编码 SelRTCClock=0 无法适配无晶振板）→ \`GAPRole::*_init\` → \`GGS_AddService\` + \`GATTServApp::add_service\` → （peripheral）\`register_service\` → \`*StartDevice\` → busy-poll 主循环（**连续轮询 TMOS_SystemProcess，不可加 delay**）。
 
 生成模板的硬约束：**TmosEvent 单订阅者**（多消费者/Clone 会 double free）；**不使用 \`core::sync::atomic\`**（imc target 无原子，共享状态用 \`static mut\` + \`critical_section\`）；notify 的 \`pValue\` 必须 \`GATT_bm_alloc\`。
 
@@ -106,7 +107,7 @@ ch58x-hal 只提供 PLL 时钟源（固定 **480MHz VCO ÷ div**，div 合法 2.
 - **无 SNV**：绑定信息不落 flash，复位后需重新配对（src/ble/mod.rs:188）。
 - **central 角色不开放**：上游 HAL 无 central 示例，本生成器只提供 peripheral / broadcaster / observer。
 - **配对参数为缺省值**：\`WAIT_FOR_REQ\` + bonding=true + MITM=false + \`IO_CAP_DISPLAY_ONLY\`、passkey 000000（对齐上游 ble-blinky 的 \`common_init\`）；复杂配对/GATT 表请写入用户区。
-- **LSI 缺省，不强制 LSE**：\`enable_lse()\` **不生成**（无 32.768kHz 晶振的板子不会挂在时钟等待）；\`SelRTCClock=0\` 由 HAL 硬编码保留，官方 BLE 库会在该配置下内部回退 LSI——与实机广播成功的 C 固件配置一致。PA10/PA11（X32KI/X32KO）仍按 M12 契约保留不可分配（既有冲突规则，未放开）。
+- **32K 时钟源 LSE 缺省（M14 实机裁决）**：缺省生成 \`enable_lse()\` + \`SelRTCClock=0\`（外部 32.768kHz 晶振，官方模组标配；连接建立实机已验证）。M13 的「LSI 缺省 + 库内部回退」系误判——错配导致广播正常但连接必败（§14.2quater）。无晶振板可在 BLE 设置选 **LSI**（\`SelRTCClock=1\`，不生成 enable_lse）；官方 C 的 LSI 校准（Lib_Calibration_LSI，StdPeriphDriver 实现、非库导出）未移植，LSI 档连接稳定性未保证。PA10/PA11（X32KI/X32KO）仍按 M12 契约保留不可分配。
 - **RTC 被 BLE 占用**：BLE 使用 RTC 时基，工程不生成 RTC 配置。
 - **GPIO 异步等待本期 BLE 档不提供**：busy-poll 不初始化 embassy（\`hal::embassy::init()\` 不调用），\`Input::wait_for_rising_edge\` 等异步 API 不可用；GPIO 使用 blocking API。
 - **旧工程启用 BLE**：\`src/main.rs\` 是用户区、生成器永不覆盖；需把入口改为 \`#[qingke_rt::entry] fn main() -> !\`，在 \`hal::init\` 前加 \`unsafe { core::arch::asm!("csrs mstatus, 8") }\`，末尾调用 \`generated::ble::run();\`（M13 起不再是 \`&spawner\`/\`.await\`），或重新生成工程。
