@@ -27,6 +27,36 @@
     "maxMhz": 14
   },
   "timerClock": "apb_x2",
+  "peripheralClocks": {
+    "usart": {
+      "sourceDefault": "APB1",
+      "sourceOverrides": { "USART1": "APB2" },
+      "knob": "baudrate"
+    },
+    "spi": {
+      "sourceDefault": "APB1",
+      "sourceOverrides": { "SPI1": "APB2" },
+      "knob": "frequency",
+      "brg": { "divs": [2, 4, 8, 16, 32, 64, 128, 256] }
+    },
+    "i2c": { "sourceDefault": "APB1", "knob": "speed", "maxKhz": 400 },
+    "adc": {
+      "source": "APB2",
+      "pre": { "programmable": false, "note": "ADCPRE HAL 不写" },
+      "clkDiv": {
+        "programmable": true,
+        "bits": 4,
+        "default": 3,
+        "raw": true,
+        "note": "CTLR3.CLK_DIV raw 语义待核实；HAL 缺省 0b11"
+      }
+    },
+    "usb": {
+      "autoPre": { "48": 1, "96": 2, "144": 3 },
+      "validPllMhz": [48, 96, 144],
+      "note": "自动、无 API、无驱动"
+    }
+  },
   "presets": [
     {
       "id": "144MHZ_HSI",
@@ -52,5 +82,5 @@
     },
     "fallback": "explicit"
   },
-  "notes": "依据 ch32-hal src/rcc/v3.rs（V203 走 v3，HSI_FREQUENCY=8MHz；预设常量 SYSCLK_FREQ_96/144MHZ_HSE/HSI 均硬编码 HSE=8MHz、PLL prediv=DIV1；96MHZ_HSI 的 APB1/APB2 为 DIV4）。⚠ HAL 的 SYSCLK_FREQ_96MHZ_HSE 常量按其字段（HSE 8MHz × MUL6）实际输出 48MHz 而非 96MHz，与命名矛盾（ch32-hal 上游 bug：8MHz 需 ×12 才得 96MHz），故不收录该预设，待上游修复后再补 96MHZ_HSE（hxtal 8 × mul 12）。PLL 倍频档位 2..16/18（metapac rcc_v3 PllMul，无 ×17）；PLL 输入预分频（HSI/2、HSE/2，v3.rs PllPreDiv）未建模——当前 pll 参数模型仅支持乘法，且上述 HAL 预设全部 prediv=DIV1，故固定为 1（待补：prediv 选择）；AHB 档位无 ÷32（metapac Hpre 与 WCH 标准库 ch32v20x_rcc.h 一致：0xC0=÷64，HAL v3.rs 的 Div 实现在 ≥÷64 时有偏差，以 metapac/标准库为准）；APB1/APB2 上限 144MHz（CH32V203DS0 电气特性表：FHCLK/FPCLK1/FPCLK2 max 144MHz，不同于 STM32F1 的 36M）；ADC 时钟 = PCLK2/(2/4/6/8)（rcc_v3 Adcpre），fADC max 14MHz（DS 表 fADC）；timerClock=apb_x2（v3.rs calc_pclk 经 apb_timer_clk ×2）"
+  "notes": "依据 ch32-hal src/rcc/v3.rs（V203 走 v3，HSI_FREQUENCY=8MHz；预设常量 SYSCLK_FREQ_96/144MHZ_HSE/HSI 均硬编码 HSE=8MHz、PLL prediv=DIV1；96MHZ_HSI 的 APB1/APB2 为 DIV4）。⚠ HAL 的 SYSCLK_FREQ_96MHZ_HSE 常量按其字段（HSE 8MHz × MUL6）实际输出 48MHz 而非 96MHz，与命名矛盾（ch32-hal 上游 bug：8MHz 需 ×12 才得 96MHz），故不收录该预设，待上游修复后再补 96MHZ_HSE（hxtal 8 × mul 12）。PLL 倍频档位 2..16/18（metapac rcc_v3 PllMul，无 ×17）；PLL 输入预分频（HSI/2、HSE/2，v3.rs PllPreDiv）未建模——当前 pll 参数模型仅支持乘法，且上述 HAL 预设全部 prediv=DIV1，故固定为 1（待补：prediv 选择）；AHB 档位无 ÷32（metapac Hpre 与 WCH 标准库 ch32v20x_rcc.h 一致：0xC0=÷64，HAL v3.rs 的 Div 实现在 ≥÷64 时有偏差，以 metapac/标准库为准）；APB1/APB2 上限 144MHz（CH32V203DS0 电气特性表：FHCLK/FPCLK1/FPCLK2 max 144MHz，不同于 STM32F1 的 36M）；ADC 时钟 = PCLK2/(2/4/6/8)（rcc_v3 Adcpre），fADC max 14MHz（DS 表 fADC）；timerClock=apb_x2（v3.rs calc_pclk 经 apb_timer_clk ×2）。M15 外设时钟源逐字取自 ch32-data：USART1/SPI1 挂 PCLK2（peripherals/FV2x_V3x_USART1.yaml、FV2x_V3x_SPI1.yaml），其余 USART2/3/4、SPI2、I2C1/2 挂 PCLK1，ADC1/2 挂 PCLK2；ADC CTLR3.CLK_DIV 为 4 位 raw（HAL 缺省 0b11），语义未核实，节点只显示 raw 不编造 MHz；USB 48/96/144MHz 由 HAL calc_usbpre（v3.rs:487-497）自动 ÷1/÷2/÷3，其余 PLL 输出静默留复位值（UI warning，无生成、无驱动）。"
 }

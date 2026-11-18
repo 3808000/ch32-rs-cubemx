@@ -20,6 +20,31 @@
     "maxMhz": 14
   },
   "timerClock": "apb_x2",
+  "peripheralClocks": {
+    "usart": { "sourceDefault": "HCLK", "knob": "baudrate" },
+    "spi": {
+      "sourceDefault": "HCLK",
+      "knob": "frequency",
+      "brg": { "divs": [2, 4, 8, 16, 32, 64, 128, 256] }
+    },
+    "i2c": { "sourceDefault": "HCLK", "knob": "speed", "maxKhz": 400 },
+    "adc": {
+      "source": "SYSCLK",
+      "clkDiv": {
+        "programmable": true,
+        "bits": 4,
+        "default": 3,
+        "raw": true,
+        "note": "div:8 系 HAL 注释假设（0b11），PAC 仅 4-bit raw"
+      }
+    },
+    "usb": {
+      "autoPre": {},
+      "validPllMhz": [],
+      "fixedMhz": 48,
+      "note": "HSI 48M 直连无分频"
+    }
+  },
   "presets": [
     {
       "id": "48MHZ_HSI",
@@ -51,5 +76,5 @@
     },
     "fallback": "preset_only"
   },
-  "notes": "依据 ch32-hal src/rcc/x0.rs：①HSI 固定 48MHz（:5），没有 HSE/LSI/LSE 与 PLL/SW 选择——Config 只有 ahb_pre 一个字段（:9-11），metapac rcc_x0 的 vals 只有 Hpre/Mco（MP/src/peripherals/rcc_x0.rs:921-1018），故本文件不写 pll 字段（M14 契约 D3.2：ClockData.pll 可选，消费方按无 PLL 处理）；②复位后 HAL Config::default() 为 AHB DIV6 → 8MHz（:13-19，HAL/examples/ch32x035/README.md:27-28），本数据没有 8MHz 预设（HAL 无 SYSCLK_FREQ_8MHZ_HSI 常量，DIV6 只能显式写 Config { ahb_pre: DIV6 }）；③HAL 预设只有 48/24/16/12MHz 四档，逐级对应 AHB÷1/2/3/4（x0.rs:21-42），presetConstMap 逐字使用这四个常量；④AHB 合法档位 1..8/16/32/64/128/256（metapac Hpre 去重后的 DIV1..DIV8/DIV2_ALT/DIV4_ALT/DIV8_ALT/DIV16..DIV256，rcc_x0.rs:925-957）；HAL 的 hclk_from_hsi 对每档精确除法，无 V1/V3 的 Hpre off-by-one（x0.rs:97-113）；⑤APB1=APB2=HCLK，无独立分频器（x0.rs:84-95），故 apb1/apb2 options 固定 [1]、上限 48MHz；⑥ADC 时钟取自 SYSCLK 经 ADC CTLR3.CLK_DIV 分频（ch32-data family/CH32X0.yaml:418；CTLR3.CLK_DIV 为 4 位原始值 [3:0]，MP/src/peripherals/adc_x0.rs:449-460）；HAL adc::Config.clkdiv 是原始 u8（0..0b111，注释「Div1 to Div16」、缺省 0b11 注释称 ÷8，src/adc.rs:24-42,68-69），data 中 div:8 按该注释建模，原始值到实际除数的精确语义（2^N 还是 N+1）本地无 RM，待核实；ADC 上限仅 HAL 注释 14MHz（adc.rs:35-36），48MHz/8=6MHz 不会触发警告；⑦定时器时钟 = HCLK（x0.rs:84-95），用 timerClock=apb_x2 且 APB=1 表达等价（不写 sysclk，否则 AHB≠1 时会算错）；⑧fallback=preset_only：现有 explicit 兜底会写 cfg.sys/cfg.pll_src/cfg.apb1_pre/cfg.apb2_pre，X0 的 Config 只有 ahb_pre，直接编译失败；AHB÷5..÷256 的导出路径待 M15（需新增「只写 cfg.ahb_pre」的显式路径）；⑨defaultClock 落在 HSI + AHB÷1 = 48MHz，命中 48MHZ_HSI 预设。诚实边界（M14 契约 D12）：无 HSE/PLL；SPI1（v0）只支持 MSB-first；I2C1 上游 README 标「未验证」（❓）；PIOC 需 pioc feature + 外部固件、不建模；USBPD 只有 PHY 层、不建模；OPA 无 HAL 驱动、不建模。"
+  "notes": "依据 ch32-hal src/rcc/x0.rs：①HSI 固定 48MHz（:5），没有 HSE/LSI/LSE 与 PLL/SW 选择——Config 只有 ahb_pre 一个字段（:9-11），metapac rcc_x0 的 vals 只有 Hpre/Mco（MP/src/peripherals/rcc_x0.rs:921-1018），故本文件不写 pll 字段（M14 契约 D3.2：ClockData.pll 可选，消费方按无 PLL 处理）；②复位后 HAL Config::default() 为 AHB DIV6 → 8MHz（:13-19，HAL/examples/ch32x035/README.md:27-28），本数据没有 8MHz 预设（HAL 无 SYSCLK_FREQ_8MHZ_HSI 常量，DIV6 只能显式写 Config { ahb_pre: DIV6 }）；③HAL 预设只有 48/24/16/12MHz 四档，逐级对应 AHB÷1/2/3/4（x0.rs:21-42），presetConstMap 逐字使用这四个常量；④AHB 合法档位 1..8/16/32/64/128/256（metapac Hpre 去重后的 DIV1..DIV8/DIV2_ALT/DIV4_ALT/DIV8_ALT/DIV16..DIV256，rcc_x0.rs:925-957）；HAL 的 hclk_from_hsi 对每档精确除法，无 V1/V3 的 Hpre off-by-one（x0.rs:97-113）；⑤APB1=APB2=HCLK，无独立分频器（x0.rs:84-95），故 apb1/apb2 options 固定 [1]、上限 48MHz；⑥ADC 时钟取自 SYSCLK 经 ADC CTLR3.CLK_DIV 分频（ch32-data family/CH32X0.yaml:418；CTLR3.CLK_DIV 为 4 位原始值 [3:0]，MP/src/peripherals/adc_x0.rs:449-460）；HAL adc::Config.clkdiv 是原始 u8（0..0b111，注释「Div1 to Div16」、缺省 0b11 注释称 ÷8，src/adc.rs:24-42,68-69），data 中 div:8 按该注释建模，原始值到实际除数的精确语义（2^N 还是 N+1）本地无 RM，待核实；ADC 上限仅 HAL 注释 14MHz（adc.rs:35-36），48MHz/8=6MHz 不会触发警告；⑦定时器时钟 = HCLK（x0.rs:84-95），用 timerClock=apb_x2 且 APB=1 表达等价（不写 sysclk，否则 AHB≠1 时会算错）；⑧fallback=preset_only：现有 explicit 兜底会写 cfg.sys/cfg.pll_src/cfg.apb1_pre/cfg.apb2_pre，X0 的 Config 只有 ahb_pre，直接编译失败；AHB÷5..÷256 的导出路径待 M15（需新增「只写 cfg.ahb_pre」的显式路径）；⑨defaultClock 落在 HSI + AHB÷1 = 48MHz，命中 48MHZ_HSI 预设。诚实边界（M14 契约 D12）：无 HSE/PLL；SPI1（v0）只支持 MSB-first；I2C1 上游 README 标「未验证」（❓）；PIOC 需 pioc feature + 外部固件、不建模；USBPD 只有 PHY 层、不建模；OPA 无 HAL 驱动、不建模。M15 外设时钟：USART1-4/SPI1 源 HCLK（ch32-data family/CH32X0.yaml:141,340），I2C1 yaml 标 PCLK1（X035_I2C1.yaml:8）但本芯片 APB1≡HCLK（无分频器）故统一按 HCLK；ADC 源 SYSCLK 经 CTLR3.CLK_DIV（4 位 raw，HAL 缺省 0b11 注释称 ÷8，精确语义待核实，仅显示不编造 MHz）；USB 48MHz 为 HSI 直连无分频（无 USBPRE）。"
 }

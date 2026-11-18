@@ -37,7 +37,7 @@
       ],
       "params": {
         "mode": { "kind": "select", "label": "CPOL/CPHA 模式", "options": ["MODE_0", "MODE_1", "MODE_2", "MODE_3"], "default": "MODE_0" },
-        "bitOrder": { "kind": "select", "label": "位序", "options": ["MsbFirst", "LsbFirst"], "default": "MsbFirst" },
+        "bitOrder": { "kind": "select", "label": "位序", "options": ["MsbFirst"], "default": "MsbFirst" },
         "frequency": { "kind": "number", "label": "频率 (Hz)", "default": 1000000, "min": 1000, "max": 24000000 }
       }
     }

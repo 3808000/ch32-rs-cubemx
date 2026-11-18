@@ -5,12 +5,18 @@ import {
   canEditControl,
   clampNumber,
   editKeyAction,
+  isRadioControl,
+  isStepperControl,
   parseNumberInput,
   resolveSelectValue,
+  stepControlValue,
 } from '@/components/clock/inlineEdit'
+import { computeHighlightSet, edgeInHighlight } from '@/components/clock/graph'
+import { arrowScrollDelta, shouldIgnoreSceneKeys } from '@/components/common/canvasNav'
 import type { ClockNodeControl } from '@/model/clock/tree'
 import { applyClockControl, buildClockTree } from '@/model/clock/tree'
 import { computeClock, defaultClock } from '@/model/clock'
+import { computePeripheralClocks } from '@/model/clock/peripheral'
 import { getDeviceData } from '@/model/device'
 
 /** 构造 number 控件（默认按 V203 HSE 晶振：3~25 MHz） */
@@ -191,5 +197,189 @@ describe('冒烟：CH32V203C8T6 parse → applyClockControl 链路', () => {
     const lockedCfg = { ...cfg, locked: ['HSE'] }
     expect(applyClockControl(lockedCfg, c, 16)).toBe(lockedCfg)
     expect(canEditControl(c, true)).toBe(false)
+  })
+})
+
+// ---------- M15：radio / stepper 控件形态 ----------
+
+function sourceControl(over: Partial<ClockNodeControl> = {}): ClockNodeControl {
+  return {
+    kind: 'select',
+    field: 'source',
+    label: '时钟源',
+    value: 'HSI',
+    options: [
+      { value: 'HSI', label: 'HSI' },
+      { value: 'HSE', label: 'HSE' },
+      { value: 'PLL', label: 'PLL' },
+    ],
+    ...over,
+  }
+}
+
+describe('isRadioControl', () => {
+  it('源选择且选项 ≤4 → radio', () => {
+    expect(isRadioControl(sourceControl())).toBe(true)
+  })
+
+  it('源选择但选项 ≥5 → 不强制 radio（保持内联 select）', () => {
+    const c = sourceControl({
+      options: ['HSI', 'HSE', 'PLL', 'LSI', 'LSE'].map((v) => ({ value: v, label: v })),
+    })
+    expect(isRadioControl(c)).toBe(false)
+  })
+
+  it('分频字段即使选项少也不用 radio', () => {
+    expect(isRadioControl(selControl())).toBe(false)
+  })
+
+  it('无控件/无选项 → 不是 radio', () => {
+    expect(isRadioControl(null)).toBe(false)
+    expect(isRadioControl(sourceControl({ options: undefined }))).toBe(false)
+  })
+})
+
+describe('isStepperControl / stepControlValue', () => {
+  it('分频字段识别为 stepper，源选择不是', () => {
+    expect(isStepperControl(selControl())).toBe(true)
+    expect(isStepperControl(selControl({ field: 'adcClkDiv' }))).toBe(true)
+    expect(isStepperControl(sourceControl())).toBe(false)
+    expect(isStepperControl(null)).toBe(false)
+  })
+
+  it('按 options 索引 ±1，返回选项原值（number 类型）', () => {
+    const c = selControl({ value: 2 })
+    expect(stepControlValue(c, 1)).toBe(4)
+    expect(stepControlValue(c, -1)).toBe(1)
+  })
+
+  it('首/尾档位返回 null（按钮置灰）', () => {
+    expect(stepControlValue(selControl({ value: 1 }), -1)).toBeNull()
+    expect(stepControlValue(selControl({ value: 8 }), 1)).toBeNull()
+  })
+
+  it('fixed / 当前值不在 options / 无选项 → null', () => {
+    expect(stepControlValue(selControl({ fixed: true }), 1)).toBeNull()
+    expect(stepControlValue(selControl({ value: 3 }), 1)).toBeNull()
+    expect(stepControlValue(selControl({ options: undefined }), 1)).toBeNull()
+  })
+
+  it('stepper 结果可直接写回 applyClockControl（V203 AHB ÷2 → ÷4）', () => {
+    const spec = getDeviceData('CH32V203C8T6').clock
+    const cfg = defaultClock(spec)
+    const c: ClockNodeControl = selControl({ value: 2 })
+    const v = stepControlValue(c, 1)
+    expect(v).toBe(4)
+    expect(applyClockControl(cfg, c, v!).ahb).toBe(4)
+  })
+})
+
+// ---------- M15：路径高亮 BFS ----------
+
+const CHAIN = [
+  { from: 'HSI', to: 'SYSCLK' },
+  { from: 'SYSCLK', to: 'AHB' },
+  { from: 'AHB', to: 'APB1' },
+  { from: 'APB1', to: 'P-USART1' },
+]
+
+describe('computeHighlightSet 路径高亮', () => {
+  it('upstream：仅上游祖先链（不含下游）', () => {
+    const ids = computeHighlightSet(CHAIN, 'APB1', 'upstream')
+    expect([...ids].sort()).toEqual(['AHB', 'APB1', 'HSI', 'SYSCLK'].sort())
+    expect(ids.has('P-USART1')).toBe(false)
+  })
+
+  it('both：上下游全闭包', () => {
+    const ids = computeHighlightSet(CHAIN, 'AHB', 'both')
+    expect(ids.has('HSI')).toBe(true)
+    expect(ids.has('SYSCLK')).toBe(true)
+    expect(ids.has('APB1')).toBe(true)
+    expect(ids.has('P-USART1')).toBe(true)
+    expect(ids.has('APB2')).toBe(false)
+  })
+
+  it('起点始终包含；未知起点返回单节点', () => {
+    const ids = computeHighlightSet(CHAIN, 'UART-UNKNOWN', 'upstream')
+    expect(ids).toEqual(new Set(['UART-UNKNOWN']))
+  })
+
+  it('空边集仍返回起点', () => {
+    expect(computeHighlightSet([], 'SYSCLK', 'both')).toEqual(new Set(['SYSCLK']))
+  })
+
+  it('edgeInHighlight 要求两端都在集合中', () => {
+    const ids = new Set(['AHB', 'APB1'])
+    expect(edgeInHighlight({ from: 'AHB', to: 'APB1' }, ids)).toBe(true)
+    expect(edgeInHighlight({ from: 'APB1', to: 'P-USART1' }, ids)).toBe(false)
+  })
+})
+
+// ---------- M15：画布键盘导航纯函数 ----------
+
+// ---------- M15：外设节点树模型冒烟（C 域消费 B/A 接口） ----------
+
+describe('冒烟：CH32V203C8T6 外设时钟节点', () => {
+  const data = getDeviceData('CH32V203C8T6')
+  const spec = data.clock
+  const cfg = defaultClock(spec)
+  const freqs = computeClock(spec, cfg)
+  const periFreqs = computePeripheralClocks(spec, cfg, freqs, data.peripherals, {})
+  const layout = buildClockTree(spec, cfg, freqs, undefined, { peripherals: data.peripherals, state: {}, periFreqs })
+  const byId = new Map(layout.nodes.map((n) => [n.id, n]))
+
+  it('外设实例节点带 periId/column/group/badge 元数据', () => {
+    const usart = byId.get('P-USART1')
+    expect(usart).toBeDefined()
+    expect(usart!.periId).toBe('USART1')
+    expect(usart!.lockable).toBe(false)
+    expect(usart!.badge).toBe('fixed')
+    expect(typeof usart!.column).toBe('number')
+    expect(usart!.group).toBe('g-usart')
+  })
+
+  it('USART 速率旋钮为 periParam 控件（baudrate）', () => {
+    const c = byId.get('P-USART1')!.control!
+    expect(c.field).toBe('periParam')
+    expect(c.periId).toBe('USART1')
+    expect(c.paramKey).toBe('baudrate')
+    expect(c.kind).toBe('number')
+  })
+
+  it('ADC 实例节点暴露 adcClkDiv raw 控件（V203 programmable）', () => {
+    const adc = byId.get('P-ADC1')
+    expect(adc).toBeDefined()
+    expect(adc!.control?.field).toBe('adcClkDiv')
+    expect(adc!.control?.kind).toBe('select')
+    expect(adc!.badge).toBe('raw')
+  })
+
+  it('外设边从源总线节点连出（V203 USART1 覆盖为 APB2）', () => {
+    const e = layout.edges.find((x) => x.to === 'P-USART1')
+    expect(e?.from).toBe('APB2')
+  })
+})
+
+describe('arrowScrollDelta / shouldIgnoreSceneKeys', () => {
+  it('方向键映射为滚动增量', () => {
+    expect(arrowScrollDelta('ArrowLeft')).toEqual({ x: -56, y: 0 })
+    expect(arrowScrollDelta('ArrowRight', 10)).toEqual({ x: 10, y: 0 })
+    expect(arrowScrollDelta('ArrowUp')).toEqual({ x: 0, y: -56 })
+    expect(arrowScrollDelta('ArrowDown')).toEqual({ x: 0, y: 56 })
+    expect(arrowScrollDelta('Enter')).toEqual({ x: 0, y: 0 })
+  })
+
+  it('输入/下拉/可编辑区/按钮上不劫持快捷键', () => {
+    expect(shouldIgnoreSceneKeys('INPUT', false, false)).toBe(true)
+    expect(shouldIgnoreSceneKeys('textarea', false, false)).toBe(true)
+    expect(shouldIgnoreSceneKeys('SELECT', false, false)).toBe(true)
+    expect(shouldIgnoreSceneKeys('BUTTON', false, false)).toBe(true)
+    expect(shouldIgnoreSceneKeys('DIV', true, false)).toBe(true)
+  })
+
+  it('内联编辑中不劫持；普通画布区域劫持', () => {
+    expect(shouldIgnoreSceneKeys('DIV', false, true)).toBe(true)
+    expect(shouldIgnoreSceneKeys('DIV', false, false)).toBe(false)
+    expect(shouldIgnoreSceneKeys(undefined, false, false)).toBe(false)
   })
 })

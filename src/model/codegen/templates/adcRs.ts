@@ -17,6 +17,11 @@ pub fn <%- a.initFn %>(<%- a.params %>) -> <%- a.typeName %> {
 <% if (adcApi === 'v4x7') { -%>
     // H4/V4x7：Adc::new 返回 Result（时钟不可用/过快时失败）
     let adc = hal::adc::Adc::new(adc_peri, Default::default()).unwrap();
+<% } else if (adcClkDiv !== undefined) { -%>
+    // ADC 时钟分频：直接写 CTLR3.CLK_DIV 原始寄存器值（HAL Config.clkdiv，不是分频倍数）；
+    // 该 HAL 缺省为 0b11。V203/V307 的 raw 语义与 ADCPRE 档位待上游核实；
+    // X035 的 0b11=÷8 仅为 HAL 注释假设（PAC 仅有 4 位 raw 值）。
+    let adc = hal::adc::Adc::new(adc_peri, hal::adc::Config { clkdiv: <%- adcClkDiv %>, ..Default::default() });
 <% } else { -%>
     let adc = hal::adc::Adc::new(adc_peri, Default::default());
 <% } -%>

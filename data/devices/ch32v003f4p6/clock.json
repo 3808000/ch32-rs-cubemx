@@ -22,6 +22,19 @@
     "maxMhz": 14
   },
   "timerClock": "sysclk",
+  "peripheralClocks": {
+    "usart": { "sourceDefault": "HCLK", "knob": "baudrate" },
+    "spi": {
+      "sourceDefault": "HCLK",
+      "knob": "frequency",
+      "brg": { "divs": [2, 4, 8, 16, 32, 64, 128, 256] }
+    },
+    "i2c": { "sourceDefault": "APB1", "knob": "speed", "maxKhz": 400 },
+    "adc": {
+      "source": "APB2",
+      "pre": { "programmable": false, "note": "ADCPRE 上游 FIXME（v003.rs:20,125），HAL 不写，复位 ÷2 不建模" }
+    }
+  },
   "presets": [
     {
       "id": "48MHZ_HSI",
@@ -47,5 +60,5 @@
     },
     "fallback": "explicit"
   },
-  "notes": "V003 PLL 固定 ×2（HAL v003.rs）；无 APB1 分频（pclk1=hclk）；HSI=24MHz；预设 48MHZ_HSE/24MHZ_HSE 硬编码 HSE=24MHz，仅当 hxtalMhz=24 时匹配"
+  "notes": "V003 PLL 固定 ×2（HAL v003.rs）；无 APB1 分频（pclk1=hclk）；HSI=24MHz；预设 48MHZ_HSE/24MHZ_HSE 硬编码 HSE=24MHz，仅当 hxtalMhz=24 时匹配。M15 外设时钟源逐字取自 ch32-data family/CH32V003.yaml：USART1=HCLK、SPI1=HCLK、I2C1=PCLK1、ADC1=PCLK2（WCH 外设无内核 mux，节点仅显示固定源徽标）；ADCPRE ÷2/4/6/8 存在但 HAL 无 API（adc.rs cfg 排除 adc_v003），ADC 节点按复位路径显示、不编造额外 MHz；无 USB 域。"
 }

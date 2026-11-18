@@ -2,7 +2,7 @@
 // 覆盖：空配置 / GPIO 输出输入 / EXTI / USART remap0 / SPI / I2C / ADC /
 //       embassy / 时钟预设命中 / 显式兜底 / vendorHal 开关 / 错误阻止 / halBackend 守卫。
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { CodegenResult, DeviceData, PinAssignment, PinMode, ProjectConfig } from '@/model/types'
+import type { AdcClockSpec, CodegenResult, DeviceData, PinAssignment, PinMode, ProjectConfig } from '@/model/types'
 import { getDeviceData } from '@/model/device'
 import { generateProject } from '@/model/codegen'
 import { GENERATED_END_MARKER, GENERATED_START_MARKER } from '@/services/tomlMerge'
@@ -210,6 +210,148 @@ describe('generateProject 时钟', () => {
     const clock = r.files.find((f) => f.path === 'src/generated/clock.rs')!.content
     expect(clock).toContain('cfg.sys = hal::pac::rcc::vals::Sw::HSI')
     expect(clock).toContain('// SYSCLK=24MHz HCLK=24MHz PCLK1=24MHz PCLK2=24MHz')
+  })
+})
+
+describe('generateProject ADC 时钟分频（M15）', () => {
+  const v203 = getDeviceData('CH32V203C8T6')
+  const x035 = getDeviceData('CH32X035C8T6')
+  const h417 = getDeviceData('CH32H417QEU6')
+
+  /** 数据层 peripheralClocks.adc.clkDiv 尚未落入各芯片 clock.json 时，测试按契约 schema 注入。 */
+  const withClkDiv = (base: DeviceData, clkDiv: AdcClockSpec['clkDiv']): DeviceData => ({
+    ...base,
+    clock: {
+      ...base.clock,
+      peripheralClocks: {
+        ...base.clock.peripheralClocks,
+        adc: { source: base.clock.peripheralClocks?.adc?.source ?? 'APB2', clkDiv },
+      },
+    },
+  })
+  const spec = { source: 'APB2' as const, clkDiv: { programmable: true, bits: 4, default: 3, raw: true } }
+  const v203Data = withClkDiv(v203, spec.clkDiv)
+  const x035Data = withClkDiv(x035, { ...spec.clkDiv, note: 'X035 div:8 为 HAL 注释假设；PAC 仅 4 位 raw' })
+
+  const adcPin = (p: string, fn: string) => pin(p, 'ANALOG', { function: fn })
+  const v203Config = (adcClkDiv?: number): ProjectConfig =>
+    baseConfig({
+      chip: 'CH32V203C8T6',
+      clock: { source: 'HSI', ahb: 1, apb1: 1, apb2: 1, ...(adcClkDiv !== undefined ? { adcClkDiv } : {}) },
+      pins: [adcPin('PA1', 'ADC_IN1')],
+    })
+
+  it('V203 adcClkDiv=5（≠缺省 3）→ 发射 hal::adc::Config { clkdiv: 5, ..Default::default() }', () => {
+    const r = generateProject(v203Config(5), v203Data)
+    expect(r.errors).toEqual([])
+    const adc = r.files.find((f) => f.path === 'src/generated/adc.rs')!.content
+    expect(adc).toContain('hal::adc::Adc::new(adc_peri, hal::adc::Config { clkdiv: 5, ..Default::default() })')
+    expect(adc).toContain('raw 语义与 ADCPRE 档位待上游核实')
+    expect(fileMap(r)).toMatchSnapshot()
+  })
+
+  it('V203 adcClkDiv=3（=缺省）→ 保持 Default::default()（不发射显式 clkdiv）', () => {
+    const r = generateProject(v203Config(3), v203Data)
+    expect(r.errors).toEqual([])
+    const adc = r.files.find((f) => f.path === 'src/generated/adc.rs')!.content
+    expect(adc).toContain('hal::adc::Adc::new(adc_peri, Default::default())')
+    expect(adc).not.toContain('Config { clkdiv')
+  })
+
+  it('V203 未设置 adcClkDiv → 保持 Default::default()', () => {
+    const r = generateProject(v203Config(), v203Data)
+    expect(r.errors).toEqual([])
+    const adc = r.files.find((f) => f.path === 'src/generated/adc.rs')!.content
+    expect(adc).not.toContain('Config { clkdiv')
+  })
+
+  it('X035 adcClkDiv=1（≠缺省 3）→ 发射 clkdiv: 1 与 div:8 假设注释', () => {
+    const r = generateProject(
+      baseConfig({
+        chip: 'CH32X035C8T6',
+        clock: { source: 'HSI', ahb: 1, apb1: 1, apb2: 1, adc: 'SYS', adcClkDiv: 1 },
+        pins: [adcPin('PA1', 'ADC_IN1')],
+      }),
+      x035Data,
+    )
+    expect(r.errors).toEqual([])
+    const adc = r.files.find((f) => f.path === 'src/generated/adc.rs')!.content
+    expect(adc).toContain('hal::adc::Config { clkdiv: 1, ..Default::default() }')
+    expect(adc).toContain('X035 的 0b11=÷8 仅为 HAL 注释假设')
+  })
+
+  it('X035 adcClkDiv=3（=缺省）→ 不发射显式 clkdiv', () => {
+    const r = generateProject(
+      baseConfig({
+        chip: 'CH32X035C8T6',
+        clock: { source: 'HSI', ahb: 1, apb1: 1, apb2: 1, adc: 'SYS', adcClkDiv: 3 },
+        pins: [adcPin('PA1', 'ADC_IN1')],
+      }),
+      x035Data,
+    )
+    expect(r.errors).toEqual([])
+    const adc = r.files.find((f) => f.path === 'src/generated/adc.rs')!.content
+    expect(adc).not.toContain('Config { clkdiv')
+  })
+
+  it('V003（无 clkDiv.programmable）设 adcClkDiv=5 也不发射', () => {
+    const r = generateProject(
+      baseConfig({
+        clock: { source: 'HSI', ahb: 1, apb1: 1, apb2: 1, adcClkDiv: 5 },
+        pins: [adcPin('PA1', 'ADC_IN1')],
+      }),
+      data,
+    )
+    expect(r.errors).toEqual([])
+    const adc = r.files.find((f) => f.path === 'src/generated/adc.rs')!.content
+    expect(adc).not.toContain('Config { clkdiv')
+    expect(adc).toContain('Default::default()')
+  })
+
+  it('H417（adcApi=v4x7）即使声明 clkDiv 也走 Result 签名，不发射 clkdiv', () => {
+    const r = generateProject(
+      baseConfig({
+        chip: 'CH32H417QEU6',
+        clock: { source: 'HSI', ahb: 1, apb1: 1, apb2: 1, adcClkDiv: 5 },
+        pins: [adcPin('PA0', 'ADC_IN0')],
+      }),
+      withClkDiv(h417, spec.clkDiv),
+    )
+    expect(r.errors).toEqual([])
+    const adc = r.files.find((f) => f.path === 'v3f/src/generated/adc.rs')!.content
+    expect(adc).toContain('hal::adc::Adc::new(adc_peri, Default::default()).unwrap()')
+    expect(adc).not.toContain('Config { clkdiv')
+  })
+
+  it('README 时钟摘要：频率表 + 命中预设名', () => {
+    const r = generateProject(
+      baseConfig({
+        chip: 'CH32V203C8T6',
+        clock: { source: 'PLL', pllSource: 'HSI', pll: { mul: 18 }, ahb: 1, apb1: 1, apb2: 1 },
+      }),
+      v203,
+    )
+    expect(r.errors).toEqual([])
+    const readme = r.files.find((f) => f.path === 'README.md')!.content
+    expect(readme).toContain('### 时钟摘要')
+    expect(readme).toContain('| SYSCLK | 144 MHz |')
+    expect(readme).toContain('| PCLK2 | 144 MHz |')
+    expect(readme).toContain('| ADC | 72 MHz |')
+    expect(readme).toContain('命中预设：**144MHz (HSI 8MHz×18)**')
+  })
+
+  it('README 时钟摘要：无匹配预设显示「显式配置」', () => {
+    const r = generateProject(
+      baseConfig({
+        chip: 'CH32V203C8T6',
+        clock: { source: 'PLL', pllSource: 'HSI', pll: { mul: 18 }, ahb: 2, apb1: 1, apb2: 1 },
+      }),
+      v203,
+    )
+    expect(r.errors).toEqual([])
+    const readme = r.files.find((f) => f.path === 'README.md')!.content
+    expect(readme).toContain('| SYSCLK | 144 MHz |')
+    expect(readme).toContain('命中预设：**显式配置**')
   })
 })
 

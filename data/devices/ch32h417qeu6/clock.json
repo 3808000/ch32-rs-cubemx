@@ -93,6 +93,29 @@
     "default": "APB2_DIV2",
     "maxMhz": 80
   },
+  "peripheralClocks": {
+    "usart": {
+      "sourceDefault": "APB1",
+      "sourceOverrides": { "USART1": "APB2" },
+      "knob": "baudrate"
+    },
+    "spi": {
+      "sourceDefault": "APB1",
+      "sourceOverrides": { "SPI1": "APB2" },
+      "knob": "frequency",
+      "brg": { "divs": [2, 4, 8, 16, 32, 64, 128, 256] }
+    },
+    "i2c": {
+      "sourceDefault": "APB1",
+      "sourceOverrides": { "I2C4": "APB2" },
+      "knob": "speed",
+      "maxKhz": 400
+    },
+    "adc": {
+      "source": "APB2",
+      "pre": { "programmable": false, "note": "HAL 有 adcpre API 但本芯片 preset_only；adcsrc/duty 不写" }
+    }
+  },
   "presets": [
     {
       "id": "400MHZ_HSI",
@@ -138,5 +161,5 @@
     },
     "fallback": "preset_only"
   },
-  "notes": "依据 ch32-hal src/rcc/h4/mod.rs 逐行核对：H4 的 Config 不是平铺字段（无 sys/pll_src/ahb_pre 赋值），而是内部 Recipe + 公开 hse/bus/mux/aux_plls/ls/mco/rgmii_on，因此 codegen.fallback=preset_only——HAL 只提供 with_hsi() 与 with_sysclk_*() 配方，无法用显式字段拼装。已收录配方：SYSCLK_400M_CoreCLK_V5F_400M_V3F_100M_{HSI,HSE}（主 PLL PLLMUL=MUL16，pll_src_div=0：25×16=400MHz；HPRE=DIV1、FPRE=DIV4 → V5F/AHB=400MHz、V3F/HCLK=100MHz、PCLK1=PCLK2=100MHz）。数据模型的 ahb 字段在这里表示 SYSCLK→HCLK 的合成分频（HPRE×FPRE=4），用于复现 HCLK/PCLK；V5F 时钟不在现有 ClockFrequencies 中建模。未收录 HAL 的 480MHz 配方（with_sysclk_480m_*）：数据手册 CH32H417DS0 第 1 章特性表明确 V5F 最高 400MHz、V3F 最高 160MHz，且 USBHS PLL 说明注明「实测不低于 480MHz，禁止 480MHz 应用于正式工程」。HSI=25MHz（rcc/h4/mod.rs HSI_FREQUENCY）；HSE 5~32MHz、典型 25MHz（DS 表 3-9 FHSE_ext）；HCLK/FHCLK 上限 160MHz；ADC 时钟 = HCLK/PPRE2/ADCPRE（RM §3.4.4），fADC 上限 80MHz（HAL adc/v4x7.rs MAX_ADC_CLOCK 与 DS 表 fADC）。H4 定时器内核时钟 = PCLK（RM 表 4.2，无 ×2），但本数据所有预设 APB 分频均为 1，故现有 timerClock=apb_x2 默认模型仍得到正确 PCLK；若将来放开 APB 分频需补 'pclk' 模式。"
+  "notes": "依据 ch32-hal src/rcc/h4/mod.rs 逐行核对：H4 的 Config 不是平铺字段（无 sys/pll_src/ahb_pre 赋值），而是内部 Recipe + 公开 hse/bus/mux/aux_plls/ls/mco/rgmii_on，因此 codegen.fallback=preset_only——HAL 只提供 with_hsi() 与 with_sysclk_*() 配方，无法用显式字段拼装。已收录配方：SYSCLK_400M_CoreCLK_V5F_400M_V3F_100M_{HSI,HSE}（主 PLL PLLMUL=MUL16，pll_src_div=0：25×16=400MHz；HPRE=DIV1、FPRE=DIV4 → V5F/AHB=400MHz、V3F/HCLK=100MHz、PCLK1=PCLK2=100MHz）。数据模型的 ahb 字段在这里表示 SYSCLK→HCLK 的合成分频（HPRE×FPRE=4），用于复现 HCLK/PCLK；V5F 时钟不在现有 ClockFrequencies 中建模。未收录 HAL 的 480MHz 配方（with_sysclk_480m_*）：数据手册 CH32H417DS0 第 1 章特性表明确 V5F 最高 400MHz、V3F 最高 160MHz，且 USBHS PLL 说明注明「实测不低于 480MHz，禁止 480MHz 应用于正式工程」。HSI=25MHz（rcc/h4/mod.rs HSI_FREQUENCY）；HSE 5~32MHz、典型 25MHz（DS 表 3-9 FHSE_ext）；HCLK/FHCLK 上限 160MHz；ADC 时钟 = HCLK/PPRE2/ADCPRE（RM §3.4.4），fADC 上限 80MHz（HAL adc/v4x7.rs MAX_ADC_CLOCK 与 DS 表 fADC）。H4 定时器内核时钟 = PCLK（RM 表 4.2，无 ×2），但本数据所有预设 APB 分频均为 1，故现有 timerClock=apb_x2 默认模型仍得到正确 PCLK；若将来放开 APB 分频需补 'pclk' 模式。M15 外设时钟源逐字取自 ch32-data CH32H4.yaml：USART1=PCLK2（:275）、USART2-8=PCLK1，SPI1=PCLK2（:1656）、SPI2-4=PCLK1，I2C1-3=PCLK1、I2C4=PCLK2（:789），ADC1/2 挂 PCLK2 经 PPRE2+ADCPRE；KernelMux（i2s/usbfs/rng/ltdc/uhsif/eth1g/hsadc）HAL 有 API（rcc/h4/mux.rs）但多数外设无驱动 + preset_only，本期不建模；无 USB 域。"
 }

@@ -2,7 +2,7 @@
 // Peripherals 视图（M2.2）：左侧实例列表 + 右侧工作区。
 // activePeripheralId 非空时渲染单实例 PeripheralWorkspaceView；否则渲染概览/汇总
 // （使用汇总 + EXTI/ADC/分组分配面板），保留 Quick menu / Code preview。
-import { computed, provide, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, provide, reactive, ref, watch } from 'vue'
 import { Document, Expand, Fold, Menu, Promotion } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { getPreference, setPreference } from '@/services/uiPreferences'
@@ -11,6 +11,7 @@ import { derivePeripheralUsage } from '@/model/peripherals'
 import PeripheralList from '../components/PeripheralList.vue'
 import PeripheralWorkspaceView from './PeripheralWorkspaceView.vue'
 import { PERIPHERAL_COLLAPSE_KEY } from '../components/PeripheralConfigCard.vue'
+import { subscribePeripheralFocus, takePeripheralFocus } from '@/components/peripherals/peripheralFocus'
 import { derivePeriCategories } from '../components/PeripheralList.vue'
 import QuickMenu from '../components/QuickMenu.vue'
 import PeripheralUsagePanel from '../components/PeripheralUsagePanel.vue'
@@ -78,6 +79,18 @@ function openPeripheral(id: string) {
   store.openPeripheral(id)
   showQuickMenu.value = false
 }
+
+// 跨视图定位（M15）：Clock 视图右键 Configure / 详情跳转 → 打开对应外设对象页
+let unsubscribePeripheralFocus: (() => void) | null = null
+onMounted(() => {
+  const pending = takePeripheralFocus()
+  if (pending) openPeripheral(pending)
+  unsubscribePeripheralFocus = subscribePeripheralFocus(openPeripheral)
+})
+onBeforeUnmount(() => {
+  unsubscribePeripheralFocus?.()
+  unsubscribePeripheralFocus = null
+})
 </script>
 
 <template>

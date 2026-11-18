@@ -72,7 +72,9 @@ describe('peripherals.json 参数 spec（逐字核对 HAL 变体）', () => {
           const p = inst.params
           expect(optionsOf(p.mode)).toEqual(SPI_MODE_OPTIONS)
           expect(p.mode.default).toBe('MODE_0')
-          expect(optionsOf(p.bitOrder)).toEqual(['MsbFirst', 'LsbFirst'])
+          // M15 D8：spi_v0（V003）仅 MSB（ch32-hal spi.rs:65-70 移除 LsbFirst 变体），
+          // 数据层已同步移除——选中 LsbFirst 会编译错误；其余芯片双选项。
+          expect(optionsOf(p.bitOrder)).toEqual(key === 'v003' ? ['MsbFirst'] : ['MsbFirst', 'LsbFirst'])
           expect(p.frequency.kind).toBe('number')
           // 臆造字段守卫：HAL Config 只有 mode/bit_order/frequency（src/spi.rs）
           for (const forbidden of ['dataWidth', 'dataBits', 'softwareNss', 'nss', 'cpol', 'cpha']) {

@@ -47,6 +47,8 @@ export interface UiPreferences {
   'clock.codeVisible': boolean
   'clock.detailWidth': number
   'clock.codeWidth': number
+  /** Reset clock 确认对话框「不再询问」（M15）：为 true 时直接重置 */
+  'clock.resetConfirmSkip': boolean
   'peripherals.codeVisible': boolean
   'peripherals.codeWidth': number
   'inbox.tab': InboxTab
@@ -70,6 +72,7 @@ export const UI_PREF_DEFAULTS: UiPreferences = {
   'clock.codeVisible': false,
   'clock.detailWidth': 360,
   'clock.codeWidth': 480,
+  'clock.resetConfirmSkip': false,
   'peripherals.codeVisible': false,
   'peripherals.codeWidth': 480,
   'inbox.tab': 'problems',
@@ -103,6 +106,7 @@ function isValidValue(key: UiPrefKey, value: unknown): boolean {
     case 'pinout.table.usedOnly':
     case 'clock.detailVisible':
     case 'clock.codeVisible':
+    case 'clock.resetConfirmSkip':
     case 'peripherals.codeVisible':
     case 'tabs.healthBadges':
       return typeof value === 'boolean'

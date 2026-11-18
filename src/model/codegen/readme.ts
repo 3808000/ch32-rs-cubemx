@@ -7,7 +7,7 @@ import type {
   PinAssignment,
   ProjectConfig,
 } from '@/model/types'
-import { computeClock, mergeClockConfig } from '@/model/clock'
+import { computeClock, matchPreset, mergeClockConfig } from '@/model/clock'
 import { derivePeripheralUsage, type PeripheralUsage } from '@/model/peripherals'
 import { HAL_REV } from './halRev'
 import { VSCODE_DEBUG_NOTE } from './templates/ideConfig'
@@ -323,6 +323,8 @@ export function renderReadme(
   embassy: boolean,
   files: GeneratedFile[],
 ): GeneratedFile {
+  // 时钟摘要节：频率表由 buildClockTable 提供，预设名与 UI/codegen 使用同一 matchPreset。
+  const clockPreset = matchPreset(data.clock, mergeClockConfig(data.clock, config.clock))?.label ?? '显式配置'
   return {
     path: 'README.md',
     content: render(T.README_TPL, {
@@ -338,6 +340,7 @@ export function renderReadme(
       ideConfig: sel.ideConfig === 'vscode',
       debugNote: VSCODE_DEBUG_NOTE,
       profile: sel.profile ?? 'release-size',
+      clockPreset,
       ...buildReadmeReport(config, data, sel.profile ?? 'release-size'),
       files: files.map((f) => ({ path: f.path, desc: FILE_DESCS[f.path] ?? '' })),
     }),

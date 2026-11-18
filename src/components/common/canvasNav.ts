@@ -59,3 +59,38 @@ export function shouldStartPan(opts: { tool: 'pointer' | 'hand'; onPin: boolean;
   if (opts.tool === 'hand') return true
   return !opts.onPin
 }
+
+/**
+ * 方向键滚动画布（ClockCanvas，M15）：返回滚动容器 scrollLeft/scrollTop 的增量。
+ * 仅识别 ArrowLeft/Right/Up/Down，其余按键返回 0（交还原生行为）。
+ */
+export function arrowScrollDelta(key: string, step = 56): Pt {
+  switch (key) {
+    case 'ArrowLeft':
+      return { x: -step, y: 0 }
+    case 'ArrowRight':
+      return { x: step, y: 0 }
+    case 'ArrowUp':
+      return { x: 0, y: -step }
+    case 'ArrowDown':
+      return { x: 0, y: step }
+    default:
+      return { x: 0, y: 0 }
+  }
+}
+
+/**
+ * 画布快捷键是否应放弃拦截（M15 Space 临时抓手 / 方向键滚动）：
+ * - 节点内联编辑中：不劫持；
+ * - 焦点在输入/文本域/下拉/可编辑区/按钮上：不劫持（保留原生输入与按钮激活语义）。
+ */
+export function shouldIgnoreSceneKeys(
+  tagName: string | undefined,
+  isContentEditable: boolean,
+  editing: boolean,
+): boolean {
+  if (editing) return true
+  if (isContentEditable) return true
+  const tag = (tagName ?? '').toUpperCase()
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON'
+}

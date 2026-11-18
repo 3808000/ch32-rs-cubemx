@@ -1,5 +1,322 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`generateProject ADC 时钟分频（M15） > V203 adcClkDiv=5（≠缺省 3）→ 发射 hal::adc::Config { clkdiv: 5, ..Default::default() } 1`] = `
+{
+  ".cargo/config.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+[build]
+target = "riscv32imac-unknown-none-elf"
+
+[target."riscv32imac-unknown-none-elf"]
+runner = "wlink -v flash --enable-sdi-print --watch-serial"
+
+# 构建档位别名（profile 定义在 Cargo.toml 标记区内）
+[alias]
+build-size = "build --profile release-size"
+build-speed = "build --profile release-speed"
+build-debug = "build --profile release-debug"
+
+",
+  ".gitignore": "target/
+",
+  "Cargo.toml": "# >>> ch32-cubemx generated >>>
+# 由 ch32-rs-CubeMX 生成 —— 重新导出只更新标记区内内容（标记区外内容会保留）
+[package]
+name = "demo-app"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "demo-app"
+harness = false
+
+[dependencies]
+# 完整 HAL 源码由导出层内嵌到 vendor/ch32-hal，便于直接查阅/跳转
+ch32-hal = { path = "vendor/ch32-hal", default-features = false, features = ["ch32v203c8t6", "rt", "exti", "memory-x"] }
+qingke-rt = "0.8.4"
+# unsafe-trust-wch-atomics：WCH 内核无完整 CAS 实现，需信任其原子指令
+qingke = { version = "0.8.4", features = ["unsafe-trust-wch-atomics"] }
+embedded-hal = "1.0.0"
+panic-halt = "1.0.0"
+
+[profile.dev]
+opt-level = 's'
+
+[profile.release]
+strip = false
+codegen-units = 1
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
+
+# 工具链档位（M4.4）：用 .cargo/config.toml 的 build-size/build-speed/build-debug 别名调用。
+# Cargo 要求自定义 profile 显式 inherits（release 基准，不改变默认 release 构建）。
+[profile.release-size]
+inherits = 'release'
+opt-level = 'z'
+lto = 'fat'
+strip = 'symbols'
+
+[profile.release-speed]
+inherits = 'release'
+opt-level = 3
+
+[profile.release-debug]
+inherits = 'release'
+debug = 2
+opt-level = 's'
+# <<< ch32-cubemx generated <<<
+",
+  "README.md": "# demo-app
+
+由 ch32-rs-CubeMX 生成的 Rust 工程：芯片 CH32V203C8T6（LQFP48，target \`riscv32imac-unknown-none-elf\`），基于 [ch32-hal](https://github.com/ch32-rs/ch32-hal)（rev \`a0863ebcc1082f64e508b73d3b944f119b0db77b\`）。
+
+## 工程报告
+
+### 引脚占用
+
+| 位号 | 引脚 | 模式/信号 | 标签 | remap |
+|---|---|---|---|---|
+| 11 | PA1 | ANALOG / ADC_IN1 | — | — |
+
+### 时钟摘要
+
+| 时钟域 | 频率 |
+|---|---|
+| SYSCLK | 8 MHz |
+| HCLK | 8 MHz |
+| PCLK1 | 8 MHz |
+| PCLK2 | 8 MHz |
+| ADC | 4 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
+
+### 外设实例
+
+| 实例 | 信号 | 引脚 | remap | 关键参数 |
+|---|---|---|---|---|
+| ADC1 | ADC_IN1 | PA1 | — | sampleTime=CYCLES71_5 |
+
+### Flash / RAM 预算
+
+| 区域 | 容量 |
+|---|---|
+| Flash | 64K |
+| SRAM | 20K |
+
+> 容量来自芯片数据（\`chip.json\`）；实际占用以构建产物（\`cargo size\` 等）为准。
+
+### 生成信息
+
+| 项 | 值 |
+|---|---|
+| 生成工具 | ch32-rs-CubeMX 0.1.0 |
+| 生成时间 | 2026-01-01T00:00:00.000Z |
+| cube.json configHash | \`83bc5b0e94f56da4614fca23e291a275a58b060897adc5b4a567d65b8820cc43\` |
+| HAL rev | \`a0863ebcc1082f64e508b73d3b944f119b0db77b\` |
+
+## 文件清单
+
+- \`Cargo.toml\`：工程清单与依赖（ch32-hal 及运行时 crate）
+- \`rust-toolchain.toml\`：工具链锁定（nightly/stable 由芯片 target 决定）
+- \`.cargo/config.toml\`：构建目标、wlink runner 与构建档位别名
+- \`build.rs\`：注入 -Tlink.x 链接参数
+- \`.gitignore\`：Git 忽略规则（构建产物 target/）
+- \`src/generated/clock.rs\`：时钟树 → RCC 配置
+- \`src/generated/pins.rs\`：GPIO 引脚初始化
+- \`src/generated/adc.rs\`：ADC 初始化（通道=引脚字段）
+- \`src/generated/mod.rs\`：生成模块聚合（init 返回 Generated）
+- \`src/main.rs\`：用户代码入口（不会被重新导出覆盖）
+- \`cube.json\`：ch32-rs-CubeMX 配置回读（可重新导入）
+- \`vendor/ch32-hal/\`：完整 HAL 源码（path 依赖），由导出层从内嵌资产写入
+
+## 配置回读（cube.json）
+
+工程根目录的 \`cube.json\` 是本工程的配置快照（等价于 STM32CubeMX 的 \`.ioc\`）：在 ch32-rs-CubeMX 的 Home 页点击「导入工程配置」，或直接把文件拖入窗口，即可在此基础上继续编辑引脚/时钟/外设并重新导出。
+
+## 构建
+
+\`\`\`bash
+cargo build --release
+\`\`\`
+
+目标 triple 已由 \`.cargo/config.toml\` 指定，无需额外 \`--target\` 参数。
+
+### 构建档位
+
+| 命令 | profile | 用途 |
+|---|---|---|
+| \`cargo build --release\` | \`release\` | 默认构建（opt-level='s', lto='fat', debug=2） |
+| \`cargo build-size\` | \`release-size\` | 体积优先（opt-level='z', lto='fat', strip='symbols'） ← 当前选择 |
+| \`cargo build-speed\` | \`release-speed\` | 速度优先（opt-level=3） |
+| \`cargo build-debug\` | \`release-debug\` | 可调试（debug=2, opt-level='s'） |
+
+别名定义在 \`.cargo/config.toml\` 的 \`[alias]\`，profile 定义在 \`Cargo.toml\` 标记区内（重新导出会更新）。当前选择的档位：\`release-size\`。
+
+## 烧录与串口
+
+\`\`\`bash
+# 方式一：cargo run（走 .cargo/config.toml 里的 runner）
+cargo run --release
+
+# 方式二：直接调用 wlink
+wlink -v flash --enable-sdi-print --watch-serial target/riscv32imac-unknown-none-elf/release/demo-app
+\`\`\`
+
+\`--enable-sdi-print\` 开启单线调试打印；代码里调用 \`hal::debug::SDIPrint::enable()\` 后即可用 \`hal::println!\` 输出，串口输出由 \`--watch-serial\` 转发。
+
+## 用户代码约定（重要）
+
+- \`src/generated/**\` 是**生成区**：每次重新导出整体重写，请勿在其中写业务代码；
+- \`src/main.rs\` 是**用户区**：只在首次导出时创建，之后重新导出**永不覆盖**，可放心修改；
+- 用户代码**不受目录位置限制**：可自由新增任意 Rust 模块（例如 \`src/app/\`、\`src/board/\`），在 \`src/main.rs\` 中用 \`mod app;\` 等自行声明即可；生成器只重写 \`src/generated/**\`，不会触碰这些文件；
+- 需要新的引脚/外设配置时，回到 ch32-rs-CubeMX 修改后重新导出，用户代码原样保留。
+
+## vendor/ch32-hal（内嵌 HAL 源码）
+
+本工程通过 path 依赖引用 \`vendor/ch32-hal\`：完整 HAL 源码就在工程内，可直接跳转/阅读实现，无需联网即可构建。
+
+升级方法：用对应 rev 的完整源码替换 \`vendor/ch32-hal\` 目录，并同步本工程记录的 HAL rev（见文首与 \`cube.json\` 的 \`hal.rev\`）；也可在 ch32-rs-CubeMX 中升级 HAL 版本后重新导出。
+",
+  "build.rs": "// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+// memory.x 由 ch32-hal 的 memory-x feature（metapac 自动渲染）提供，此处只需注入链接参数。
+fn main() {
+    println!("cargo:rustc-link-arg-bins=-Tlink.x");
+}
+",
+  "cube.json": "{
+  "version": 1,
+  "chip": "CH32V203C8T6",
+  "projectName": "demo-app",
+  "pins": [
+    {
+      "pin": "PA1",
+      "mode": "ANALOG",
+      "params": {},
+      "function": "ADC_IN1"
+    }
+  ],
+  "naming": {
+    "prefix": ""
+  },
+  "features": {
+    "embassy": false,
+    "debugPrint": false
+  },
+  "hal": {
+    "rev": "a0863ebcc1082f64e508b73d3b944f119b0db77b"
+  },
+  "clock": {
+    "source": "HSI",
+    "ahb": 1,
+    "apb1": 1,
+    "apb2": 1,
+    "adcClkDiv": 5
+  }
+}
+",
+  "rust-toolchain.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+[toolchain]
+channel = "stable"
+targets = ["riscv32imac-unknown-none-elf"]
+",
+  "src/generated/adc.rs": "// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+
+use ch32_hal as hal;
+
+/// ADC1：ADC 通道是引脚的 trait 实现（非整数索引），每个使用的通道一个引脚字段
+pub struct Adc1 {
+    pub adc: hal::adc::Adc<'static, hal::peripherals::ADC1>,
+    /// PA1（ADC_IN1）
+    pub in1: hal::Peri<'static, hal::peripherals::PA1>,
+}
+
+pub fn init_adc1(adc_peri: hal::Peri<'static, hal::peripherals::ADC1>, pa1: hal::Peri<'static, hal::peripherals::PA1>) -> Adc1 {
+    // ADC 时钟分频：直接写 CTLR3.CLK_DIV 原始寄存器值（HAL Config.clkdiv，不是分频倍数）；
+    // 该 HAL 缺省为 0b11。V203/V307 的 raw 语义与 ADCPRE 档位待上游核实；
+    // X035 的 0b11=÷8 仅为 HAL 注释假设（PAC 仅有 4 位 raw 值）。
+    let adc = hal::adc::Adc::new(adc_peri, hal::adc::Config { clkdiv: 5, ..Default::default() });
+    Adc1 {
+        adc,
+        in1: pa1,
+    }
+}
+
+// 读取示例（按需复制到用户代码区）：
+// let v = g.adc1.adc.convert(&mut g.adc1.in1, hal::adc::SampleTime::CYCLES71_5);
+",
+  "src/generated/clock.rs": "// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+// SYSCLK=8MHz HCLK=8MHz PCLK1=8MHz PCLK2=8MHz
+
+use ch32_hal as hal;
+
+/// 时钟树推导出的 RCC 配置
+pub fn rcc_config() -> hal::rcc::Config {
+    // 无匹配预设：按 Config 字段显式构造（Config 为 non_exhaustive 思路一致：default 后逐字段赋值）
+    let mut cfg = hal::rcc::Config::default();
+    cfg.sys = hal::pac::rcc::vals::Sw::HSI;
+    cfg.ahb_pre = hal::pac::rcc::vals::Hpre::DIV1;
+    cfg.apb1_pre = hal::pac::rcc::vals::Ppre::DIV1;
+    cfg.apb2_pre = hal::pac::rcc::vals::Ppre::DIV1;
+    cfg
+}
+",
+  "src/generated/mod.rs": "// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+
+use ch32_hal as hal;
+
+pub mod clock;
+pub mod pins;
+pub mod adc;
+
+/// 全部生成模块的聚合对象：main.rs 只需要拿这一个值
+pub struct Generated {
+    pub pins: pins::Pins,
+    pub adc1: adc::Adc1,
+}
+
+pub fn init(p: hal::Peripherals) -> Generated {
+    Generated {
+        pins: pins::init(),
+        adc1: adc::init_adc1(p.ADC1, p.PA1),
+    }
+}
+",
+  "src/generated/pins.rs": "// 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
+/// 当前工程未配置 GPIO 引脚
+pub struct Pins {}
+
+pub fn init() -> Pins {
+    Pins {}
+}
+",
+  "src/main.rs": "// 由 ch32-rs-CubeMX 生成 —— 本文件为用户区，重新导出不会覆盖
+#![no_std]
+#![no_main]
+
+use {ch32_hal as hal, panic_halt as _};
+
+mod generated;
+
+#[qingke_rt::entry]
+fn main() -> ! {
+    let mut config = hal::Config::default();
+    config.rcc = generated::clock::rcc_config();
+    let p = hal::init(config);
+
+    // —— 用户代码区（生成器永不覆盖本文件）——
+    let g = generated::init(p);
+    let _ = &g;
+    loop {
+        // TODO: 你的逻辑
+    }
+}
+",
+}
+`;
+
 exports[`generateProject 依赖模式 > vendorHal=false：git 依赖锁 rev 1`] = `
 {
   ".cargo/config.toml": "# 由 ch32-rs-CubeMX 生成 —— 重新导出会覆盖本文件
@@ -82,7 +399,7 @@ opt-level = 's'
 
 当前未配置 GPIO/外设引脚。
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -91,6 +408,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -368,7 +687,7 @@ opt-level = 's'
 
 当前未配置 GPIO/外设引脚。
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -377,6 +696,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -1695,7 +2016,7 @@ opt-level = 's'
 | 11 | PD3 | INPUT（上/下拉 UP, EXTI RISING） | — | — |
 | 20 | PC1 | INPUT（上/下拉 DOWN, EXTI FALLING） | BTN | — |
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -1704,6 +2025,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -2040,7 +2363,7 @@ opt-level = 's'
 | 17 | PC4 | INPUT（上/下拉 UP） | KEY0 | — |
 | 18 | PC3 | OUTPUT（OPEN_DRAIN, VERY_HIGH, 初始 HIGH） | BUS_EN | — |
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -2049,6 +2372,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -2379,7 +2704,7 @@ opt-level = 's'
 
 当前未配置 GPIO/外设引脚。
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -2388,6 +2713,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -2675,7 +3002,7 @@ opt-level = 's'
 | 5 | PA1 | ANALOG / ADC_IN1 | — | — |
 | 6 | PA2 | ANALOG / ADC_IN0 | — | — |
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -2684,6 +3011,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -3016,7 +3345,7 @@ opt-level = 's'
 | 19 | PC2 | AF / I2C1_SCL | — | 0 |
 | 20 | PC1 | AF / I2C1_SDA | — | 0 |
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -3025,6 +3354,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -3349,7 +3680,7 @@ opt-level = 's'
 | 15 | PC6 | AF / SPI1_MOSI | — | 0 |
 | 16 | PC5 | AF / SPI1_SCK | — | 0 |
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -3358,6 +3689,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -3690,7 +4023,7 @@ opt-level = 's'
 | 2 | PD5 | AF / USART1_TX | — | 0 |
 | 3 | PD6 | AF / USART1_RX | — | 0 |
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -3699,6 +4032,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -4036,7 +4371,7 @@ opt-level = 's'
 | 19 | PC2 | AF / I2C1_SCL | — | 0 |
 | 20 | PC1 | AF / I2C1_SDA | — | 0 |
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -4045,6 +4380,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -4427,7 +4764,7 @@ opt-level = 's'
 
 当前未配置 GPIO/外设引脚。
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -4436,6 +4773,8 @@ opt-level = 's'
 | PCLK1 | 48 MHz |
 | PCLK2 | 48 MHz |
 | ADC | 48 MHz |
+
+命中预设：**48MHz (HSE 24MHz×2)**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 
@@ -4727,7 +5066,7 @@ opt-level = 's'
 
 当前未配置 GPIO/外设引脚。
 
-### 时钟
+### 时钟摘要
 
 | 时钟域 | 频率 |
 |---|---|
@@ -4736,6 +5075,8 @@ opt-level = 's'
 | PCLK1 | 24 MHz |
 | PCLK2 | 24 MHz |
 | ADC | 24 MHz |
+
+命中预设：**显式配置**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 

@@ -3,7 +3,7 @@
 // SampleTime 参数，逐字使用数据层变体名）。分辨率由芯片固定（ADC_MAX：V003 10 位、
 // 其余 12 位），无运行时分辨率 API；连续转换只在 adc/v4x7 的 read_dma 内部启用，
 // 没有公开配置接口。数据层不提供 resolution/continuous 参数（标「待核实」，不臆造）。
-import type { DeviceData } from '@/model/types'
+import type { DeviceData, ProjectConfig } from '@/model/types'
 import type { PeripheralUsage } from '@/model/peripherals'
 import { enabledUsage } from '@/model/peripherals'
 import type { PeriModule } from './derive'
@@ -11,11 +11,26 @@ import { render } from './render'
 import { periType, pinIdent, typeNameOf } from './util'
 import * as T from './templates'
 
-export function renderAdc(usages: PeripheralUsage[], data: DeviceData, base = ''): PeriModule | null {
+export function renderAdc(
+  config: ProjectConfig,
+  usages: PeripheralUsage[],
+  data: DeviceData,
+  base = '',
+): PeriModule | null {
   const insts = enabledUsage(usages, 'adc')
   if (insts.length === 0) return null
   // H4/V4x7：Adc::new 返回 Result，读通道用 blocking_read（v1/v3 用 convert）
   const adcApi = data.peripherals.adcApi ?? 'convert'
+
+  // ADC CTLR3.CLK_DIV（M15）：仅当数据层声明可编程且配置显式给出非缺省原始值时发射。
+  // 原始值直接写 HAL Config.clkdiv（u8，非分频倍数）；V203/V307 的 ADCPRE 与 raw 语义
+  // 上游均未核实，X035 的 0b11=÷8 仅为 HAL 注释假设——生成注释如实标注边界。
+  // 等于缺省或未设置时保持 Default::default()（输出与历史逐字节一致）。
+  const clkDivSpec = data.clock.peripheralClocks?.adc?.clkDiv
+  const adcClkDiv =
+    adcApi !== 'v4x7' && clkDivSpec?.programmable && config.clock?.adcClkDiv !== undefined && config.clock.adcClkDiv !== clkDivSpec.default
+      ? config.clock.adcClkDiv
+      : undefined
 
   const instances = insts.map((u) => {
     const typeName = typeNameOf(u.id)
@@ -38,7 +53,7 @@ export function renderAdc(usages: PeripheralUsage[], data: DeviceData, base = ''
     }
   })
 
-  const content = render(T.ADC_TPL, { instances, adcApi })
+  const content = render(T.ADC_TPL, { instances, adcApi, adcClkDiv })
   return {
     file: { path: `${base}src/generated/adc.rs`, content },
     module: 'adc',

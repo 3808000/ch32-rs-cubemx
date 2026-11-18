@@ -1,25 +1,30 @@
 <script setup lang="ts">
 // 时钟树画布：原生 SVG 绘制 + 缩放工具条 + 节点内嵌控件内联编辑。
 // 越界按级别着色（error 红 / warning 橙）、连接点实心蓝/空心灰、点节点向父级抛 focus。
+// M15：点状背景、抓手模式（按钮 + 按住 Space 临时启用）、方向键滚动、路径高亮 dim。
 // 节点 / 连线拆分到 components/clock/ 子组件；本组件保留画布、缩放与交互状态，
 // 并协调 editingNodeId：同一时刻画布内只允许一个节点处于编辑态（开新关旧）。
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ZoomIn, ZoomOut, FullScreen } from '@element-plus/icons-vue'
+import { ZoomIn, ZoomOut, FullScreen, Pointer } from '@element-plus/icons-vue'
 import type { ClockNodeControl, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
 import ClockNode from '@/components/clock/ClockNode.vue'
 import ClockWire from '@/components/clock/ClockWire.vue'
-import { anchorZoomScroll, clampZoom } from '@/components/common/canvasNav'
+import { arrowScrollDelta, anchorZoomScroll, clampZoom, shouldIgnoreSceneKeys } from '@/components/common/canvasNav'
+import { edgeInHighlight } from '@/components/clock/graph'
 
 const props = defineProps<{
   layout: ClockTreeLayout
   selectedId: string | null
   search?: string
+  /** 路径高亮节点集合（空=不高亮；非空时其余节点/边 dim） */
+  highlightIds?: Set<string>
 }>()
 
 const emit = defineEmits<{
   (e: 'focus', nodeId: string): void
   (e: 'control-change', control: ClockNodeControl, value: string | number): void
   (e: 'toggle-lock', nodeId: string): void
+  (e: 'contextmenu', nodeId: string, x: number, y: number): void
 }>()
 
 // ---------- 缩放（用户缩放 × 容器自适应比例） ----------
@@ -30,6 +35,9 @@ const zoomAnimating = ref(false)
 let zoomTimer: number | null = null
 let ro: ResizeObserver | null = null
 onMounted(() => {
+  window.addEventListener('keydown', onSceneKeyDown)
+  window.addEventListener('keyup', onSceneKeyUp)
+  window.addEventListener('blur', onWindowBlur)
   if (!wrap.value) return
   ro = new ResizeObserver((entries) => {
     const e = entries[0]
@@ -41,6 +49,9 @@ onMounted(() => {
   ro.observe(wrap.value)
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onSceneKeyDown)
+  window.removeEventListener('keyup', onSceneKeyUp)
+  window.removeEventListener('blur', onWindowBlur)
   ro?.disconnect()
   if (zoomTimer !== null) window.clearTimeout(zoomTimer)
 })
@@ -120,7 +131,14 @@ function fit() {
 }
 function onWheel(e: WheelEvent) {
   // 与 GLSP/MX2 一致：Ctrl/⌘ + 滚轮缩放（光标锚定），普通滚轮用于滚动画布（触控板双指滚动不误缩放）
-  if (!e.ctrlKey && !e.metaKey) return
+  if (!e.ctrlKey && !e.metaKey) {
+    // Shift + 滚轮：水平滚动画布（部分浏览器不自动映射）
+    if (e.shiftKey && scrollEl.value) {
+      e.preventDefault()
+      scrollEl.value.scrollLeft += e.deltaY
+    }
+    return
+  }
   e.preventDefault()
   const rect = wrap.value?.getBoundingClientRect()
   const cursor = rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : undefined
@@ -129,12 +147,18 @@ function onWheel(e: WheelEvent) {
 const zoomPercent = computed(() => `${Math.round(effScale.value * 100)}%`)
 
 // ---------- 背景拖动平移（M12-hotfix）：空白处按住左键/中键拖动 = 滚动画布 ----------
+// M15：抓手模式（工具条按钮或按住 Space）下任意画布区域（含节点）拖动平移。
 const panning = ref(false)
+const handMode = ref(false)
+const spaceHeld = ref(false)
+const effectiveHand = computed(() => handMode.value || spaceHeld.value)
 const panStart = reactive({ x: 0, y: 0, sl: 0, st: 0 })
 function onPanMouseDown(e: MouseEvent) {
   const t = e.target as Element | null
-  // 节点/控件/工具条上不平移（节点保留点选聚焦与内联编辑）
-  if (t?.closest('.node, button, input, select, foreignObject, .zoom-bar')) return
+  // 控件/工具条上不平移（保留按钮/内联编辑语义）
+  if (t?.closest('button, input, select, textarea, foreignObject, .zoom-bar')) return
+  // 指针模式：节点上保留点选聚焦与内联编辑；抓手模式：节点上也平移
+  if (!effectiveHand.value && t?.closest('.node')) return
   if (e.button !== 0 && e.button !== 1) return
   if (e.button === 1) e.preventDefault()
   const el = scrollEl.value
@@ -152,6 +176,40 @@ function onPanMouseMove(e: MouseEvent) {
 }
 function onPanMouseUp() {
   panning.value = false
+}
+
+// ---------- M15 键盘导航：Space 临时抓手 / 方向键滚动画布（编辑态不劫持） ----------
+function sceneKeyBlocked(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null
+  return shouldIgnoreSceneKeys(t?.tagName, !!t?.isContentEditable, editingNodeId.value !== null)
+}
+
+function onSceneKeyDown(e: KeyboardEvent) {
+  if (sceneKeyBlocked(e)) return
+  if (e.key === ' ') {
+    e.preventDefault()
+    spaceHeld.value = true
+    return
+  }
+  const d = arrowScrollDelta(e.key)
+  if (d.x === 0 && d.y === 0) return
+  const el = scrollEl.value
+  if (!el) return
+  e.preventDefault()
+  el.scrollBy({ left: d.x, top: d.y })
+}
+
+function onSceneKeyUp(e: KeyboardEvent) {
+  if (e.key === ' ') spaceHeld.value = false
+}
+
+function onWindowBlur() {
+  spaceHeld.value = false
+  panning.value = false
+}
+
+function toggleHand() {
+  handMode.value = !handMode.value
 }
 
 // ---------- 配置变化高亮脉冲（应用预设/修改控件后，频率发生变化的节点闪一次） ----------
@@ -186,6 +244,29 @@ const searchMatch = computed(() => {
       .map((n) => n.id),
   )
 })
+
+/** 非空路径高亮集合（空集合视为未启用） */
+const highlight = computed<ReadonlySet<string> | null>(() =>
+  props.highlightIds && props.highlightIds.size > 0 ? props.highlightIds : null,
+)
+
+/** 连线按目标节点问题级别着色 */
+const levelById = computed(() => {
+  const m = new Map<string, 'error' | 'warning' | null>()
+  for (const n of props.layout.nodes) m.set(n.id, n.issueLevel)
+  return m
+})
+function edgeLevel(to: string): 'error' | 'warning' | null {
+  return levelById.value.get(to) ?? null
+}
+function nodeDimmed(id: string): boolean {
+  const searchDim = searchMatch.value !== null && !searchMatch.value.has(id)
+  const highlightDim = highlight.value !== null && !highlight.value.has(id)
+  return searchDim || highlightDim
+}
+function edgeDimmed(edge: { from: string; to: string }): boolean {
+  return highlight.value !== null && !edgeInHighlight(edge, highlight.value)
+}
 
 const svgW = computed(() => props.layout.width * effScale.value)
 const svgH = computed(() => props.layout.height * effScale.value)
@@ -224,12 +305,17 @@ watch(
 function onNodeClick(nodeId: string) {
   emit('focus', nodeId)
 }
+
+function onNodeContextMenu(nodeId: string, x: number, y: number) {
+  emit('contextmenu', nodeId, x, y)
+}
 </script>
 
 <template>
   <div
     ref="wrap"
     class="canvas-wrap"
+    :class="{ hand: effectiveHand, panning }"
     @wheel="onWheel"
     @click="closeEdit"
     @mousedown="onPanMouseDown"
@@ -247,8 +333,14 @@ function onNodeClick(nodeId: string) {
             <text :x="g.x + 10" :y="g.y + 19" class="group-label">{{ g.label }}</text>
           </g>
 
-          <!-- 连线（正交折线） -->
-          <ClockWire v-for="e in layout.edges" :key="e.id" :edge="e" />
+          <!-- 连线（正交折线）：按目标节点问题级别着色 + 高亮 dim -->
+          <ClockWire
+            v-for="e in layout.edges"
+            :key="e.id"
+            :edge="e"
+            :target-level="edgeLevel(e.to)"
+            :dimmed="edgeDimmed(e)"
+          />
 
           <!-- 节点 -->
           <ClockNode
@@ -256,7 +348,7 @@ function onNodeClick(nodeId: string) {
             :key="n.id"
             :node="n"
             :selected="n.id === selectedId"
-            :dimmed="searchMatch !== null && !searchMatch.has(n.id)"
+            :dimmed="nodeDimmed(n.id)"
             :pulse="pulseIds.has(n.id)"
             :editing="n.id === editingNodeId"
             @focus="onNodeClick"
@@ -264,6 +356,7 @@ function onNodeClick(nodeId: string) {
             @edit-end="endEdit"
             @control-change="onControlChange"
             @toggle-lock="(id: string) => emit('toggle-lock', id)"
+            @contextmenu="onNodeContextMenu"
           />
         </svg>
       </div>
@@ -271,12 +364,21 @@ function onNodeClick(nodeId: string) {
 
     <!-- 底部浮动缩放条 -->
     <div class="zoom-bar" title="空白处拖动平移；Ctrl/⌘ + 滚轮以光标为锚点缩放；也可使用按钮缩放">
+      <button
+        class="zb-btn"
+        :class="{ active: handMode }"
+        title="抓手模式：拖动任意位置平移画布（也可按住 Space 临时启用）"
+        @click="toggleHand"
+      >
+        <el-icon :size="15"><Pointer /></el-icon>
+      </button>
+      <span class="zb-sep"></span>
       <button class="zb-btn" title="缩小" @click="zoomBy(0.85)"><el-icon :size="15"><ZoomOut /></el-icon></button>
       <span class="zb-percent" title="当前有效缩放比例（随容器自适应）">{{ zoomPercent }}</span>
       <button class="zb-btn" title="放大" @click="zoomBy(1.18)"><el-icon :size="15"><ZoomIn /></el-icon></button>
       <span class="zb-sep"></span>
       <button class="zb-btn" title="适合窗口" @click="fit"><el-icon :size="15"><FullScreen /></el-icon></button>
-      <span class="zb-hint">空白处拖动平移 · Ctrl/⌘+滚轮缩放</span>
+      <span class="zb-hint">方向键滚动 · 抓手/Space 拖动 · Ctrl/⌘+滚轮缩放</span>
     </div>
   </div>
 </template>
@@ -288,6 +390,14 @@ function onNodeClick(nodeId: string) {
   min-height: 0;
   background: var(--mx-bg);
   overflow: hidden;
+}
+/* 抓手模式（按钮或 Space）：整张画布可拖动平移 */
+.canvas-wrap.hand {
+  cursor: grab;
+}
+.canvas-wrap.hand.panning {
+  cursor: grabbing;
+  user-select: none;
 }
 /*
  * 内容小于视口时居中（M12-hotfix）：布局是窄高树，fit 比例由高度约束主导，
@@ -317,7 +427,10 @@ function onNodeClick(nodeId: string) {
 .canvas-inner {
   position: relative;
   flex-shrink: 0;
-  background: var(--mx-surface);
+  /* MX2 同款点状背景：浅灰圆点阵（SVG 透明叠加其上） */
+  background-color: var(--mx-surface);
+  background-image: radial-gradient(#d7dee9 1px, transparent 1px);
+  background-size: 16px 16px;
   border-radius: var(--mx-radius-card);
   border: 1px solid var(--mx-border);
   box-shadow: var(--mx-shadow-card);
@@ -374,6 +487,10 @@ function onNodeClick(nodeId: string) {
   justify-content: center;
 }
 .zb-btn:hover {
+  background: var(--mx-accent-soft);
+  color: var(--mx-accent);
+}
+.zb-btn.active {
   background: var(--mx-accent-soft);
   color: var(--mx-accent);
 }

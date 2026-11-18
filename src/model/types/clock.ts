@@ -10,6 +10,10 @@ export interface ClockConfig {
   apb1: number
   apb2: number
   adc?: string // ADC 时钟源 id
+  /** ADC CTLR3.CLK_DIV 原始寄存器值（M15，仅 peripheralClocks.adc.clkDiv.programmable 芯片）：
+   *  缺省=HAL 0b11；全局单值作用于所有启用 ADC 实例；raw 语义未核实芯片 UI 带警告。
+   *  不进 solvePll/resolveClockIssues 搜索空间；预设应用重置为缺省（除非 ADC 节点锁定）。 */
+  adcClkDiv?: number
   /** 锁定的时钟节点 id（M3）：预设/解算跳过这些节点，UI 控件置灰。可选，向后兼容。 */
   locked?: string[]
 }
@@ -80,6 +84,9 @@ export interface ClockData {
   }
   /** 定时器时钟域：'sysclk'=直接 SYSCLK（V003）；'apb_x2'=APB 分频>1 时 ×2（V1/V3） */
   timerClock?: 'sysclk' | 'apb_x2'
+  /** 外设时钟域（M15，可选）：每类外设的固定源总线 + 真实旋钮 + 分频链描述。
+   *  实例清单来自 peripherals.json；WCH 芯片 I2C/SPI/USART 无内核 mux，源为固定总线（诚实徽标）。 */
+  peripheralClocks?: PeripheralClocksData
   presets: ClockPreset[]
   codegen: {
     presetConstMap: Record<string, string>
@@ -106,4 +113,86 @@ export interface ClockIssue {
   node: string
   message: string
   level: ConflictLevel
+}
+
+// ---------- 外设时钟域（M15） ----------
+
+/** 外设时钟源总线 id：对应 ClockFrequencies 语义；CK32M=CH58x 固定 32MHz 域 */
+export type PeripheralClockBus = 'SYSCLK' | 'HCLK' | 'APB1' | 'APB2' | 'CK32M'
+
+/** 速率类外设（USART/SPI/I2C）公共描述：固定源 + 旋钮（外设参数 key，单一真相源） */
+export interface PeripheralRateClockSpec {
+  sourceDefault: PeripheralClockBus
+  /** 实例级源覆盖（如 USART1/SPI1 挂 APB2，其余 APB1） */
+  sourceOverrides?: Record<string, PeripheralClockBus>
+  /** peripherals.json params 的 key（baudrate/frequency/speed）；时钟节点旋钮写回该参数 */
+  knob: string
+}
+
+export interface UsartClockSpec extends PeripheralRateClockSpec {
+  /** 实际波特率误差警告阈值（%），缺省 3 */
+  baudErrorWarnPct?: number
+}
+
+export interface SpiClockSpec extends PeripheralRateClockSpec {
+  /** BRG 分频：ch32 = 2 的幂档位列表；ch58x = 线性 div（linear.min..max，HAL clamp） */
+  brg: { divs?: number[]; linear?: { min: number; max: number } }
+}
+
+export interface I2cClockSpec extends PeripheralRateClockSpec {
+  /** SCL 上限（kHz）：超 = error（HAL timing() assert） */
+  maxKhz: number
+}
+
+export interface AdcClockSpec {
+  source: PeripheralClockBus
+  /** 固定源频率 MHz（CK32M=32）；缺省按 source 总线派生 */
+  fixedInMhz?: number
+  /** RCC ADCPRE 级：programmable=本期代码生成会写（HAL 有 API 且非 preset_only）；否则仅显示徽标 */
+  pre?: { programmable: boolean; note?: string }
+  /** ADC CTLR3.CLK_DIV 级（raw 寄存器值） */
+  clkDiv?: { programmable: boolean; bits: number; default: number; raw: boolean; note?: string }
+  /** CH582：旋钮镜像外设参数（samplingClock），值→MHz 用 enumMhz（HAL 枚举标签） */
+  knob?: string
+  enumMhz?: Record<string, number>
+  note?: string
+}
+
+export interface UsbClockSpec {
+  /** HAL rcc::init 自动 USBPRE：PLL 输出 MHz → 分频（仅显示，无 API） */
+  autoPre: Record<string, number>
+  /** 合法 PLL 输出集合：之外 → warning（USB 时钟非法）；fixedMhz 存在时跳过该检查 */
+  validPllMhz: number[]
+  /** 固定 48M 域（X035 HSI 直连，无分频） */
+  fixedMhz?: number
+  note?: string
+}
+
+export interface PeripheralClocksData {
+  usart?: UsartClockSpec
+  spi?: SpiClockSpec
+  i2c?: I2cClockSpec
+  adc?: AdcClockSpec
+  usb?: UsbClockSpec
+}
+
+/** 每外设实例的时钟派生结果（model/clock/peripheral.ts 计算，纯函数） */
+export interface PeripheralClockFreq {
+  /** 时钟树节点 id：'P-'+实例 id（P-USART1/P-SPI1/P-I2C1/P-ADC1）；USB 域节点='USB' */
+  nodeId: string
+  /** 外设实例 id（peripherals.json）；USB 节点='USB' */
+  periId: string
+  category: 'usart' | 'spi' | 'i2c' | 'adc' | 'usb'
+  sourceBus: string
+  /** 输入频率 MHz */
+  inMhz: number
+  /** 请求值（外设参数原生单位：baud/Hz；ADC raw 或枚举值）；未启用/无参数=null */
+  requested: number | string | null
+  /** 实际派生频率 MHz；ADC raw 级=null（不编造）；USB 非法=null */
+  actualMhz: number | null
+  /** 分频描述：'÷8 (BRG)' / 'raw 0b0101' / 'USBPRE ÷1.5 (HAL auto)' */
+  dividerLabel: string | null
+  /** 实际波特率误差 %（仅 USART） */
+  errorPct?: number
+  issues: ClockIssue[]
 }

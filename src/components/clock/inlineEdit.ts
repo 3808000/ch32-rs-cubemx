@@ -51,3 +51,38 @@ export function editKeyAction(key: string): EditKeyAction {
 export function canEditControl(control: ClockNodeControl | null | undefined, locked: boolean): boolean {
   return !!control && !control.fixed && !locked
 }
+
+// ---------- M15 画布控件形态（纯函数，供 ClockNode 渲染与测试共用） ----------
+
+/** 源选择类字段：选项 ≤4 时画布内联渲染 radio 组（MX2 mux 点样式）。 */
+const RADIO_FIELDS: readonly ClockNodeControl['field'][] = ['source', 'pllSource', 'adc']
+
+/** 分频类字段：画布内联渲染「- 值 +」stepper（按 options 索引 ±1）。 */
+const STEPPER_FIELDS: readonly ClockNodeControl['field'][] = ['ahb', 'apb1', 'apb2', 'pll', 'adcClkDiv']
+
+/** 是否用 radio 组渲染该控件（源选择 + 选项足够少）。 */
+export function isRadioControl(control: ClockNodeControl | null | undefined): boolean {
+  if (!control?.options?.length) return false
+  return RADIO_FIELDS.includes(control.field) && control.options.length <= 4
+}
+
+/** 是否用 stepper 渲染该控件（分频档位）。 */
+export function isStepperControl(control: ClockNodeControl | null | undefined): boolean {
+  return !!control && STEPPER_FIELDS.includes(control.field)
+}
+
+/**
+ * stepper 步进：按 options 数组索引 ±1，返回新选项原值。
+ * 无选项 / fixed（唯一档位或数据层固定）/ 当前值不在 options / 已到首尾 → null（调用方置灰按钮）。
+ */
+export function stepControlValue(
+  control: ClockNodeControl | null | undefined,
+  direction: -1 | 1,
+): string | number | null {
+  if (!control?.options?.length || control.fixed) return null
+  const idx = control.options.findIndex((o) => String(o.value) === String(control.value))
+  if (idx < 0) return null
+  const next = idx + direction
+  if (next < 0 || next >= control.options.length) return null
+  return control.options[next]!.value
+}

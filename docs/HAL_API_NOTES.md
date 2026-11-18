@@ -645,3 +645,35 @@ Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）�
 - 浏览器验收：BLE 节（角色/名称字节计数/广播间隔/MAC 三来源/UUID16/observer 参数）+ 运行时互锁（BLE⇒embassy、blocking 禁用）+ 新建工程默认 PLL 直接生成 + ZIP 75 文件 0 冲突。
 - **实机目标层核实闭环（2026-11-17 晚）**：Windows 官方工具开启两线调试 → CH-LINK 接回 Linux → MRS OpenOCD examine 通过 → gdb 3333 attach 读寄存器/Flash/flash info → detach。见 §14.2。烧录待用户授权。
 - 开发期 HMR _artifact_ 记录：autosave 单例闭包绑定旧 store 实例，HMR 重置 store 后继续写旧工程快照——仅 dev 环境出现（生产 store 不重建），验收以干净 reload 为准；不视为产品缺陷，留观。
+
+## 15. M15 外设时钟域：硬件真相 / HAL 公式逐字证据 / 诚实边界（2026-11-18）
+
+> 契约：M15_CLOCK_OVERHAUL_CONTRACT.md（D1–D9）。时钟树页大修（MX2 对齐）+ 每外设实例时钟节点。
+> **核心真相：WCH 芯片 I2C/SPI/USART 无独立内核时钟 mux**（固定 PCLK1/PCLK2/HCLK）。ch32-hal `build.rs:351-357` `T::frequency()`=**bus_clock**（非 kernel_clock）；`rcc/v3.rs:99` 的 per-peripheral `mux` 字段被上游注释掉；ch32-data/metapac 的 `Mux` 变体零使用。故外设节点源为固定总线 + 「固定」徽标，**不发明 mux**；真实旋钮=速率参数（写回外设状态，单一真相源）+ ADC 分频链 + USB 显示域。
+
+### 15.1 派生公式（reference HAL 逐字核实，model/clock/peripheral.ts 复刻）
+
+- **ch32 SPI BRG**：`spi.rs:833-853 calculate_baud_rate`——最小 2 的幂 div 使 `clock ≤ frequency*divisor`（即 bus/div ≤ requested）；调用点 `:184/:235` `.unwrap_or(BaudRate::DIV_256)` → requested>bus/2 落 DIV_2、requested<bus/256 落 DIV_256（**HAL 静默回退**，UI 出 warning + 显示实际 SCK）。
+- **ch32 USART BRR**：`usart/mod.rs:1093-1106`——`divisor=(clock_hz + baudrate/2)/baudrate`；`divisor<0x10` 或 `>0xffff` → ConfigError（UI error + actual=null）；实际 baud=clock/divisor（4.16 定点近似），误差 >3%（可配 baudErrorWarnPct）warning。
+- **ch32 I2C CCR**：`i2c.rs:257-280`——factor=2（standard）/3（fast Duty2_1）/25（Duty16_9）；`divider=div_ceil(input, freq*factor)`，`max(4 standard / 1 fast)`；`timing()` assert freq≤400k（UI 超 maxKhz=error）。
+- **ch58x SPI**：`spi.rs:170-172`——`fdiv = sysclk/freq`（整除）`.min(0xff).max(2)`（**线性** div 2..255，静默 clamp）。
+- **ch58x UART**：`uart.rs:360-371`——`baud = Fsys*2/DIV/16/DL`；通用路径 DIV=1、`x=10*hclk/8/baud; DL=((x+5)/10)&0xffff`；60MHz/115200 硬编码 (13,5)（UI 显示「DIV 13 DL 5」与 HAL 逐字一致）。
+- **ch58x I2C**：`i2c.rs:128-155` 同 2/3/25 系数整除。
+- **USBPRE（HAL rcc::init 自动，无 API）**：v1.rs:311-318 `{48→÷1, 72→÷1.5}`；v3.rs:487-497 `{48→÷1, 96→÷2, 144→÷3}`（240→÷5 仅 d8w）；**未命中静默留复位值 → USB 时钟非法且上游无警告**——M15 UI 首次补警告（V103 80MHz 预设实机验收触发：「PLL 80MHz 不在 USBPRE 合法集 [48,72]MHz，USB 时钟非法（HAL 静默留复位值）」）。X035 HSI 48M 直连（fixedMhz）。
+
+### 15.2 ADC 分频链语义状态（诚实边界）
+
+- V003/V103：RCC ADCPRE ÷2/4/6/8 存在但 **HAL 无 API**（`adc.rs:66-69` cfg 排除 adc_v003/adc_v1）→ 仅显示徽标；V003 另有上游 FIXME（v003.rs:20,125 PPRE2/ADCPRE 关系不明）→ 数据层保持 div:1 + note，不改频率宣称。
+- V203/V307：ADCPRE（HAL 不写）+ **CTLR3.CLK_DIV raw 4-bit（HAL 写，`Config.clkdiv` 缺省 0b11）**；ADCPRE+CLK_DIV 组合语义未核实 → UI raw 旋钮带「语义待核实」警告、**不编造 MHz**；codegen 仅 programmable 且非缺省发射 `Config { clkdiv: N, ..Default::default() }`（V203 adcClkDiv=5 真实 cargo build 通过）。
+- X035：仅 CTLR3.CLK_DIV（SYSCLK 源）；0b11=÷8 系 HAL 注释假设（PAC 仅 4-bit raw）→ 沿用 + note。
+- CH582：`SamplingClock` 枚举（CK32M 32MHz 域，独立于 HCLK）；**0b01 HAL 标 8MHz / PAC 标 2.67MHz 未裁决** → enumMhz 用 HAL 标签 + note；旋钮镜像外设参数 samplingClock（已生成）。
+- H417：唯一有 `KernelMux` API（rcc/h4/mux.rs：i2s2/3src、usbfsdiv/src、rngsrc、ltdc、uhsif、eth1g、hsadcsrc）但 preset_only + 多数 mux 外设无驱动 → **本期不建模**（clock.json notes 说明）；adcpre 有 API 但 preset_only → 仅显示。
+
+### 15.3 M15 UI 大修与验收（MX2 对齐）
+
+- 树泛化：列式自动布局（10 列：sources/PLL/system/buses/TIM/USART/SPI/I2C/ADC/USB），删 posById 硬编码；走线正交且不穿节点卡（测试断言 6 组芯片布局）；分组框=成员包围盒。
+- 节点：固定/派生/raw 徽标、issue marker+hover 全量消息、源选择 radio（≤4 选项）、分频 stepper、外设请求/实际双行（原生单位+误差两位小数）；连线按 issue 着色；点状背景+抓手/Space/方向键；表格 Value 可编辑（stepper/select 同路由）；Reset 确认对话框（可「不再询问」）；右键菜单（高亮源路径/全部路径 BFS、Configure 外设跨视图跳转 peripheralFocus 桥）；Shortcuts 浮层；Detail 元数据驱动。
+- 写回路由：periParam → store.setPeripheral（外设参数单一真相源）；adcClkDiv → ClockConfig（全局单值作用于所有启用 ADC 实例；导入脏值钳位；不进求解空间）。
+- **验收（2026-11-18，七芯片）**：H417/V203/V003/X035/V307/CH582M/V103 外设节点渲染；V203 SPI1 请求 8MHz@8MHz 总线 → warning+实际 4MHz(÷2)+Resolve(1)；ADC raw5 写回+codegen clkdiv:5（单测+快照+cargo）；CH582 SPI0 ÷60 线性/UART0 DIV13 DL5；V307 USB 144→÷3 auto；V103 80MHz 预设 → USB 非法警告；Reset 对话框确认→clock=null 且外设参数不受影响；路径高亮+Clear；右键 Configure SPI1 → 外设页 SPI1 标签打开。1456 测试/61 文件、vue-tsc/eslint/validate 7 芯片 0/0/build/verify 6/6+6/6+1/1 全绿。
+- 诚实边界：外设节点不可锁（MX2 全节点锁的差异）；单位切换不做；USB 无代码生成；adcClkDiv 多实例同值；非预设 PLL 显式导出仍暂缓（M16 候选）。
+- **dev 环境教训（M15 验收期）**：① 四子代理并行编辑后长驻 dev server 的 HMR 模块图可能陈旧/幽灵实例（store 数据旧、组件 handler 旧）——**验收前必须干净 reload**；② 浏览器自动化 evaluate 桥对 pinia reactive proxy 做 structured clone 得 `{}`（**读数伪影**）——store 取证用页内 `JSON.stringify` 或原始值字段，勿信对象克隆。

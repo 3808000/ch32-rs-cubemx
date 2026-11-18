@@ -9,9 +9,11 @@ export const README_TPL = `# <%- projectName %>
 
 <%- pinTable %>
 
-### 时钟
+### 时钟摘要
 
 <%- clockTable %>
+
+命中预设：**<%- clockPreset %>**（未命中预设时按显式字段生成 RCC 配置；频率由 computeClock 从时钟数据派生）。
 
 ### 外设实例
 

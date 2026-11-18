@@ -72,9 +72,17 @@ export function computeClock(spec: ClockData, cfg: ClockConfig): ClockFrequencie
   const pclk2 = hclk / cfg.apb2
 
   const adcOpt = spec.adc.options.find((o) => o.id === (cfg.adc ?? spec.adc.default)) ?? spec.adc.options[0]
-  // ADC 源：X035 由 SYSCLK 经 CLK_DIV 分频（M14）；其余分支保持原语义
+  // ADC 源：X035 由 SYSCLK 经 CLK_DIV 分频（M14）；CH582 CK32M 固定 32MHz（M15）；其余分支保持原语义
   const adcBase =
-    adcOpt.source === 'SYSCLK' ? sysclk : adcOpt.source === 'AHB' ? hclk : adcOpt.source === 'APB1' ? pclk1 : pclk2
+    adcOpt.source === 'SYSCLK'
+      ? sysclk
+      : adcOpt.source === 'AHB'
+        ? hclk
+        : adcOpt.source === 'APB1'
+          ? pclk1
+          : adcOpt.source === 'CK32M'
+            ? (spec.peripheralClocks?.adc?.fixedInMhz ?? 32)
+            : pclk2
   const adc = adcBase / adcOpt.div
 
   // 定时器域：V003 直接 SYSCLK；其它家族 APB 分频>1 时 ×2（由数据字段 timerClock 决定）
@@ -231,12 +239,19 @@ export function solvePll(spec: ClockData, targetMhz: number, sourceId?: string, 
   return out
 }
 
+/** ADC CTLR3.CLK_DIV 缺省值：仅 programmable 芯片（M15）存在。 */
+function adcClkDivDefault(spec: ClockData): number | undefined {
+  const cd = spec.peripheralClocks?.adc?.clkDiv
+  return cd?.programmable ? cd.default : undefined
+}
+
 /** 芯片默认档：第一个非 PLL 时钟源（通常 HSI，无 HSI 芯片则 HSE）+ 各分频默认值。 */
 export function defaultClock(spec: ClockData): ClockConfig {
   const hse = spec.sources.find((s) => s.id === 'HSE')
   // 不能写死 'HSI'：CH582M 等芯片只有 HSE + PLL，写死会导致默认 SYSCLK=0
   // M12：defaultSource 数据驱动优先（CH582M 指定 PLL——HSE 直连需 div=1 被 HAL assert 拒绝，不可生成）
   const defaultSource = spec.defaultSource ?? spec.sources.find((s) => !s.pll)?.id ?? spec.sources[0]?.id ?? ''
+  const adcClkDiv = adcClkDivDefault(spec)
   // 无 PLL 芯片（M14）：不写 pllSource/pll
   if (!spec.pll) {
     return {
@@ -246,6 +261,7 @@ export function defaultClock(spec: ClockData): ClockConfig {
       apb1: spec.apb1.default,
       apb2: spec.apb2.default,
       adc: spec.adc.default,
+      ...(adcClkDiv !== undefined ? { adcClkDiv } : {}),
     }
   }
   const pllDefaults: Record<string, number> = {}
@@ -259,6 +275,7 @@ export function defaultClock(spec: ClockData): ClockConfig {
     apb1: spec.apb1.default,
     apb2: spec.apb2.default,
     adc: spec.adc.default,
+    ...(adcClkDiv !== undefined ? { adcClkDiv } : {}),
   }
 }
 
@@ -281,6 +298,14 @@ export function mergeClockConfig(spec: ClockData, partial?: Partial<ClockConfig>
     apb2: partial.apb2 ?? d.apb2,
     adc: partial.adc ?? d.adc,
   }
+  // adcClkDiv（M15）：仅可编程芯片保留；导入脏值（非整数/越界/非数）回落缺省，防 cube.json 污染。
+  const clkDiv = spec.peripheralClocks?.adc?.clkDiv
+  if (clkDiv?.programmable) {
+    const max = 2 ** clkDiv.bits - 1
+    const raw = partial.adcClkDiv
+    merged.adcClkDiv =
+      typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= max ? raw : clkDiv.default
+  }
   if (partial.locked !== undefined) merged.locked = [...partial.locked]
   return merged
 }
@@ -298,6 +323,7 @@ export function presetToConfig(spec: ClockData, preset: ClockPreset, base: Clock
     }
     pllFields = { pllSource: m.pllSource ?? spec.pll.sourceOptions[0], pll }
   }
+  const adcClkDiv = adcClkDivDefault(spec)
   const next: ClockConfig = {
     source: m.source,
     hxtalMhz: m.hxtalMhz ?? d.hxtalMhz,
@@ -306,6 +332,8 @@ export function presetToConfig(spec: ClockData, preset: ClockPreset, base: Clock
     apb1: m.apb1,
     apb2: m.apb2,
     adc: d.adc,
+    // 预设应用重置 adcClkDiv 为缺省（M15，与 ADC 域语义一致）
+    ...(adcClkDiv !== undefined ? { adcClkDiv } : {}),
   }
   if (d.locked !== undefined) next.locked = [...d.locked]
   return next
@@ -327,7 +355,11 @@ export function applyClockPreset(spec: ClockData, cfg: ClockConfig, preset: Cloc
   if (!isClockNodeLocked(cfg, 'AHB')) next.ahb = t.ahb
   if (!isClockNodeLocked(cfg, 'APB1')) next.apb1 = t.apb1
   if (!isClockNodeLocked(cfg, 'APB2')) next.apb2 = t.apb2
-  if (!isClockNodeLocked(cfg, 'ADC') && t.adc !== undefined) next.adc = t.adc
+  if (!isClockNodeLocked(cfg, 'ADC')) {
+    if (t.adc !== undefined) next.adc = t.adc
+    // ADC 域未锁定时 adcClkDiv 同 adc 重置为缺省（M15）
+    if (t.adcClkDiv !== undefined) next.adcClkDiv = t.adcClkDiv
+  }
   return next
 }
 
@@ -546,3 +578,6 @@ export function nearestPreset(spec: ClockData, targetMhz: number): ClockPreset |
   }
   return best
 }
+
+// M15 外设时钟域（纯函数）：从统一出口导出，供树/视图/控制器消费。
+export { computePeripheralClocks, validatePeripheralClocks, peripheralClockCategories } from './peripheral'

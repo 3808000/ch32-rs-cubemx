@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-18）：M1–M14 十四个里程碑核心项全部完成。** 测试 380→1331，46 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
+> **总体进度（2026-11-18）：M1–M15 十五个里程碑核心项全部完成。** 测试 380→1456，50 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -274,7 +274,25 @@
 | 14.3 | 注册表 + UI + 集成缺口 | model/device.ts、chipPicker 测试更新、verify entry I2C-DMA 守卫（V103 上游无 I2C DMA） | 浏览器三芯片全链路；1331 测试 |
 | 14.4 | BLE 连接闭环（clock32k + stack_init + 连续轮询 + SysTick notify） | ch58x templates/{bleRs,clockRs,readme}、ble/clock/index/derive、types/project、projectFile、ProjectSettingsView | 连接建立实机 ×3；verify --ble；手机对照定位宿主 |
 
-**暂缓**：LSI 校准移植（Calibration_LSI 寄存器级，StdPeriphDriver）、AX210 2M PHY 损坏上游报告（linux-bluetooth/Intel，workaround 已落地）、central 角色、配对策略 UI、V103/V307 非预设 PLL 显式导出（explicit 不写 cfg.pll，M15）、X035 AHB÷5..256 显式导出、上游 issue 已提交（2026-11-18）：[qingke#42](https://github.com/ch32-rs/qingke/issues/42)（MIE 启动）· [ch58x-hal#13](https://github.com/ch32-rs/ch58x-hal/issues/13)（embassy SysTick 时间驱动；[更正评论](https://github.com/ch32-rs/ch58x-hal/issues/13#issuecomment-6968946706)撤回 hclk/8 论点，WFI 停计保留）· [ch58x-hal#14](https://github.com/ch32-rs/ch58x-hal/issues/14)（ble::init SelRTCClock 硬编码）· [ch32-hal#283](https://github.com/ch32-rs/ch32-hal/issues/283)（v3 SYSCLK_FREQ_96MHZ_HSE 实为 48MHz）· [ch32-hal#284](https://github.com/ch32-rs/ch32-hal/issues/284)（v1/v3 Div<AHBPrescaler> ÷64..512 算错，clocks() 虚高 2×）。
+**暂缓**：LSI 校准移植（Calibration_LSI 寄存器级，StdPeriphDriver）、AX210 2M PHY 损坏上游报告（linux-bluetooth/Intel，workaround 已落地）、central 角色、配对策略 UI、V103/V307 非预设 PLL 显式导出（explicit 不写 cfg.pll，M16 候选）、X035 AHB÷5..256 显式导出、上游 issue 已提交（2026-11-18）：[qingke#42](https://github.com/ch32-rs/qingke/issues/42)（MIE 启动）· [ch58x-hal#13](https://github.com/ch32-rs/ch58x-hal/issues/13)（embassy SysTick 时间驱动；[更正评论](https://github.com/ch32-rs/ch58x-hal/issues/13#issuecomment-6968946706)撤回 hclk/8 论点，WFI 停计保留）· [ch58x-hal#14](https://github.com/ch32-rs/ch58x-hal/issues/14)（ble::init SelRTCClock 硬编码）· [ch32-hal#283](https://github.com/ch32-rs/ch32-hal/issues/283)（v3 SYSCLK_FREQ_96MHZ_HSE 实为 48MHz）· [ch32-hal#284](https://github.com/ch32-rs/ch32-hal/issues/284)（v1/v3 Div<AHBPrescaler> ÷64..512 算错，clocks() 虚高 2×）。
+
+---
+
+## M15（v0.16）时钟树配置页大修 —— 「MX2 对齐 + 外设时钟配置（诚实形态）」 ✅ 已完成（2026-11-18）
+
+> **落地状态**：时钟树从硬编码拓扑（sources→PLL→SYSCLK→AHB/APB→TIM/ADC）泛化为**数据驱动 10 列自动布局**（+USART/SPI/I2C 每实例节点 + ADC 分频链 + USB 显示域）；MX2 交互缺口补齐（节点 radio/stepper/徽标/hover marker、连线着色、表格可编辑、Reset 确认、右键菜单+路径高亮 BFS+跨视图跳转、Shortcuts、抓手/方向键、点状背景、Detail 元数据驱动）。**硬件真相裁决：WCH 芯片 I2C/SPI/USART 无内核 mux** → 外设节点=固定源徽标+真实旋钮（速率参数写回外设状态）+HAL 公式逐字派生实际频率+越界警告（SPI 静默回退 DIV_2/DIV_256、USART BRR 误差、I2C 400k assert）；ADC CTLR3.CLK_DIV raw 旋钮（V203/V307/X035，语义未核实带警告不编造 MHz）+ codegen 真实 API 发射；USB 48M 域仅显示+非法 PLL 警告（V103 80MHz 预设首次亮警告）。**1456 测试 / 61 文件**全绿；verify 6/6+6/6+1/1；七芯片浏览器验收（含 SPI 8MHz@8MHz 总线→实际 4MHz 警告、Reset 对话框、高亮、Configure SPI1 跳转）。4 实现子代理分域并行 + 主控 types/契约先行/集成/验收。
+> **契约**：[M15_CLOCK_OVERHAUL_CONTRACT.md](M15_CLOCK_OVERHAUL_CONTRACT.md)（D1–D9）；证据 [HAL_API_NOTES §15](HAL_API_NOTES.md)（公式逐字行号 + USBPRE 表 + CLK_DIV 语义状态）。
+> **诚实边界**：H417 KernelMux 不建模（preset_only+无驱动）；USB 无代码生成；外设节点不可锁；adcClkDiv 全局单值；单位切换不做；非预设 PLL 显式导出暂缓（M16 候选）。
+> **dev 教训**：并行编辑后 HMR 模块图陈旧/幽灵 → 验收前干净 reload；evaluate 桥对 pinia reactive proxy 克隆得 {} → store 取证用页内 JSON.stringify。
+
+| # | 任务 | 改动落点 | 验收 |
+|---|---|---|---|
+| 15.1 | 外设时钟模型 + 7 芯片数据 + validate | model/clock/peripheral.ts 新、index.ts、data/devices/*/clock.json peripheralClocks、V003 SPI LsbFirst 移除 | peripheralClock 51 用例；validate 7 芯片 0/0 |
+| 15.2 | 树模型/布局列式泛化 | tree/model.ts、tree/layout.ts（删 posById） | clockTree 63 用例（走线不穿节点 6 组） |
+| 15.3 | UI 全量 MX2 对齐 | ClockNode/ClockWire/ClockCanvas/ClockView/ClockDetail/ClockContextMenu/ConfirmDialog/peripheralFocus/canvasNav | 七芯片浏览器验收；clockInlineEdit 47 用例 |
+| 15.4 | ADC clkdiv codegen + README 时钟摘要 | codegen/adc.ts、templates/adcRs.ts、readme.ts | codegen +9 用例；快照仅预期变化；V203 clkdiv=5 真实 cargo build |
+
+**暂缓**：H417 KernelMux 建模、USB 外设建模与代码生成、adcClkDiv 每实例独立、时钟单位切换、MCO/时钟输出、LSE/LSI/RTC/IWDG 域（P2）、非预设 PLL 显式导出（M16 候选）。
 
 ---
 

@@ -60,7 +60,7 @@ export function renderCoreGenerated(
   if (sel.usart) addPeri(renderUsart(config, usages, embassy, data, base))
   if (sel.spi) addPeri(renderSpi(config, usages, embassy, data, base))
   if (sel.i2c) addPeri(renderI2c(config, usages, embassy, data, base))
-  if (sel.adc) addPeri(renderAdc(usages, data, base))
+  if (sel.adc) addPeri(renderAdc(config, usages, data, base))
 
   // NVIC/PFIC：有启用中断时才生成 irq.rs，并在 mod.rs 的 init 中调用
   const irqFile = renderIrq(config, data, base)

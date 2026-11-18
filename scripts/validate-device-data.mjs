@@ -233,6 +233,13 @@ function validateDevice(dir) {
   }
   ok(`clock 预设 ${clock.presets.length} 个全部可复现且可命中`)
 
+  // ---- 5b. clock.json peripheralClocks 结构（M15 契约 D6）----
+  if (clock.peripheralClocks) {
+    const before = errors
+    validatePeripheralClockBlock(clock, peripherals)
+    if (errors === before) ok('clock peripheralClocks 结构通过')
+  }
+
   // ---- 6. interrupts.json / dma.json ----
   const names = interrupts.irqs.map((i) => i.name)
   if (new Set(names).size !== names.length) err('interrupts.json', 'IRQ name 重复')
@@ -264,6 +271,165 @@ function validateParam(ctx, spec) {
   if (spec.kind === 'number') {
     if (spec.min !== undefined && spec.default < spec.min) err('peripherals.json', `${ctx}: 默认值低于 min`)
     if (spec.max !== undefined && spec.default > spec.max) err('peripherals.json', `${ctx}: 默认值高于 max`)
+  }
+}
+
+// ---------- M15：peripheralClocks 结构校验（纯 JSON，无额外依赖） ----------
+const PERIPHERAL_BUSES = ['SYSCLK', 'HCLK', 'APB1', 'APB2', 'CK32M']
+const PERIPHERAL_RATE_CATEGORIES = ['usart', 'spi', 'i2c']
+
+function isPeripheralBus(v) {
+  return PERIPHERAL_BUSES.includes(v)
+}
+
+function validatePeripheralClockBlock(clock, peripherals) {
+  const pc = clock.peripheralClocks
+  if (!pc || typeof pc !== 'object' || Array.isArray(pc)) {
+    err('clock.json', 'peripheralClocks 必须是对象')
+    return
+  }
+  const instances = (cat) => (Array.isArray(peripherals[cat]) ? peripherals[cat] : [])
+
+  // 5b-1. 速率类外设（USART/SPI/I2C）：源总线 + 旋钮存在性
+  for (const cat of PERIPHERAL_RATE_CATEGORIES) {
+    const s = pc[cat]
+    if (s === undefined) continue
+    const ctx = `peripheralClocks.${cat}`
+    if (!s || typeof s !== 'object') {
+      err('clock.json', `${ctx} 必须是对象`)
+      continue
+    }
+    if (!isPeripheralBus(s.sourceDefault)) {
+      err('clock.json', `${ctx}.sourceDefault 非法总线 ${s.sourceDefault}（允许 ${PERIPHERAL_BUSES.join('/')}）`)
+    }
+    for (const [iid, bus] of Object.entries(s.sourceOverrides ?? {})) {
+      if (!isPeripheralBus(bus)) {
+        err('clock.json', `${ctx}.sourceOverrides.${iid} 非法总线 ${bus}（允许 ${PERIPHERAL_BUSES.join('/')}）`)
+      }
+    }
+    if (typeof s.knob !== 'string' || !s.knob) err('clock.json', `${ctx}.knob 缺失或非字符串`)
+    const insts = instances(cat)
+    if (insts.length === 0) err('clock.json', `${ctx}: peripherals.${cat} 无实例`)
+    if (typeof s.knob === 'string') {
+      for (const inst of insts) {
+        if (!inst.params || inst.params[s.knob] === undefined) {
+          err('peripherals.json', `${cat}.${inst.id}: 缺少 peripheralClocks 旋钮参数 ${s.knob}`)
+        }
+      }
+    }
+  }
+
+  // 5b-2. SPI BRG：2 的幂档位非空 或 线性 min<max
+  if (pc.spi !== undefined) {
+    const brg = pc.spi?.brg
+    if (!brg || typeof brg !== 'object') {
+      err('clock.json', 'peripheralClocks.spi.brg 缺失')
+    } else {
+      const divs = brg.divs
+      const linear = brg.linear
+      const divsOk =
+        Array.isArray(divs) && divs.length > 0 && divs.every((d) => Number.isInteger(d) && d > 0)
+      const linOk =
+        linear &&
+        Number.isInteger(linear.min) &&
+        Number.isInteger(linear.max) &&
+        linear.min >= 2 &&
+        linear.min < linear.max
+      if (!divsOk && !linOk) {
+        err('clock.json', 'peripheralClocks.spi.brg 需提供非空 divs 或 linear（整数 min<max，min≥2）')
+      }
+    }
+  }
+
+  // 5b-3. I2C maxKhz
+  if (pc.i2c !== undefined && !(typeof pc.i2c?.maxKhz === 'number' && pc.i2c.maxKhz > 0)) {
+    err('clock.json', 'peripheralClocks.i2c.maxKhz 必须大于 0')
+  }
+
+  // 5b-4. ADC：源/固定输入/CLK_DIV/采样时钟枚举
+  if (pc.adc !== undefined) {
+    const adc = pc.adc
+    if (!adc || typeof adc !== 'object') {
+      err('clock.json', 'peripheralClocks.adc 必须是对象')
+    } else {
+      if (!isPeripheralBus(adc.source)) {
+        err('clock.json', `peripheralClocks.adc.source 非法总线 ${adc.source}`)
+      }
+      if (adc.fixedInMhz !== undefined && !(typeof adc.fixedInMhz === 'number' && adc.fixedInMhz > 0)) {
+        err('clock.json', 'peripheralClocks.adc.fixedInMhz 必须大于 0')
+      }
+      if (adc.clkDiv) {
+        const cd = adc.clkDiv
+        if (typeof cd.programmable !== 'boolean') err('clock.json', 'peripheralClocks.adc.clkDiv.programmable 必须是布尔')
+        if (cd.raw !== undefined && typeof cd.raw !== 'boolean') err('clock.json', 'peripheralClocks.adc.clkDiv.raw 必须是布尔')
+        if (!Number.isInteger(cd.bits) || cd.bits < 1 || cd.bits > 16) {
+          err('clock.json', `peripheralClocks.adc.clkDiv.bits 必须是 1..16 整数（当前 ${cd.bits}）`)
+        } else if (!Number.isInteger(cd.default) || cd.default < 0 || cd.default >= 2 ** cd.bits) {
+          err('clock.json', `peripheralClocks.adc.clkDiv.default 必须是 [0, ${2 ** cd.bits}) 整数（当前 ${cd.default}）`)
+        }
+      }
+      if (adc.knob !== undefined) {
+        if (typeof adc.knob !== 'string' || !adc.knob) {
+          err('clock.json', 'peripheralClocks.adc.knob 必须是非空字符串')
+        } else {
+          const insts = instances('adc')
+          for (const inst of insts) {
+            const spec = inst.params?.[adc.knob]
+            if (!spec) {
+              err('peripherals.json', `adc.${inst.id}: 缺少 peripheralClocks 旋钮参数 ${adc.knob}`)
+              continue
+            }
+            if (adc.enumMhz) {
+              const opts = spec.options ?? []
+              for (const key of Object.keys(adc.enumMhz)) {
+                if (!opts.includes(key)) {
+                  err('clock.json', `peripheralClocks.adc.enumMhz 键 ${key} 不在 adc.${inst.id}.${adc.knob} options 内`)
+                }
+              }
+            }
+          }
+        }
+        for (const [key, mhz] of Object.entries(adc.enumMhz ?? {})) {
+          if (!(typeof mhz === 'number' && mhz > 0)) err('clock.json', `peripheralClocks.adc.enumMhz.${key} 必须大于 0`)
+        }
+      }
+    }
+  }
+
+  // 5b-5. USB：autoPre 键 ∈ validPllMhz（fixedMhz 芯片除外）
+  if (pc.usb !== undefined) {
+    const usb = pc.usb
+    if (!usb || typeof usb !== 'object') {
+      err('clock.json', 'peripheralClocks.usb 必须是对象')
+    } else {
+      if (usb.fixedMhz !== undefined && !(typeof usb.fixedMhz === 'number' && usb.fixedMhz > 0)) {
+        err('clock.json', 'peripheralClocks.usb.fixedMhz 必须大于 0')
+      }
+      const autoPre = usb.autoPre
+      if (!autoPre || typeof autoPre !== 'object' || Array.isArray(autoPre)) {
+        err('clock.json', 'peripheralClocks.usb.autoPre 必须是对象（可为空）')
+      } else {
+        for (const [key, div] of Object.entries(autoPre)) {
+          if (!(typeof div === 'number' && div > 0)) {
+            err('clock.json', `peripheralClocks.usb.autoPre.${key} 分频必须大于 0`)
+          }
+          if (usb.fixedMhz === undefined) {
+            const keyMhz = Number(key)
+            const valid = Array.isArray(usb.validPllMhz) ? usb.validPllMhz : []
+            if (!Number.isFinite(keyMhz) || !valid.includes(keyMhz)) {
+              err('clock.json', `peripheralClocks.usb.autoPre 键 ${key} 不在 validPllMhz [${valid.join(',')}] 内`)
+            }
+          }
+        }
+      }
+      if (!Array.isArray(usb.validPllMhz)) {
+        err('clock.json', 'peripheralClocks.usb.validPllMhz 必须是数组')
+      } else {
+        for (const mhz of usb.validPllMhz) {
+          if (!(typeof mhz === 'number' && mhz > 0)) err('clock.json', 'peripheralClocks.usb.validPllMhz 元素必须大于 0')
+        }
+      }
+    }
   }
 }
 
