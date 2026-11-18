@@ -274,7 +274,7 @@
 | 14.3 | 注册表 + UI + 集成缺口 | model/device.ts、chipPicker 测试更新、verify entry I2C-DMA 守卫（V103 上游无 I2C DMA） | 浏览器三芯片全链路；1331 测试 |
 | 14.4 | BLE 连接闭环（clock32k + stack_init + 连续轮询 + SysTick notify） | ch58x templates/{bleRs,clockRs,readme}、ble/clock/index/derive、types/project、projectFile、ProjectSettingsView | 连接建立实机 ×3；verify --ble；手机对照定位宿主 |
 
-**暂缓**：LSI 校准移植（Calibration_LSI 寄存器级，StdPeriphDriver）、宿主 AX210 修复/换 dongle、central 角色、配对策略 UI、V103/V307 非预设 PLL 显式导出（explicit 不写 cfg.pll，M15）、X035 AHB÷5..256 显式导出、上游 issue 提交（证据包已备：qingke-rt MIE + ch58x-hal embassy 时间驱动 + ble::init SelRTCClock 硬编码）。
+**暂缓**：LSI 校准移植（Calibration_LSI 寄存器级，StdPeriphDriver）、宿主 AX210 修复/换 dongle、central 角色、配对策略 UI、V103/V307 非预设 PLL 显式导出（explicit 不写 cfg.pll，M15）、X035 AHB÷5..256 显式导出、上游 issue 已提交（2026-11-18）：[qingke#42](https://github.com/ch32-rs/qingke/issues/42)（MIE 启动）· [ch58x-hal#13](https://github.com/ch32-rs/ch58x-hal/issues/13)（embassy SysTick 时间驱动）· [ch58x-hal#14](https://github.com/ch32-rs/ch58x-hal/issues/14)（ble::init SelRTCClock 硬编码）。
 
 ---
 

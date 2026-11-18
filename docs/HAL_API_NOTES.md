@@ -610,6 +610,7 @@ Rust 侧四个实机根因与修复（全部生成器侧，未改 HAL 源码）�
 - **宿主适配器定位**：连上后 GATT 发现极慢（~30s）且链路 ~30s 掉（ATT 超时）；**官方 C Peripheral.hex 对照现象完全相同**；内核日志每次连接时刻报 `Bluetooth: Unexpected continuation frame (len 7)`（L2CAP 孤儿续帧=起始帧丢失）。**用户手机 nRF Connect 对照：C 固件秒级发现 FFE0+FFE1–FFE5、FFE1 读写成功** → 板子 RF/协议栈正常，**卡点在本机 Intel AX210 适配器 LE 数据通路**（WiFi/BT 共存或固件问题；适配器 D-Bus 断电重启无效）。宿主侧 GATT 验证改由手机承担。
 - **发货配置**：`ble.clock32k` 缺省 **lse**（官方模组标配晶振，连接已验证）；lsi 回退保留（无晶振板，校准未移植、连接稳定性未保证，UI 有警告文案）。发货版 Rust 固件（LSE + stack_init + 连续轮询 + SysTick notify）已 OpenOCD Verified OK 烧录，广播 CH582M 正常；手机对 Rust 固件的 FFE1/FFE2 读写+notify 验证进行中。
 - 生成服务语义（手机验证判据）：读 FFE1=00 → 写 FFE2=42 → 读 FFE1=42 + notify 订阅每秒收 42（write 落 notify_value，read/notify 返回它）。
+- **上游 issue 已提交（2026-11-18）**：qingke#42（MIE 启动缺陷，含 0.8.4 v4 路径仍缺 MIE 的疑问）· ch58x-hal#13（SysTick WFI 停计 + hclk/8 速率假设错误）· ch58x-hal#14（ble::init SelRTCClock=0/rcCB=None 硬编码，建议暴露 32K 源 + 校准回调）。
 - **手机对 Rust 发货固件读写成功（用户实测确认）**：CH582M 连接 → FFE0/FFE1/FFE2 发现 → FFE2 写 → FFE1 读回一致。**Rust 生成固件 BLE 全链路（广播→连接→GATT 发现→读写）实机闭环**。notify 订阅发送路径编译 verified，周期待实测确认（不宣称已验证）。
 
 ### 14.3 M12 验证状态
