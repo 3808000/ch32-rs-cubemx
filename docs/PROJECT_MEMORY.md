@@ -127,3 +127,11 @@
 - TIM/USB/ADC/APB 归 g-out；E 列读数卡右对齐 1400；lanes 共享走廊=竖直干线观感；坐标基线实测偏离见契约 D12bis。
 - 门禁：1524 测试（clockTree 127 含 28 D12 断言）/ validate 7 芯片 0/0 / tsc/eslint/build / verify 6/6+embassy 6/6+BLE(CH582) 1/1；七芯片浏览器 fit 截图验收；clock.png 刷新（V203 48%）。
 - 教训：子代理后端瞬时故障（8 连 Model request failed）→ 主控直执 E 域小扩展后再重启子代理（用户切换 API 后恢复）；IAB 表格行/Continue 点击 actionability 失败 → evaluate dispatch MouseEvent；芯片表分页（X035/CH582 在第 2 页）→ wizard 搜索框过滤；cua drag 起点落在节点上会选中文本（截图蓝块伪影）→ 空白处起拖+removeAllRanges。
+
+## 11. v0.1.0 发布与三平台自动构建（2026-11-18 夜）
+
+- **MIT 许可** + README 重写；上游 ch32-hal/ch58x-hal/ch32-data 核实 MIT/Apache-2.0 双许可，vendor 全量 walk 随附许可证副本（再分发合规）。
+- `.github/workflows/release.yml`：tag v* → draft → 矩阵（ubuntu-22.04 deb/rpm/AppImage+便携 tar.gz；macos universal dmg/app 未签名；windows nsis/msi）→ sha256 → publish；dispatch 仅构建。`ci.yml`：push/PR lint+build+test+validate。用户 Win 本地自动构建保留。
+- 干跑 3/3 绿后推 tag v0.1.0@a9afa6a → run 44321903872 全绿自动转正式，15 assets（各附 sha256，app.tar.gz 除外）。发布说明 /tmp/release-notes-v0.1.0.md 套用。
+- 版本号四处早已对齐 0.1.0（package.json/package-lock/tauri.conf.json/Cargo.toml+lock），无需 bump。
+- 教训：workflow 注册秒级延迟（push 后立即 dispatch 404）；Git Data API 建 tag 可触发 push-tag 工作流；gh run watch 瞬时断网退出≠run 失败→容错轮询。

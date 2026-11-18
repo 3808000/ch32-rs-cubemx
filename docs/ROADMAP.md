@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-18）：M1–M16 十六个里程碑核心项全部完成。** 测试 380→1524，62 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
+> **总体进度（2026-11-18）：M1–M16 十六个里程碑核心项全部完成；v0.1.0 已正式发布（MIT 许可 + 三平台 Actions 自动构建）。** 测试 380→1524，62 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -315,6 +315,15 @@
 **D12（2026-11-18 用户裁决，参照 CubeMX2 时钟树截图）**：输入 LSI/LSE/HSE/HSI 左列竖排；主干 System Mux→System Clock→AHB Prescaler→HCLK 水平；输出右列上下并联竖排（CORE「内核/DMA/存储器」/SYSTICK「系统定时器」/APB1→TIM1→APB2→TIM2→USB→ADC，读数卡右对齐 x+w=1400）；外设 SPI/I2C/USART/ADC **单列上下并联**（「并联是上下并联不是左右」），类别分组框上下堆叠。MX2「To Power」在 WCH 无独立域不造假行；SysTick 逐芯片 HAL 事实（QingKe V2/V4/X035/H417=HCLK、V3/CH582=HCLK÷8，见 HAL notes §16.6）。aux schema 增 deriveDiv/group（readout 单输入派生，仅显示不生成）；TIM/USB/ADC/APB 归 g-out。画布宽 1790；高度随外设实例数（V003 696 → H417 2376，18 卡竖排自然结果，fit-zoom 全览）。4 子代理（E 测试 + G1/G2/G3 数据）并行 + 主控引擎/契约/验收。
 
 **暂缓**：KernelMux/AuxPlls/I2S 建模、aux 域代码生成、X035 CLK_DIV 完整 9 位编码表（需 RM 表逐字）、V203 prediv 支路建模、非预设 PLL 显式导出（M17 候选）、时钟单位切换。
+
+---
+
+## 发布与持续集成（v0.1.0，2026-11-18）
+
+- **许可**：MIT（LICENSE 全文；版权行 ch32-rs-CubeMX authors）。上游核实：ch32-hal / ch58x-hal / ch32-data 均 MIT/Apache-2.0 双许可（(c) 2023 Andelf）；vendor 打包全量 walk 随附 LICENSE-MIT/LICENSE-APACHE 副本，再分发合规。README 重写（特性/7 芯片/三平台产物/验证基线/法律节：WCH/ST 商标、m16-rm 事实性转录、生成工程归属）。
+- **CI**：`.github/workflows/ci.yml`（push/PR：lint + vue-tsc/build + 1524 测试 + validate:device）；`.github/workflows/release.yml`（tag `v*`：create draft → 矩阵 ubuntu-22.04 `deb,rpm,appimage`+便携 tar.gz / macos-latest `universal-apple-darwin dmg,app`（未签名）/ windows-latest `nsis,msi` → sha256 上传 → publish 转正式；workflow_dispatch 仅构建 artifacts 不建 Release）。用户 Windows 本地自动构建保留，CI 矩阵纳入 Windows 保证可复现。
+- **验收**：dispatch 干跑三平台 3/3 绿（run 44319675563）+ CI 绿；tag `v0.1.0`@a9afa6a 触发 run 44321903872 全绿自动转正式；**15 assets**：linux deb/rpm/AppImage/便携 tar.gz、macos universal.dmg + app.tar.gz、windows x64-setup.exe + x64_en-US.msi，各附 .sha256（app.tar.gz 除外）。发布说明含亮点/门禁/产物/许可/已知边界/升级指引。
+- **教训**：GitHub 工作流注册有秒级延迟（push 后立即 `gh workflow run` 会 404）；tag 经 Git Data API 创建可正常触发 push-tag 工作流；`gh run watch` 会因本机瞬时断网退出（run 不受影响）→ 改容错轮询。
 
 ---
 
