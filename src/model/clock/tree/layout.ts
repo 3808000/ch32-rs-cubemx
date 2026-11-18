@@ -244,31 +244,60 @@ interface RouteCtx {
   lanes?: Record<string, number>
 }
 
-/** 通用正交避障路由：短路径优先，走廊/通道错开，极端绕行兜底（必可达）。 */
+/** 接入缓冲直线（M16 用户裁决）：锚点外先走一段垂直于框边的直线再进走廊，
+ *  末段必须水平垂直进入左缘锚点（不得竖线贴框边擦行）。 */
+const STUB = 14
+/** 走廊/通道与簇边界最小间距：竖/横段不得贴框边擦行 */
+const GRAZE = 3
+
+/** 擦边判定：线段与某簇左/右（竖段）或上/下（横段）边界重合且范围相交 → 拒绝。 */
+function grazes(points: ClockPt[], rects: Rect[]): boolean {
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!
+    const b = points[i]!
+    for (const r of rects) {
+      if (a.x === b.x) {
+        if (Math.abs(a.x - r.x) < GRAZE || Math.abs(a.x - (r.x + r.w)) < GRAZE) {
+          if (Math.min(Math.max(a.y, b.y), r.y + r.h) - Math.max(Math.min(a.y, b.y), r.y) > EPS) return true
+        }
+      } else if (a.y === b.y) {
+        if (Math.abs(a.y - r.y) < GRAZE || Math.abs(a.y - (r.y + r.h)) < GRAZE) {
+          if (Math.min(Math.max(a.x, b.x), r.x + r.w) - Math.max(Math.min(a.x, b.x), r.x) > EPS) return true
+        }
+      }
+    }
+  }
+  return false
+}
+
+/** 通用正交避障路由：缓冲直线 + 垂直进入 + 走廊/通道错开 + 擦边拒绝 + 极端绕行兜底。 */
 function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: RouteCtx): ClockPt[] {
   const p0 = anchorOut(a)
   const p1 = anchorIn(b, a.id)
+  // 缓冲段：出锚点右行 STUB、入锚点左行 STUB（均垂直于框边）
+  const s0: ClockPt = { x: p0.x + STUB, y: p0.y }
+  const s1: ClockPt = { x: p1.x - STUB, y: p1.y }
   const tryPath = (pts: ClockPt[]): ClockPt[] | null => {
     const p = simplify(pts)
-    return pathClear(p, ctx.rects) ? p : null
+    return pathClear(p, ctx.rects) && !grazes(p, ctx.rects) ? p : null
   }
 
-  // 1) 同 x / 同 y 直线
-  if (p0.x === p1.x || p0.y === p1.y) {
+  // 1) 同 y 水平直连（两端天然垂直于框边）
+  if (p0.y === p1.y) {
     const p = tryPath([p0, p1])
     if (p) return p
   }
-  // 2) 单折 L
+  // 2) 缓冲 L（末段水平垂直进入左缘）
   for (const pts of [
-    [p0, { x: p1.x, y: p0.y }, p1],
-    [p0, { x: p0.x, y: p1.y }, p1],
+    [p0, s0, { x: s1.x, y: s0.y }, s1, p1],
+    [p0, s0, { x: s0.x, y: s1.y }, s1, p1],
   ]) {
     const p = tryPath(pts as ClockPt[])
     if (p) return p
   }
 
   const hint = ctx.lanes?.[edgeId]
-  // 3) H-V-H：竖向走两簇之间走廊
+  // 3) H-V-H：竖向走两簇之间走廊（缓冲段之间）
   const rightOfA = a.x + a.w
   const leftOfB = b.x
   let baseMx: number
@@ -280,19 +309,14 @@ function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: Rout
   const hintX = hint !== undefined ? hint * LANE_STEP : autoX
   for (const off of uniqOffsets(hintX)) {
     const mx = baseMx + off
-    const p = tryPath([
-      p0,
-      { x: mx, y: p0.y },
-      { x: mx, y: p1.y },
-      p1,
-    ])
+    const p = tryPath([p0, s0, { x: mx, y: s0.y }, { x: mx, y: s1.y }, s1, p1])
     if (p) {
       ctx.corridorUse.set(corridorKey, (ctx.corridorUse.get(corridorKey) ?? 0) + 1)
       return p
     }
   }
 
-  // 4) V-H-V：横向走两簇之间通道
+  // 4) V-H-V：横向走两簇之间通道（缓冲段之间）
   let baseMy: number
   if (b.y >= a.y + a.h) baseMy = (a.y + a.h + b.y) / 2
   else if (a.y >= b.y + b.h) baseMy = (b.y + b.h + a.y) / 2
@@ -302,40 +326,25 @@ function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: Rout
   const hintY = hint !== undefined ? hint * LANE_STEP : autoY
   for (const off of uniqOffsets(hintY)) {
     const my = baseMy + off
-    const p = tryPath([
-      p0,
-      { x: p0.x, y: my },
-      { x: p1.x, y: my },
-      p1,
-    ])
+    const p = tryPath([p0, s0, { x: s0.x, y: my }, { x: s1.x, y: my }, s1, p1])
     if (p) {
       ctx.channelUse.set(channelKey, (ctx.channelUse.get(channelKey) ?? 0) + 1)
       return p
     }
   }
 
-  // 5) 极端绕行：画布上/下外侧横向通道（锚点均在簇左右边界，竖段贴边合法）
+  // 5) 极端绕行：画布上/下外侧横向通道（缓冲段保持垂直进入）
   for (const my of [ctx.minY - DETOUR, ctx.maxY + DETOUR]) {
-    const p = tryPath([
-      p0,
-      { x: p0.x, y: my },
-      { x: p1.x, y: my },
-      p1,
-    ])
+    const p = tryPath([p0, s0, { x: s0.x, y: my }, { x: s1.x, y: my }, s1, p1])
     if (p) return p
   }
   // 6) 画布左/右外侧竖向走廊（防御兜底）
   for (const mx of [ctx.minX - DETOUR, ctx.maxX + DETOUR]) {
-    const p = tryPath([
-      p0,
-      { x: mx, y: p0.y },
-      { x: mx, y: p1.y },
-      p1,
-    ])
+    const p = tryPath([p0, s0, { x: mx, y: s0.y }, { x: mx, y: s1.y }, s1, p1])
     if (p) return p
   }
-  // 理论上不可达；返回简化折线保证渲染不崩
-  return simplify([p0, { x: p0.x, y: p1.y }, p1])
+  // 理论上不可达；返回带缓冲的简化折线保证渲染不崩
+  return simplify([p0, s0, { x: s0.x, y: s1.y }, s1, p1])
 }
 
 // ---------- 主布局 ----------

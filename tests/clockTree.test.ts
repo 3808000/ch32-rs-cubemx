@@ -389,6 +389,43 @@ describe('buildClockTree 连线', () => {
     }
   })
 
+  it('M16 接入缓冲：首末段水平垂直于框边且 ≥10px；竖/横段不贴簇边擦行（七芯片）', () => {
+    for (const chip of ['CH32V003F4P6', 'CH32V103C8T6', 'CH32V203C8T6', 'CH32V307VCT6', 'CH32X035C8T6', 'CH32H417QEU6', 'CH582M']) {
+      const d = getDeviceData(chip).clock
+      const cfg = defaultClock(d)
+      const t = buildClockTree(d, cfg, computeClock(d, cfg))
+      const rects = t.nodes.map((n) => ({ x: n.x, y: n.y, w: n.w, h: n.h }))
+      for (const e of t.edges) {
+        const pts = e.points
+        const first = pts[0]!
+        const second = pts[1]!
+        const last = pts[pts.length - 1]!
+        const prev = pts[pts.length - 2]!
+        // 首段水平（出右缘垂直进入缓冲）、末段水平（垂直进入左缘锚点）
+        expect(first.y, `${chip}/${e.id} first`).toBe(second.y)
+        expect(Math.abs(second.x - first.x), `${chip}/${e.id} stub-out`).toBeGreaterThanOrEqual(10)
+        expect(prev.y, `${chip}/${e.id} last`).toBe(last.y)
+        expect(Math.abs(last.x - prev.x), `${chip}/${e.id} stub-in`).toBeGreaterThanOrEqual(10)
+        // 擦边拒绝：竖段不得与簇左/右边界重合、横段不得与上/下边界重合（范围相交时）
+        for (let i = 1; i < pts.length; i++) {
+          const a = pts[i - 1]!
+          const b = pts[i]!
+          for (const r of rects) {
+            if (a.x === b.x) {
+              const nearEdge = Math.abs(a.x - r.x) < 3 || Math.abs(a.x - (r.x + r.w)) < 3
+              const overlap = Math.min(Math.max(a.y, b.y), r.y + r.h) - Math.max(Math.min(a.y, b.y), r.y) > 0.5
+              expect(nearEdge && overlap, `${chip}/${e.id} graze-v`).toBe(false)
+            } else {
+              const nearEdge = Math.abs(a.y - r.y) < 3 || Math.abs(a.y - (r.y + r.h)) < 3
+              const overlap = Math.min(Math.max(a.x, b.x), r.x + r.w) - Math.max(Math.min(a.x, b.x), r.x) > 0.5
+              expect(nearEdge && overlap, `${chip}/${e.id} graze-h`).toBe(false)
+            }
+          }
+        }
+      }
+    }
+  })
+
   it('PLL 直连档下 HSI→SYSCLK 激活、PLL→SYSCLK 未激活', () => {
     expect(tree.edges.find((e) => e.id === 'src-HSI-sys')?.active).toBe(true)
     expect(tree.edges.find((e) => e.id === 'pll-sys')?.active).toBe(false)

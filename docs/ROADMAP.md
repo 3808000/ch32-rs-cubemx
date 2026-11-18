@@ -309,6 +309,7 @@
 | 16.3 | MX2 图元簇渲染 + 白纸 + 截断 | ClockNode.vue、primitives.css、ClockCanvas.vue | 七芯片截图；行距硬约束用例 |
 | 16.4 | 七芯片 diagram+aux+displayOnly 数据 | data/devices/*/clock.json（G1a/G2/G3/G4） | 逐芯片 validate+截图对照 RM |
 | 16.5 | RM 保真裁决 + 集成守卫 | types（sysclkMuxInput/muxLabels）、model mux/边、index.ts displayOnly 排除、codegen CLOCK_DISPLAY_ONLY_SOURCE | 1495 全绿；快照仅 README ADC 行 |
+| 16.6 | 收尾：接入缓冲+垂直进入+擦边拒绝；外设并联均衡列压缩画布 | layout.ts routeEdge/grazes/STUB、七芯片 diagram 重排（D11a/b） | clockTree 99（七芯片首末段水平≥10+不擦边）；画布高 ≤800；1496 全绿 |
 
 **暂缓**：KernelMux/AuxPlls/I2S 建模、aux 域代码生成、X035 CLK_DIV 完整 9 位编码表（需 RM 表逐字）、V203 prediv 支路建模、非预设 PLL 显式导出（M17 候选）、时钟单位切换。
 

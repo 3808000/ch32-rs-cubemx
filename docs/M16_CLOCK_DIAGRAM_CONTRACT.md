@@ -59,6 +59,11 @@
 - **CH582**（CH583DS1 V1.9 图 6-1，p34；时钟章实为第 6 章）：无 HSI/无 AHB/APB 分频（AHB/APB1/APB2 kind readout + note ≡HCLK）；SYSCLK mux 三路 [PLL, HSE, CK32K]：CK32K displayOnly 灰行、HSE 行保留可选但导出已有 CLOCK_PRESET_UNAVAILABLE 边界（note）；PLL note ×15=480M、div 2..31（0=32、写 1 关 HCLK）；aux CK32KSEL{kind:mux, inputs:[LSI,LSE]} + RTC{kind:readout, inputs:[CK32KSEL], fixedMhz:0.032, note:'BLE 占用 RTC 时基（M12）；不生成'}；LSI/LSE displayOnly 源；**ADC 图/寄存器歧义**：图 6-1 把 ADC_CLK_DIV 画到 Fsys 轨，寄存器明确 CK32M÷10/4/6/8 → repo 采信 CK32M，P-ADC note 并列歧义。
 - **X035/V003 长 note 溢出**（目检发现）：readout/peri/aux 的 hint/note 单行文本溢出横跨分组 → **U 域修复**：hint/note 截断至块宽（ellipsis）+ 全文入 `<title>` hover；分组 note 同理截断。
 
+## D11 收尾裁决（用户目检反馈）
+
+- **D11a 接入缓冲+垂直进入**：routeEdge 出/入锚点各加 STUB=14 水平缓冲段；末段必须水平垂直进入左缘锚点；`grazes()` 拒绝与簇边界重合的竖/横段（GRAZE=3）；走廊/通道在缓冲段之间错开。测试：七芯片首末段水平 ≥10px + 不擦边。
+- **D11b 外设并联均衡列**：外设实例每列 ≤2 卡（>2 拆 ⌈n/2⌉ 列）、所有外设列顶边对齐同一 y（并联带）、列距 230/行距 128；分组框跨列单框包围；画布高度目标 ≤800px（解决「USART 出界」=画布过高视口外溢，坐标本身未越界）。
+
 ## D5 模型（E 域）
 
 tree/model.ts：kind 默认（源=osc；SYSCLK/ADC 域=mux；PLL=pll；AHB/APB=div（options 单档→readout）；TIM/USB=readout；P-*=peri）；diagram.nodes[id].kind 覆盖优先；aux 节点/边按 D4；displayOnly 源排除 control options + 边 active=false；`ClockNodeModel` 增 `kind: ClockNodeKind` + `displayOnly?: boolean`（tree/model.ts，types 的 kind 类型 import）。computeClock/validateClock/solvePll/resolveClockIssues/matchPreset/mergeClockConfig **零改动**（aux 无配置）。
