@@ -468,8 +468,14 @@ pub fn set_central_conn(min: u16, max: u16, latency: u16, timeout: u16) {
 }
 
 /// Start the peripheral role and enable advertising.
+///
+/// `GAPRole_PeripheralInit()` must run first (registers the role's TMOS task);
+/// without it `GAPRole_PeripheralStartDevice` returns INVALIDPARAMETER(0x02)
+/// and the role stays in state 0 — advertising never reaches the air.
+/// The M17 codegen has always emitted this call; the M18 test lib missed it.
 pub fn start_peripheral(task: u8) {
     unsafe {
+        let _ = GAPRole_PeripheralInit();
         let _ = GAPRole_PeripheralStartDevice(task, &GAP_BOND_CBS, &GAP_ROLE_CBS);
     }
     adv_enable(true);

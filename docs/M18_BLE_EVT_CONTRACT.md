@@ -36,12 +36,13 @@ test_peripheral.py（扫名→连接→服务/特征集+flags 核对→读/写/�
 - 22/22 bin `cargo build --release --bins` 绿（nightly + build-std=core，riscv32imac）。
 - 仓库门禁 1621/63 绿、tsc/eslint/validate 0/0。
 - 实机矩阵（部分，诚实分级）：
-  - **PASS**：evt_broadcaster（btmgmt find dev_found 0C:3D:5E:A6:62:94 rssi -38 flags 0x04；bluez StartDiscovery 按规范过滤 flags 0x04，须用 btmgmt find）；peripheral 角色+完整 simple GATT+bond+连接参数广播（dbg15 对照 bin）；完整 GATT 读/写/notify（M17 上午 ×2，同 shim API）。
-  - **BLOCKED（广播静默，根因未决）**：evt_peripheral 及 peripheral 族 bin。读证：gapRole_AdvEnabled=1、AdvEventType=0、向量表 BLEB/BLEL 已接线、mstatus MIE=1、SysTick 自由跑、PC 在 TMOS 泵内。bisect：name-only scan-rsp + no-op hooks + 无 CTX → 广播（dbg15）；换真实 hook  bodies/CTX（dbg16）→ 静默；scan-rsp 加 tx_power 或 conn_interval_range TLV → 静默（dbg13/14）；全局 InitCharCfg(0xFFFF) 相关性未证实；blob V1.90 与 EVT V2.13 表现相同。电源循环可恢复模拟态（软复位不复位 RF/32K 假设成立一次），但非本缺陷根因。
-  - **BLOCKED（无观测通道）**：central 族（宿主 GattManager1.RegisterApplication 超时；bin 日志仅 UART1 PA9，无串口适配器）、observer（同）。
+  - **PASS**：evt_broadcaster（btmgmt find dev_found 0C:3D:5E:A6:62:94 rssi -38 flags 0x04；bluez StartDiscovery 按规范过滤 flags 0x04，须用 btmgmt find）；**peripheral 角色广播（根因修复后空口证实 rssi -35）**；完整 GATT 读/写/notify（M17 上午 ×2，同 shim API）。
+  - **根因已定位并修复（UART 直证，取代此前 bisect 相关性）**：`start_peripheral` 漏 `GAPRole_PeripheralInit()` → `GAPRole_PeripheralStartDevice`=INVALIDPARAMETER(0x02)、gapRole state 永停 0。`evt_uart_dbg` 逐调用状态打印：修复前 Err(2)/state=0（AdvEnabled=1 被接受但无效、TMOS 泵正常）；补 Init 后 Ok/state 1→2、空口可见。其余角色 bin 各有 `<Role>Init()`，唯 peripheral 漏——精确解释族内静默。M17 生成器模板始终含该调用（生成器无缺陷）。修复 = `ble-evt-tests/src/lib.rs` 一行，覆盖全部 16 个 peripheral 族 bin。此前 hooks/CTX/TLV bisect 相关性作废（dbg15 配置不可重建，存疑注记）。
+  - **待跑（修复已就位）**：evt_peripheral 完整 GATT 判据（连接/FFE1–FFE5 读写/FFE4 notify 0x88@1600ms）——宿主 `test_peripheral.py` 已重建；受阻于板子 RF 模拟态卡住（多轮调试 halt/resume 诱发；软复位/CH-Link 端口断电未恢复，需板子完整断电，供电路径待用户确认）。
+  - **BLOCKED（无对端）**：central 族（宿主 GattManager1.RegisterApplication 超时待修）、observer（peer_advertiser 待重建）。
   - **build-only**：sync_adv/sync_scan（需第二块板对跑；BlueZ 无周期同步 API）。
-  - 下一步解锁条件：UART USB-串口适配器接 PA9（读 bin 日志）或第二块 CH582 板；或 lib 反汇编级分析（另行授权）。
-- 探针事故注记：被停后台任务遗留 root openocd 占用 USB（claim interface failed）→ pkexec kill 清理；`pkill -f openocd` 会匹配自身命令行自杀 → 用 `pkill -x openocd`。
+- UART 观测通道：CH-Link 自带串口（PA9→CH-Link RX，ttyACM0 115200 8N1，`uart_capture.py`）；boot 突发丢字节（桥接缓冲），稳态完整；休眠恢复掉线需重插/端口断电；autosuspend 已关。
+- 探针事故注记：被停后台任务遗留 root openocd 占用 USB（claim interface failed）→ pkexec kill 清理；`pkill -f openocd` 会匹配自身命令行自杀 → 用 `pkill -x openocd`；pkexec 改 cwd → 绝对路径；被杀会话后 halt 偶发挂死 → CH-Link 断电重枚举；`program verify reset exit` 后偶发 mcause=4（s1 踩脏，干净复位不复现，判为调试诱发）→ 安全烧录序列 `program verify`+`reset halt`+`resume`。
 
 ## D6 文件域
 

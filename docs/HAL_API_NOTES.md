@@ -841,9 +841,11 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 
 ### 18.3 测试矩阵与实机诊断（诚实分级）
 
-- `ble-evt-tests/` 22 bin 全编译绿（nightly+build-std，riscv32imac）；宿主 harness `/tmp/m18-ble-host/`（test_peripheral/peer_peripheral/peer_advertiser/throughput/run_case）。
-- **实机部分通过/部分受阻（诚实）**：broadcaster PASS（btmgmt find；bluez StartDiscovery 过滤 flags 0x04）；peripheral 角色+完整 GATT 服务广播 PASS（dbg15）；M17 完整 GATT 读/写/notify 上午 ×2 PASS。**evt_peripheral 族广播静默根因未决**：AdvEnabled=1/向量接线/MIE=1/泵运行；bisect 见 M18 契约 D5（name-only rsp+no-op hooks 可广播；真实 hooks/CTX 或 rsp 额外 TLV 静默；blob V1.90/V2.13 同）。电源循环恢复过一次模拟态（软复位不复位 RF/32K），但非该缺陷根因。central/observer 无观测通道（UART1 PA9 无串口适配器；宿主 RegisterApplication 超时）。解锁需 UART 适配器/第二块板/lib 反汇编授权。
-- 探针事故：被停后台任务遗留 root openocd 占 USB（`claim interface failed`/libusb IO）→ `pkexec kill <pid>` 清理；`pkill -f openocd` 匹配自身命令行自杀 → 用 `pkill -x openocd`；pkexec 改 cwd → OpenOCD program 必须绝对路径。
+- `ble-evt-tests/` 22+2 bin 全编译绿（nightly+build-std，riscv32imac）；宿主 harness `/tmp/m18-ble-host/`（test_peripheral/uart_capture；peer_peripheral/peer_advertiser/throughput 待重建——机器重启清空 /tmp）。
+- **peripheral 族广播静默根因已定位并修复（UART 直证）**：`start_peripheral` 漏调 `GAPRole_PeripheralInit()` → `GAPRole_PeripheralStartDevice` 返回 **INVALIDPARAMETER(0x02)**，gapRole 状态永停 0（INIT），广播不上空口。诊断 bin `evt_uart_dbg` 逐调用打印状态：修复前 `PeripheralStartDevice=Err(2)` / `state=0`（TMOS 时钟正常走、AdvEnabled=1 被接受但无效）；补一行 Init 后 `Ok(())` / `gap state 1→2`（STARTED→ADVERTISING），空口 `btmgmt find` 抓到 `0C:3D:5E:A6:62:94 rssi -35`。**其余角色 bin（broadcaster/observer/central/sync）各自都有 `<Role>Init()`，唯 peripheral 路径漏**——精确解释「只有 peripheral 族静默」。M17 生成器模板一直输出该调用（故 M17 实机通过）；生成器产物无缺陷，仅 M18 测试库漏写。此前 bisect 的 hooks/CTX/scan-rsp TLV 相关性被状态直证取代（dbg15 具体配置已不可重建，注记存疑）。
+- **UART 观测通道解锁**：CH-Link 自带串口适配器（板 PA9→CH-Link RX，GND 共地），枚举 `ttyACM0`（cdc_acm，1a86:8010 接口 1.1），115200 8N1；`uart_capture.py` 逐行时间戳。注意：CH-Link 桥接在 boot 突发（~250B/15ms）时丢字节（banner 残缺），稳态逐行输出完整；系统休眠恢复后 WCH-Link 掉线（connect-debounce failed）需重插/端口断电（`3-2-port2/disable`  toggling）；autosuspend 已关（hub+device power/control=on）。
+- **实机分级（当前）**：broadcaster PASS；peripheral 角色广播 PASS（修复后空口证实）；M17 完整 GATT ×2 PASS；**evt_peripheral 完整 GATT 判据待跑**（修复已编译进全部 16 个 peripheral 族 bin；宿主 test_peripheral.py 已重建）。central/observer/sync 待对端/观测。
+- **探针事故（新增）**：多轮 halt/resume 后 RF 模拟态再次卡住（数字侧 ISR 活跃、LL 事件表空转、无空口），软复位与 CH-Link USB 端口断电（10s）均未恢复——需板子完整断电（板供电路径待确认：CH-Link 供电还是自供电）。调试 halt 在被 timeout 杀掉的会话后偶发挂死 → CH-Link 断电重枚举恢复。`program verify reset exit` 后偶发 mcause=4 trap（s1=0xffffff82、mepc 在 run() 内）——干净 `reset halt`+`resume` 后不复现，判断为调试 halt/resume 踩寄存器所致（非固件缺陷）；**安全烧录序列 = `program <elf> verify` + `reset halt` + `resume`**。旧事故：root openocd 占 USB → `pkexec kill`；`pkill -f openocd` 自杀 → `pkill -x`；pkexec 改 cwd → 绝对路径。
 - 安全边界：OTA bin 擦/写/校验/结束命令 stub 为 ATT 错误（不写 flash）；SNV off；无 HAL_SLEEP。
 
 ### 18.4 上游裁决
