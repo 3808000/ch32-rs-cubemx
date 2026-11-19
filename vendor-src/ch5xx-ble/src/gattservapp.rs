@@ -129,6 +129,79 @@ impl GATTServApp {
     ) -> bStatus_t {
         unsafe { ffi::GATTServApp_ProcessCCCWriteReq(connHandle, pAttr, pValue, len, offset, validCfg) }
     }
+
+    /// Register several services in order (M18).
+    ///
+    /// `GATTServApp_RegisterService` assigns attribute handles sequentially
+    /// from the next free handle, so the handles of service *n+1* start after
+    /// the last attribute of service *n*. After this returns successfully each
+    /// `attrs[0].handle` holds that service's first assigned handle;
+    /// [`service_handle`] reads it back conveniently.
+    ///
+    /// All services share one callback table (`service_cbs`), which matches
+    /// the common WCH profile layout. The slices are `'static mut` for the
+    /// same reason as [`Self::register_service`]; the shared borrow only
+    /// prevents moving them out, the stack still writes their `handle` fields
+    /// (hence the const-to-mut pointer cast).
+    pub fn register_services(
+        services: &[&'static mut [GattAttribute]],
+        enc_key_size: u8,
+        service_cbs: &'static gattServiceCBs_t,
+    ) -> bStatus_t {
+        for attrs in services.iter() {
+            let status = unsafe {
+                ffi::GATTServApp_RegisterService(
+                    attrs.as_ptr() as *mut GattAttribute,
+                    attrs.len() as u16,
+                    enc_key_size,
+                    service_cbs,
+                )
+            };
+            if status.is_err() {
+                return status;
+            }
+        }
+        Ok(())
+    }
+
+    /// Notify/indicate every subscribed client in a per-connection CCCD table.
+    ///
+    /// Wraps the undocumented `GATTServApp_ProcessCharCfg` exported by the
+    /// blob. `char_cfg_tbl` is the characteristic's `gattCharCfg_t` array
+    /// (one entry per connection, `connHandle == 0xFFFF` terminates the
+    /// table). `value` **must** be the same buffer as the characteristic
+    /// attribute's `value` pointer: the library locates the attribute by
+    /// pointer identity inside `attrs`. `read_attr_cb` is the service read
+    /// callback used to fetch the current value (`ATT_LOCAL_READ`).
+    pub fn process_char_cfg(
+        char_cfg_tbl: &mut [gattCharCfg_t],
+        value: &mut [u8],
+        authenticated: bool,
+        attrs: &mut [GattAttribute],
+        task_id: u8,
+        read_attr_cb: pfnGATTReadAttrCB_t,
+    ) -> bStatus_t {
+        if char_cfg_tbl.len() > u16::MAX as usize || attrs.len() > u16::MAX as usize {
+            return Err(unsafe { core::num::NonZeroU8::new_unchecked(0x02) });
+        }
+        unsafe {
+            super::ffi::GATTServApp_ProcessCharCfg(
+                char_cfg_tbl.as_mut_ptr(),
+                value.as_mut_ptr(),
+                authenticated as u8,
+                attrs.as_mut_ptr(),
+                attrs.len() as u16,
+                task_id,
+                read_attr_cb,
+            )
+        }
+    }
+}
+
+/// First handle assigned to a service attribute table (0 before registration).
+#[inline]
+pub fn service_handle(attrs: &[GattAttribute]) -> u16 {
+    attrs.first().map(|a| a.handle).unwrap_or(0)
 }
 
 mod ffi {

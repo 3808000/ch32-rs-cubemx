@@ -79,6 +79,18 @@ sudo apt install libwebkit2gtk-4.1-dev libsoup-3.0-dev libgtk-3-dev librsvg2-dev
 
 Windows 使用系统 WebView2（Windows 10/11 通常已自带）与 Rust MSVC 工具链；macOS 使用系统自带 WKWebView，建议安装 Xcode Command Line Tools。
 
+## BLE EVT 对照测试矩阵（M18）
+
+`ble-evt-tests/` 含 22 个对照 WCH CH583 EVT 蓝牙例程的独立实现测试 bin（ch5xx-hal + `ch5xx-ble` shim）：Peripheral 五特征族、HID×4、心率/骑行/跑步传感器、SpeedTest×2、BLE_UART（BLE 回环）、Broadcaster/Observer、Central/CentPeri/MultiCentral/MultiCentPeri、周期广播×2、OTA（只读 INFO、**不写 flash**）、IoCHub。规格来源 `docs/m18-evt-specs.md`（事实参数表，不含 WCH 源码表达）；判据与偏离见 `docs/M18_BLE_EVT_CONTRACT.md`。
+
+```bash
+cd ble-evt-tests && cargo build --release --bins   # nightly + rust-src（build-std=core）
+# 烧录（绝对路径）：pkexec openocd -f wch-riscv.cfg -c "program <abs elf> verify reset exit"
+# 宿主判据：/tmp/m18-ble-host/run_case.sh <case> --name ... --notify uuid:period_ms:count
+```
+
+上游 BLE PR 暂缓至 clean-room Rust 重写完成（裁决与可行性见 `docs/m18-cleanroom-spike.md`）。
+
 ## 验证命令
 
 | 命令 | 内容 | 当前基线 |

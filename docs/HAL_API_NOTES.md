@@ -824,3 +824,28 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 | `/tmp/m17-issue-comments/ch5xx-buildrs-data.md` | ch5xx-hal 新 issue | build.rs 硬读兄弟 `../ch5xx-data/data` 致纯 git 消费者 panic（复现/日志见 m17-shim-notes §9）；建议 git 依赖 ch5xx-data 或把数据纳入 crate；附 vendor 内嵌 workaround |
 
 三份草稿均为英文，未发布；#13/#14 保持 OPEN、ch5xx-hal issues 仍为空。
+
+## 18. M18 EVT 对照矩阵与 shim 扩展（2026-11-19）
+
+### 18.1 规格取真与版权边界
+
+- CH583EVT.ZIP（`/home/teze/下载/`）解包于独立新目录 `/home/teze/CH32/EVT/CH583EVT/`；35 顶层 BLE 例程 + MESH 15 + LWNS 9。逐字规格落 `docs/m18-evt-specs.md`（918 行）。
+- **版权清洗**：EVT `.c/.h` 为 WCH 版权代码（头部仅 field-of-use 限芯片句：`Copyright (c) 2021 Nanjing Qinheng…` / `Attention: This software (modified or not) and binary are used for microcontroller manufactured by Nanjing Qinheng Microelectronics.`，140 个文件重复；**无禁逆向条款**）；参考手册另有禁复制 clause。specs 初稿含 38 个逐字代码块 → 清洗为事实参数表（保留 4 个 ≤2 行 de minimis 引用），测试 bin 由规格**独立实现**（实现组不读 EVT `.c`）。
+- 与同源推断（CH32V20xEVT）的关键差异：SimpleProfile 实为 FFE0–FFE5 五特征；Peripheral notify **1600ms**（非 1s）；HeartRate 2000ms 固定 2B；BLE_UART 名 `ch583_ble_uart`、UART3=PA5(TX)/PA4(RX)（QFN48 均引出）；BLE_SNV 默认 TRUE、CLK_OSC32K 默认 1（central 族 0）；HAL_SLEEP 全未启用；库串 V2.13 vs 头 V2.10 vs VER_FILE V2.1（EVT 自身不自洽，附录 G）。
+
+### 18.2 shim M18 扩展（链接验证 25 符号 T）
+
+- central：GAPRole_CentralStartDiscovery/CancelDiscovery/EstablishLink/UpdateLink/UpdatePHY；GATT client 16 符号；GATTServApp_ProcessCharCfg（7 参）；linkDB_NumConns/NumActive；GAP_NumActiveConnections；gapCreateSync_t+GAPRole_CreateSync。
+- 签名以 CH58xBLE_LIB.h 逐字为准；头文件缺的 5 符号由 `LIBCH58xBLE.a` 反汇编恢复（只读分析，非派生实现）；`GATT_DiscPrimaryServiceByUUID` len=u8、`GAPRole_UpdatePHY` phy_options=u16、`GATT_WriteNoRsp` 无 taskId。
+- `Options`/`init_with` 参数化 BufMaxLen/MEMLen/ConnectNumber/BufNumber/TxPower；`init()` 向后兼容（生成器产物逐字节不变）；SNV off/sleepCB None 保持。
+
+### 18.3 测试矩阵与实机诊断（诚实分级）
+
+- `ble-evt-tests/` 22 bin 全编译绿（nightly+build-std，riscv32imac）；宿主 harness `/tmp/m18-ble-host/`（test_peripheral/peer_peripheral/peer_advertiser/throughput/run_case）。
+- **实机受阻待电源循环**：反复 OpenOCD halt/resume 后，已知良好的 M17 固件与 evt_peripheral/evt_speedtest_peripheral 均不广播；读证：PFIC IENR0=0（两固件同）、RAM 向量表 BLEB/BLEL 已接线（0x20000050/54 → 0x200000c0/d0）、mtvec=0x20000003、mstatus=0x1888（MIE=1）、SysTick CTLR=0x5 自由跑 CNT 递增、PC 在 TMOS 泵内移动（非死锁）。假设：软复位不复位 RF/32K 模拟域，halt/resume 累积致模拟态 stale；**需板级电源循环验证**，未证实前不宣称任何 bin 实机通过。
+- 探针事故：被停后台任务遗留 root openocd 占 USB（`claim interface failed`/libusb IO）→ `pkexec kill <pid>` 清理；`pkill -f openocd` 匹配自身命令行自杀 → 用 `pkill -x openocd`；pkexec 改 cwd → OpenOCD program 必须绝对路径。
+- 安全边界：OTA bin 擦/写/校验/结束命令 stub 为 ATT 错误（不写 flash）；SNV off；无 HAL_SLEEP。
+
+### 18.4 上游裁决
+
+- 用户裁决：**维持 blob 路线；上游 issue/PR 暂缓至 Rust 重写完成**。重写 spike（`docs/m18-cleanroom-spike.md`）：无禁逆向条款但手册禁复制；开源 LL 首选 NimBLE（Apache-2.0，移植面 1.5–3k 行）/备选 Zephyr；BTstack 许可禁商用排除；RF 黑盒代码量 9% 但关键路径 100% 阻塞（aes_soft.o 0 字节→硬件 AES 引擎未公开）；工作量方案 A 20–30 人月 / 方案 B 13–22 人月 + BQB 3–6 人月；建议 M19+ 独立里程碑 + 前置 2–4 周 G1 探针（RF 寄存器/校准布局合法获取可行性）。

@@ -149,3 +149,11 @@
 - **验证**：五档 cargo 绿 + **1621 用例/63 文件全绿** + verify 6/6+6/6+BLE(CH582) ch5xx 1/1+legacy 1/1；**ch5xx BLE 实机复验通过 ×2**（OpenOCD Verified OK；连接/ServicesResolved/FFE1 读 00→FFE2 写 42→读回 42/notify 20 包 20s；`/tmp/m17-ble-test/`）。
 - **COMMON 未清零（既有）**：qingke-rt 0.8.4/0.5 `link-highcode.x` `.bss` 通配缺 `*(COMMON)`；实机两轮复验未造成功能故障 → 缓解列可选加固候选，非阻塞。
 - **上游**：#13/#14 跟进评论已发（2026-11-19，含迁移/shim/参数化说明与实机状态）；ch5xx-hal build.rs 兄弟目录新 issue 草稿 `/tmp/m17-issue-comments/ch5xx-buildrs-data.md` 留用户裁决未发。
+
+## 13. M18 BLE EVT 对照矩阵 + 重写 spike（2026-11-19）
+
+- **裁决**：维持 vendored blob 路线；上游 issue/PR 暂缓至 Rust 重写完成（本期未开 issue/PR/fork）。重写列 M19+ 候选（spike：NimBLE 基座 13–22 人月；RF 黑盒关键路径阻塞；前置 G1 探针）。
+- **规格**：CH583EVT 解包独立目录；docs/m18-evt-specs.md 仅事实参数表（版权清洗：EVT .c 为 WCH 版权代码、手册禁复制；测试 bin 独立实现不读 EVT .c）。
+- **交付**：ble-evt-tests 22 bin 全编译绿；shim +25 符号（central/GATT client/MTU/多连接/CreateSync）+ Options/init_with 向后兼容；宿主 harness /tmp/m18-ble-host/；OTA bin 不写 flash、SNV off。
+- **实机受阻**：反复 halt/resume 后已知良好 M17 固件亦不广播（PFIC IENR0=0、向量已接线、TMOS 泵运行、SysTick 自由跑）→ 假设软复位不复位 RF/32K 模拟域；待板级电源循环逐 bin 复跑。探针事故：遗留 root openocd 占 USB→pkexec kill；pkill -f 自杀→pkill -x；pkexec 改 cwd→ELF 绝对路径。
+- **门禁**：1621/63 绿、tsc/eslint/validate 0/0、22/22 cargo 绿。

@@ -35,6 +35,12 @@ pub const ATT_HANDLE_VALUE_CFM: u8 = 30;
 pub const ATT_WRITE_CMD: u8 = 82;
 pub const ATT_SIGNED_WRITE_CMD: u8 = 210;
 
+// Locally generated `gattMsgEvent_t.method` values (CH58xBLE_LIB.h:633-634).
+/// ATT flow control was violated on this connection (`msg.flowCtrlEvt`).
+pub const ATT_FLOW_CTRL_VIOLATED_EVENT: u8 = 0x7E;
+/// ATT MTU changed for this connection (`msg.mtuEvt`).
+pub const ATT_MTU_UPDATED_EVENT: u8 = 0x7F;
+
 //  ATT Error Codes
 /// The attribute handle given was not valid on this server
 pub const ATT_ERR_INVALID_HANDLE: u8 = 0x01;

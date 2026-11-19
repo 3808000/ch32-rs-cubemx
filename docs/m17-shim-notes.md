@@ -284,3 +284,204 @@ shim 与证明工程自身零 warning。
   `qingke-rt` 0.5 `link-highcode.x` 完全相同，所以 legacy 路径同样存在。缓解方向（需 S2/实机确认）：
   生成工程自带一个 `-T` 片段把 `*(COMMON)` 收进具名段，`main` 在 `ch5xx_ble::init` 前清零；
   或 fork `link.x` 把 `*(COMMON)` 并入 `.bss` 通配。仅 cargo build 无法暴露此问题。
+
+## M18 扩展（2026-11-19，EVT 对照测试支撑）
+
+排他域 `vendor-src/ch5xx-ble/**`；无生成器/测试/数据改动。目标：central、GATT client、
+多服务、indicate、变长 notify、多连接、MTU。
+
+### 12.1 新增 FFI 符号
+
+`src/ffi.rs` 末尾新增（原有声明不动）。行号均为
+`/home/teze/CH32/EVT/CH583EVT/EVT/EXAM/BLE/LIB/CH58xBLE_LIB.h`：
+
+| 符号 | 头文件行 | 备注 |
+|---|---:|---|
+| `GAPRole_CentralStartDiscovery(u8,u8,u8)` | 4432 | |
+| `GAPRole_CentralCancelDiscovery()` | 4441 | 实际 C 名含 `Central`；任务文案的 `CancelDiscovery` 非头文件符号 |
+| `GAPRole_CentralEstablishLink(u8,u8,u8,*mut u8)` | 4473 | peer addr LSB first |
+| `GAPRole_UpdateLink(u16,u16,u16,u16,u16)` | 4218 | |
+| `GAPRole_UpdatePHY(u16,u8,u8,u8,u16)` | 4235 | `phy_options` 是 **u16** |
+| `GATT_InitClient()` | 3006 | |
+| `GATT_RegisterForInd(u8)` | 3016 | 返回 void |
+| `GATT_ExchangeMTU(u16,*mut attExchangeMTUReq_t,u8)` | 3112 | |
+| `GATT_DiscAllPrimaryServices(u16,u8)` | 3143 | |
+| `GATT_DiscPrimaryServiceByUUID(u16,*mut u8,**u8 len**,u8)` | 3180 | len 是 **u8**，不是 u16 |
+| `GATT_DiscAllChars(u16,u16,u16,u8)` | 3252 | |
+| `GATT_DiscCharsByUUID(u16,*mut attReadByTypeReq_t,u8)` | 3288 | |
+| `GATT_DiscAllCharDescs(u16,u16,u16,u8)` | 3324 | |
+| `GATT_ReadCharValue(u16,*mut attReadReq_t,u8)` | 3361 | |
+| `GATT_ReadUsingCharUUID(u16,*mut attReadByTypeReq_t,u8)` | 3396 | 无 start/end 独立参数 |
+| `GATT_ReadLongCharValue(u16,*mut attReadBlobReq_t,u8)` | 3427 | |
+| `GATT_WriteNoRsp(u16,*mut attWriteReq_t)` | 3493 | 无 taskId |
+| `GATT_WriteCharValue(u16,*mut attWriteReq_t,u8)` | 3567 | |
+| `GATT_ReadCharDesc(u16,*mut attReadReq_t,u8)` | 3684 | |
+| `GATT_WriteCharDesc(u16,*mut attWriteReq_t,u8)` | 3752 | |
+
+头文件缺失、但 `LIBCH58xBLE.a` 导出（`nm -g --defined-only` 已核）：
+
+| 符号 | 恢复出的签名 | 依据 |
+|---|---|---|
+| `GATT_RegisterForReq(u8)` | `void`, 1 个 u8 | `gattservapp.o` 反汇编：`sb a0,0(a5); ret`（返回值未定义） |
+| `linkDB_NumConns()` | `u8` | `linkdb.o`：单字节 load |
+| `linkDB_NumActive()` | `u8` | `linkdb.o`：遍历连接表计数，返回 u8 |
+| `GAP_NumActiveConnections()` | `u8` | `gap.o`：`R_RISCV_CALL linkDB_NumActive` 尾调用 |
+| `GATTServApp_ProcessCharCfg` | `(gattCharCfg_t*, u8*, u8, gattAttribute_t*, u16, u8, pfnGATTReadAttrCB_t)` | 见 12.3 |
+
+### 12.2 结构体核对
+
+任务清单中的 `gattReadCharValue_t` / `gattWriteCharValue_t` / `gattDiscChars_t` /
+`gattExchangeMTU_t` **在 CH58xBLE_LIB.h 中不存在**（全文件 grep 0 命中）。对应 API 直接使用
+`gatt.rs` 已有的 `attReadReq_t`、`attWriteReq_t`、`attReadByTypeReq_t`、
+`attExchangeMTUReq_t`、`attReadBlobReq_t`。因此没有新增“自造”结构体；如需新结构体，
+WCH 的权威定义就是上述 ATT 结构。新增的只有两个消息 method 常量
+（`gatt.rs`）：`ATT_FLOW_CTRL_VIOLATED_EVENT = 0x7E`、`ATT_MTU_UPDATED_EVENT = 0x7F`
+（头文件 633-634）。
+
+### 12.3 `GATTServApp_ProcessCharCfg` 的 7 参数
+
+头文件未声明。反汇编 `gattservapp.o::GATTServApp_ProcessCharCfg`（0xdc 字节）显示实参
+映射为 `a0=charCfgTbl, a1=pValue, a2=authenticated, a3=pAttr, a4=numAttrs, a5=taskId,
+a6=readAttrCB`：
+
+- 入口对 `a0/a1/a3/a6` 判空；
+- `a4` 作为 `GATTServApp_FindAttr(pAttr, numAttrs, pValue)` 的 `numAttrs`，该函数按
+  `pAttr[i].value == pValue` 指针同一性定位属性；
+- `a5` 作为 `taskId` 传给内部 `gattServApp_SendNotiInd`；
+- `a6` 被 `mv a5,s2; ... jalr s0` 当作第 6 个参数（读属性回调）调用。
+
+TI 原版是 6 参数（无回调），WCH 版本多一个显式读回调。shim 按 7 参数声明；
+`pValue` 语义是“特征值存储指针”，不是新数据缓冲，wrapper 文档已注明。
+
+### 12.4 `Options` 与 `init_with`
+
+`lib.rs`：
+
+```rust
+pub struct Options {
+    pub buf_max_len: u16,     // 27
+    pub mem_len: u16,         // 6144
+    pub connect_number: u8,   // 0x0D = 1P + 3C
+    pub buf_number: u8,       // 5
+    pub tx_power: u8,         // LL_TX_POWEER_6_DBM (0x3D)
+}
+```
+
+- `Options::default()` 复刻 M17 数值；`init(cfg)` = `init_with(cfg, Options::default())`，
+  旧三字段 `Config` 字面构造不受影响（生成器产物逐字节不变，32 个
+  `ch5xxBleCodegen` 用例全绿）。
+- heap：`HEAP_MAX_SIZE = 10 KiB` 固定静态数组；`BLE_LibInit` 只收到
+  `opts.mem_len`（`MEMLen`）。`mem_len > 10 KiB` 在调用库前返回 `INVALID_MEM_SIZE(0x0B)`。
+  **SRAM 上限**：即使用默认 6 KiB，`.bss` 仍占 10 KiB（静态数组尺寸不变）。
+- `connect_number` 直接写 `bleConfig_t.ConnectNumber`；`buf_number`/`buf_max_len`/
+  `tx_power` 同理。
+- 诚实边界：SNV 仍 off（`SNVAddr/SNVBlock/SNVNum/readFlashCB/writeFlashCB` 为 0/None，
+  bonding 仅 RAM）；`sleepCB`/`WakeUpTime`/`staCB` 仍未设置；`TxNumEvent` 固定 1。
+
+### 12.5 Wrapper API
+
+新模块 `src/client.rs`：
+
+```rust
+pub enum GattClientEvent<'a> {
+    ReadRsp { conn_handle, value: &[u8] },
+    ReadBlobRsp { conn_handle, value: &[u8] },
+    WriteRsp { conn_handle },
+    ExchangeMtuRsp { conn_handle, server_rx_mtu },
+    FindInfoRsp { conn_handle, format, num_info, info },
+    FindByTypeValueRsp { conn_handle, num_info, handles_info },
+    ReadByTypeRsp { conn_handle, num_pairs, entry_len, data },
+    ReadByGrpTypeRsp { conn_handle, num_grps, entry_len, data },
+    HandleValueNoti { conn_handle, handle, value },
+    HandleValueInd { conn_handle, handle, value },
+    HandleValueCfm { conn_handle, status },
+    MtuUpdated { conn_handle, mtu },
+    FlowCtrlViolated { conn_handle, opcode, pending_opcode },
+    ErrorRsp { conn_handle, req_opcode, handle, err_code },
+    Other { conn_handle, method },
+}
+
+impl gattMsgEvent_t { pub fn decode(&self) -> GattClientEvent<'_> }
+
+pub fn disc_all_primary_services(conn, task) -> bStatus_t
+pub fn disc_primary_service_by_uuid(conn, uuid: &[u8], task) -> bStatus_t
+pub fn disc_all_chars(conn, start, end, task) -> bStatus_t
+pub fn disc_chars_by_uuid(conn, start, end, uuid, task) -> bStatus_t
+pub fn disc_all_char_descs(conn, start, end, task) -> bStatus_t
+pub fn exchange_mtu(conn, client_rx_mtu, task) -> bStatus_t
+pub fn read_char_value(conn, handle, task) -> bStatus_t
+pub fn read_long_char_value(conn, handle, offset, task) -> bStatus_t
+pub fn read_using_char_uuid(conn, start, end, uuid, task) -> bStatus_t
+pub fn read_char_desc(conn, handle, task) -> bStatus_t
+pub fn write_char_value(conn, handle, value, task) -> bStatus_t
+pub fn write_no_rsp(conn, handle, value) -> bStatus_t
+pub fn write_char_desc(conn, handle, value, task) -> bStatus_t
+pub fn send_notification(conn, attr_handle, value, authenticated) -> bStatus_t   // 变长
+pub fn send_indication(conn, attr_handle, value, authenticated, task) -> bStatus_t
+pub fn max_notify_payload(mtu) -> u16   // mtu - 3
+```
+
+- 所有 slice→FFI 的写入都经 `GATT_bm_alloc(len)` + 拷贝；失败路径用正确的请求/通知结构
+  （而非裸 payload 指针）调用 `GATT_bm_free`（`gattGetPayload` 按 opcode 取 `pValue`）。
+- `decode` 的 payload slice 借用 TMOS 消息，`TmosEvent` drop 前必须拷贝。
+- indicate 的确认以 `GattClientEvent::HandleValueCfm { status }` 到达 `task` 对应的
+  `GATT_MSG_EVENT`。
+
+`gap.rs` 新增 `GAPRole::{central_start_discovery, central_cancel_discovery,
+central_establish_link, update_link, update_phy, num_active_connections}`；
+`linkdb.rs` 新增 `LinkDB::{num_conns, num_active}`；
+`gattservapp.rs` 新增：
+`GATTServApp::register_services(&[&'static mut [GattAttribute]], enc_key_size, cbs)`
+（顺序注册，handle 由协议栈顺延分配，`service_handle(attrs)` 读取首 handle）与
+`GATTServApp::process_char_cfg(char_cfg_tbl, value, authenticated, attrs, task_id, read_cb)`
+（按连接 CCCD 批量 notify/indicate）。
+
+### 12.6 编译/链接/回归结果
+
+```console
+$ cd /tmp/m17-shim-proof
+$ RUSTUP_TOOLCHAIN=nightly CARGO_HOME=/home/teze/.cargo RUSTUP_HOME=/home/teze/.rustup \
+    cargo build --release
+   Compiling ch5xx-ble v0.1.0 (.../vendor-src/ch5xx-ble)
+    Finished `release` profile [optimized] target(s) in 0.64s
+```
+
+新 smoke 工程 `/tmp/m18-shim-central-smoke`（path 依赖 shim，同 M17 patch 布局）编译并链接
+成功；main 按 `central.c` 顺序调用 CentralInit/InitClient/RegisterForInd/
+RegisterForReq/CentralStartDevice/CentralStartDiscovery，并在回调里
+EstablishLink→ExchangeMTU→DiscPrimaryServiceByUUID→ReadCharValue。
+链接产物（374,472 B）`nm` 中 25 个新符号全部为 `T`（由 `LIBCH58xBLE.a` 解析），
+另含 `client.rs` wrapper 的调用点：
+
+```
+T GAPRole_CentralStartDiscovery   T GAPRole_CentralCancelDiscovery
+T GAPRole_CentralEstablishLink    T GAPRole_UpdateLink
+T GAPRole_UpdatePHY               T GAP_NumActiveConnections
+T GATT_InitClient                 T GATT_RegisterForReq
+T GATT_RegisterForInd             T GATT_ExchangeMTU
+T GATT_DiscAllPrimaryServices     T GATT_DiscPrimaryServiceByUUID
+T GATT_DiscAllChars               T GATT_DiscCharsByUUID
+T GATT_DiscAllCharDescs           T GATT_ReadCharValue
+T GATT_ReadUsingCharUUID          T GATT_ReadLongCharValue
+T GATT_WriteCharValue             T GATT_WriteNoRsp
+T GATT_WriteCharDesc              T GATT_ReadCharDesc
+T GATTServApp_ProcessCharCfg      T linkDB_NumConns
+T linkDB_NumActive
+```
+
+仓库门禁：`npx vitest run` → 63 files / 1621 tests 全绿；`npx vitest run
+tests/ch5xxBleCodegen.test.ts` → 32/32 绿（生成器产物未变）。
+
+### 12.7 与头文件的差异/注意点
+
+1. **`len` 类型**：`GATT_DiscPrimaryServiceByUUID` 的 UUID 长度是 `uint8_t`；
+   `GAPRole_SetParameter` 的 `len` 在旧 shim 中声明为 `u16`，而头文件是 `uint16_t`
+   （`gap.rs` 保持旧声明，未改）。
+2. **实际符号名**：`GAPRole_CentralCancelDiscovery`（不是 `GAPRole_CancelDiscovery`）。
+3. `GATT_ReadUsingCharUUID` 只有 `(connHandle, attReadByTypeReq_t*, taskId)`，start/end
+   在请求结构内。
+4. `GATT_WriteNoRsp` 没有 `taskId`。
+5. 5 个符号头文件未声明（12.1 表），签名来自 blob 反汇编；若未来 WCH 更新头文件，
+   应以新头文件复核 `GATTServApp_ProcessCharCfg` 的 7 参数。
+6. `Options.mem_len` 默认 6144，但静态 `BLE_HEAP` 固定 10240 B；需要精确 SRAM 计量时
+   以 10 KiB + `.highcode` 计。

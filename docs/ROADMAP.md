@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-19）：M1–M17 十七个里程碑核心项完成（M17 ch5xx BLE 实机复验通过 ×2）；v0.1.0 已正式发布（MIT 许可 + 三平台 Actions 自动构建）。** 测试 380→1621（63 文件；M17 新增 ch5xxCodegen 59 / ch5xxBleCodegen 32 + 分流/导出/往返用例），66 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。**M17 将 CH582M 默认后端迁移到 ch5xx-hal（875651b6）并把 legacy BLE 层移植为 `ch5xx-ble` shim：ch5xx blocking/embassy/BLE + legacy blocking/BLE 五档 cargo 全绿；ch5xx 档强制 vendor（内嵌 ch5xx-data）、默认 nightly+build-std，legacy ch58x-hal 保留 opt-in；实机 BLE 复验通过 ×2（连接/GATT 读写/notify 20 包 20s，2026-11-19）。** 剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
+> **总体进度（2026-11-19）：M1–M18 十八个里程碑核心项完成（M17 ch5xx BLE 实机复验通过 ×2；M18 EVT 对照矩阵 22 bin 编译绿、实机待板级电源循环）；v0.1.0 已正式发布（MIT 许可 + 三平台 Actions 自动构建）。** 测试 380→1621（63 文件；M17 新增 ch5xxCodegen 59 / ch5xxBleCodegen 32 + 分流/导出/往返用例），66 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。**M17 将 CH582M 默认后端迁移到 ch5xx-hal（875651b6）并把 legacy BLE 层移植为 `ch5xx-ble` shim：ch5xx blocking/embassy/BLE + legacy blocking/BLE 五档 cargo 全绿；ch5xx 档强制 vendor（内嵌 ch5xx-data）、默认 nightly+build-std，legacy ch58x-hal 保留 opt-in；实机 BLE 复验通过 ×2（连接/GATT 读写/notify 20 包 20s，2026-11-19）。** 剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -353,6 +353,24 @@
 - **CI**：`.github/workflows/ci.yml`（push/PR：lint + vue-tsc/build + 1524 测试 + validate:device）；`.github/workflows/release.yml`（tag `v*`：create draft → 矩阵 ubuntu-22.04 `deb,rpm,appimage`+便携 tar.gz / macos-latest `universal-apple-darwin dmg,app`（未签名）/ windows-latest `nsis,msi` → sha256 上传 → publish 转正式；workflow_dispatch 仅构建 artifacts 不建 Release）。用户 Windows 本地自动构建保留，CI 矩阵纳入 Windows 保证可复现。
 - **验收**：dispatch 干跑三平台 3/3 绿（run 44319675563）+ CI 绿；tag `v0.1.0`@a9afa6a 触发 run 44321903872 全绿自动转正式；**15 assets**：linux deb/rpm/AppImage/便携 tar.gz、macos universal.dmg + app.tar.gz、windows x64-setup.exe + x64_en-US.msi，各附 .sha256（app.tar.gz 除外）。发布说明含亮点/门禁/产物/许可/已知边界/升级指引。
 - **教训**：GitHub 工作流注册有秒级延迟（push 后立即 `gh workflow run` 会 404）；tag 经 Git Data API 创建可正常触发 push-tag 工作流；`gh run watch` 会因本机瞬时断网退出（run 不受影响）→ 改容错轮询。
+
+---
+
+## M18（v0.18）BLE EVT 对照测试矩阵 + clean-room 重写 spike ✅ 代码/文档完成（2026-11-19，实机矩阵待板级电源循环）
+
+> **落地状态**：CH583EVT 解包取真（35 顶层 BLE 例程+MESH15+LWNS9）→ `docs/m18-evt-specs.md` 事实规格表（版权清洗：不含 WCH 源码表达）；`ble-evt-tests/` **22 bin 全编译绿**（ch5xx-hal+shim，独立实现不读 EVT `.c`）；shim 补 central/GATT client/MTU/多连接/CreateSync 25 符号（链接验证 T）+ `Options/init_with` 向后兼容；宿主 bluez harness（通用外设测试器/GATT 对端/广播者/吞吐）；clean-room spike 报告（NimBLE 基座 13–22 人月、RF 黑盒关键路径阻塞、M19+ 候选）。**用户裁决：维持 blob 路线，上游 issue/PR 暂缓至重写完成**（本期未开 issue/PR/fork）。
+> **契约与证据**：[M18_BLE_EVT_CONTRACT.md](M18_BLE_EVT_CONTRACT.md)、[m18-evt-specs.md](m18-evt-specs.md)、[m18-cleanroom-spike.md](m18-cleanroom-spike.md)、[HAL_API_NOTES §18](HAL_API_NOTES.md)。
+> **实机状态（诚实）**：22/22 cargo 绿 + 仓库 1621/63 绿；实机矩阵受阻——反复 halt/resume 后已知良好 M17 固件亦不广播（PFIC=0、向量已接线、泵运行）→ 假设软复位不复位 RF/32K 模拟域，**待板级电源循环后逐 bin 复跑**；OTA bin 不写 flash（命令 stub）、SNV off。
+
+| # | 任务 | 改动落点 | 验收 |
+|---|---|---|---|
+| 18.1 | EVT 解包+逐字规格+版权清洗 | docs/m18-evt-specs.md（918 行事实表） | 22 在范围例程规格+不适用清单+同源差异表 |
+| 18.2 | shim central/client/MTU/多连接/CreateSync 扩展 | vendor-src/ch5xx-ble/{ffi,gap,gatt,gattservapp,linkdb,client,lib}.rs | 25 符号链接 T；init() 兼容；smoke 工程绿 |
+| 18.3 | 22 测试 bin + 宿主 harness | ble-evt-tests/（22 bin+lib/adv/services/central）、/tmp/m18-ble-host/ | cargo --bins 全绿；harness 自证待实机 |
+| 18.4 | clean-room 重写 spike | docs/m18-cleanroom-spike.md | 条款原文/开源 LL/RF 黑盒/隔离流程/路线图 |
+| 18.5 | 实机矩阵（待电源循环） | /tmp/m18-ble-host/results/ | 逐 bin 判据 pass/fail/build-only + 日志 |
+
+**暂缓/候选**：M19+ clean-room BLE 重写（NimBLE 基座；前置 G1 探针 2–4 周）；上游 BLE PR 重启四条件（重写完成+实机矩阵+许可清理+clean-room 证据链）；sync_adv/sync_scan 实机需第二块板；BLE_USB/ANCS/MESH/LWNS 不在本期。
 
 ---
 

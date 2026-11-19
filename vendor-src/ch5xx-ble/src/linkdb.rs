@@ -106,4 +106,14 @@ impl LinkDB {
     pub fn is_connected(connectionHandle: u16) -> bool {
         Self::state(connectionHandle, LINK_CONNECTED) != 0
     }
+
+    /// Number of connection records (`linkDB_NumConns`, header absent).
+    pub fn num_conns() -> u8 {
+        unsafe { super::ffi::linkDB_NumConns() }
+    }
+
+    /// Number of active (connected) links (`linkDB_NumActive`, header absent).
+    pub fn num_active() -> u8 {
+        unsafe { super::ffi::linkDB_NumActive() }
+    }
 }

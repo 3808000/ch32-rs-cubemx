@@ -725,3 +725,181 @@ extern "C" {
 pub const INVALID_CONNHANDLE: u16 = 0xFFFF;
 /// Loopback connection handle, used to loopback a message
 pub const LOOPBACK_CONNHANDLE: u16 = 0xFFFE;
+
+// ---------------------------------------------------------------------------
+// M18 additions for EVT cross-checking (central / GATT client / multi-link)
+// ---------------------------------------------------------------------------
+//
+// Signatures below were copied from
+// `CH583EVT/EVT/EXAM/BLE/LIB/CH58xBLE_LIB.h` (line numbers in the comments).
+// `GAP_NumActiveConnections`, `linkDB_NumConns`, `linkDB_NumActive`,
+// `GATT_RegisterForReq` and `GATTServApp_ProcessCharCfg` are exported by
+// `LIBCH58xBLE.a` but are *not* declared by that header; their prototypes were
+// recovered from the pinned blob's object code and are marked "header absent".
+// See docs/m17-shim-notes.md, section "M18 扩展", for the disassembly evidence.
+
+use crate::gatt::{
+    attExchangeMTUReq_t, attReadBlobReq_t, attReadByTypeReq_t, attReadReq_t, attWriteReq_t,
+    GattAttribute,
+};
+use crate::gattservapp::{gattCharCfg_t, pfnGATTReadAttrCB_t};
+
+// GAPRole central role (CH58xBLE_LIB.h:4432, 4441, 4473, 4218, 4235)
+
+extern "C" {
+    /// CH58xBLE_LIB.h:4432 — `(uint8_t mode, uint8_t activeScan, uint8_t whiteList)`
+    pub fn GAPRole_CentralStartDiscovery(mode: u8, activeScan: u8, whiteList: u8) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:4441 — note the C name is `...CancelDiscovery`, not
+    /// `GAPRole_CancelDiscovery`.
+    pub fn GAPRole_CentralCancelDiscovery() -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:4473 — peer address is LSB first, 6 bytes.
+    pub fn GAPRole_CentralEstablishLink(
+        highDutyCycle: u8,
+        whiteList: u8,
+        addrTypePeer: u8,
+        peerAddr: *mut u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:4218
+    pub fn GAPRole_UpdateLink(
+        connHandle: u16,
+        connIntervalMin: u16,
+        connIntervalMax: u16,
+        connLatency: u16,
+        connTimeout: u16,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:4235 — `phy_options` is `uint16_t` in the header.
+    pub fn GAPRole_UpdatePHY(
+        connHandle: u16,
+        all_phys: u8,
+        tx_phys: u8,
+        rx_phys: u8,
+        phy_options: u16,
+    ) -> bStatus_t;
+
+    /// header absent — `gap.o` exports it as a tail call to `linkDB_NumActive`,
+    /// which returns `uint8_t`.
+    pub fn GAP_NumActiveConnections() -> u8;
+}
+
+// linkDB counters (header absent; defined in linkdb.o, both return uint8_t)
+
+extern "C" {
+    pub fn linkDB_NumConns() -> u8;
+    pub fn linkDB_NumActive() -> u8;
+}
+
+// GATT client (CH58xBLE_LIB.h:3006-3752)
+
+extern "C" {
+    /// CH58xBLE_LIB.h:3006
+    pub fn GATT_InitClient() -> bStatus_t;
+
+    /// header absent — `gattservapp.o` stores the task id and returns void.
+    pub fn GATT_RegisterForReq(taskId: u8);
+
+    /// CH58xBLE_LIB.h:3016
+    pub fn GATT_RegisterForInd(taskId: u8);
+
+    /// CH58xBLE_LIB.h:3112
+    pub fn GATT_ExchangeMTU(
+        connHandle: u16,
+        pReq: *mut attExchangeMTUReq_t,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3143
+    pub fn GATT_DiscAllPrimaryServices(connHandle: u16, taskId: u8) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3180 — `len` is `uint8_t` (2 or 16).
+    pub fn GATT_DiscPrimaryServiceByUUID(
+        connHandle: u16,
+        pUUID: *mut u8,
+        len: u8,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3252
+    pub fn GATT_DiscAllChars(
+        connHandle: u16,
+        startHandle: u16,
+        endHandle: u16,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3288
+    pub fn GATT_DiscCharsByUUID(
+        connHandle: u16,
+        pReq: *mut attReadByTypeReq_t,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3324
+    pub fn GATT_DiscAllCharDescs(
+        connHandle: u16,
+        startHandle: u16,
+        endHandle: u16,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3361
+    pub fn GATT_ReadCharValue(connHandle: u16, pReq: *mut attReadReq_t, taskId: u8) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3396
+    pub fn GATT_ReadUsingCharUUID(
+        connHandle: u16,
+        pReq: *mut attReadByTypeReq_t,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3427
+    pub fn GATT_ReadLongCharValue(
+        connHandle: u16,
+        pReq: *mut attReadBlobReq_t,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3493 — no response, no task id.
+    pub fn GATT_WriteNoRsp(connHandle: u16, pReq: *mut attWriteReq_t) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3567
+    pub fn GATT_WriteCharValue(
+        connHandle: u16,
+        pReq: *mut attWriteReq_t,
+        taskId: u8,
+    ) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3684
+    pub fn GATT_ReadCharDesc(connHandle: u16, pReq: *mut attReadReq_t, taskId: u8) -> bStatus_t;
+
+    /// CH58xBLE_LIB.h:3752
+    pub fn GATT_WriteCharDesc(
+        connHandle: u16,
+        pReq: *mut attWriteReq_t,
+        taskId: u8,
+    ) -> bStatus_t;
+}
+
+// GATTServApp additions
+
+extern "C" {
+    /// header absent — reconstructed from `gattservapp.o`:
+    /// `(gattCharCfg_t *charCfgTbl, uint8_t *pValue, uint8_t authenticated,
+    ///   gattAttribute_t *pAttr, uint16_t numAttrs, uint8_t taskId,
+    ///   pfnGATTReadAttrCB_t readAttrCB)`.
+    ///
+    /// `pValue` selects the attribute by identity: `GATTServApp_FindAttr`
+    /// walks `pAttr[0..numAttrs]` and matches `pAttr[i].value == pValue`.
+    pub fn GATTServApp_ProcessCharCfg(
+        charCfgTbl: *mut gattCharCfg_t,
+        pValue: *mut u8,
+        authenticated: u8,
+        pAttr: *mut GattAttribute,
+        numAttrs: u16,
+        taskId: u8,
+        readAttrCB: pfnGATTReadAttrCB_t,
+    ) -> bStatus_t;
+}

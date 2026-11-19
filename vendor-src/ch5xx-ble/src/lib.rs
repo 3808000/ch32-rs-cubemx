@@ -47,11 +47,58 @@ pub mod gatt_uuid;
 pub mod gattservapp;
 pub mod linkdb;
 
-const HEAP_SIZE: usize = 1024 * 6;
+/// M18 convenience layer: GATT client event decoding, discovery/read/write
+/// wrappers, and variable-length notify/indicate helpers.
+pub mod client;
+
+/// Maximum SRAM reserved for the BLE library heap.
+///
+/// The static array is sized for the largest supported `Options::mem_len`
+/// (10 KiB). Only `Options::mem_len` bytes are handed to `BLE_LibInit` as
+/// `MEMLen`; the remainder is unused but still occupies `.bss`, so the real
+/// SRAM cost of this crate is this constant regardless of configuration.
+const HEAP_MAX_SIZE: usize = 1024 * 10;
 
 #[repr(C, align(4))]
-struct BLEHeap([MaybeUninit<u8>; HEAP_SIZE]);
-static mut BLE_HEAP: BLEHeap = BLEHeap([MaybeUninit::uninit(); HEAP_SIZE]);
+struct BLEHeap([MaybeUninit<u8>; HEAP_MAX_SIZE]);
+static mut BLE_HEAP: BLEHeap = BLEHeap([MaybeUninit::uninit(); HEAP_MAX_SIZE]);
+
+/// BLE library memory/connection options (`init_with`).
+///
+/// Defaults reproduce the M17 shim and the upstream `ch58x-hal` values, so
+/// `init(Config { .. })` behaves exactly as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options {
+    /// `bleConfig_t::BufMaxLen`: HCI data payload size. ATT MTU = this - 4.
+    /// 27 -> MTU 23. Must be > 69 when Secure Connections are enabled.
+    pub buf_max_len: u16,
+    /// `bleConfig_t::MEMLen`: bytes of the 10 KiB static heap actually used.
+    /// The header requires > 4 KiB. Values above 10 KiB are rejected.
+    pub mem_len: u16,
+    /// `bleConfig_t::ConnectNumber`: low two bits = peripheral count,
+    /// high bits = central count (0x0D = 1 peripheral + 3 central).
+    pub connect_number: u8,
+    /// `bleConfig_t::BufNumber`: cached controller packets, must exceed the
+    /// number of connections.
+    pub buf_number: u8,
+    /// `bleConfig_t::TxPower`: one of the `LL_TX_POWEER_*` constants.
+    pub tx_power: u8,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Self {
+            buf_max_len: 27,
+            mem_len: 6144,
+            connect_number: 0x0D,
+            buf_number: 5,
+            tx_power: ffi::LL_TX_POWEER_6_DBM,
+        }
+    }
+}
+
+/// `bleConfig_t::MEMLen` was rejected before `BLE_LibInit` (INVALID_MEM_SIZE).
+const INVALID_MEM_SIZE: u8 = 0x0B;
 
 static CHANNEL: PubSubChannel<CriticalSectionRawMutex, TmosEvent, 4, 2, 2> = PubSubChannel::new();
 
@@ -125,41 +172,58 @@ unsafe extern "C" fn hal_tmos_task(task_id: u8, events: u16) -> u16 {
 
 /// Wrapper of `BLE_LibInit` and the TMOS HAL task registration.
 ///
+/// Equivalent to `init_with(config, Options::default())`; keeps the frozen
+/// M17 API (generator output only constructs the three-field [`Config`]).
+///
 /// Does **not** touch the SysTick control register: `ch5xx_hal::init` has
 /// already started it as a free-running counter, and [`srand`] only samples it
 /// for entropy.
 pub fn init(config: Config) -> Result<(u8, EventSubscriber), NonZeroU8> {
-    use ffi::{TMOS_ProcessEventRegister, TMOS_TimerInit, LL_TX_POWEER_6_DBM};
+    init_with(config, Options::default())
+}
+
+/// Configurable variant of [`init`] for EVT cross-checking (MTU, multi-link).
+///
+/// Boundaries kept deliberately honest:
+/// - SNV (bonding persistence) stays **off**: `SNVAddr`/`SNVBlock`/`SNVNum`
+///   and `readFlashCB`/`writeFlashCB` remain zero/`None`.
+/// - `sleepCB`/`WakeUpTime`/`staCB` remain unset (no low-power integration).
+/// - `TxNumEvent` stays 1, matching the M17 shim.
+/// - Only `opts.mem_len` bytes of the 10 KiB static heap are passed to the
+///   library; the whole array is still reserved in `.bss`.
+pub fn init_with(config: Config, opts: Options) -> Result<(u8, EventSubscriber), NonZeroU8> {
+    use ffi::{TMOS_ProcessEventRegister, TMOS_TimerInit};
 
     const BLE_TX_NUM_EVENT: u8 = 1;
-    const BLE_BUFF_NUM: u8 = 5;
-    const BLE_BUFF_MAX_LEN: u16 = 27;
-    const BLE_TX_POWER: u8 = LL_TX_POWEER_6_DBM;
-    const PERIPHERAL_MAX_CONNECTION: u8 = 1;
-    const CENTRAL_MAX_CONNECTION: u8 = 3;
+
+    if opts.mem_len as usize > HEAP_MAX_SIZE {
+        // NonZeroU8::new(INVALID_MEM_SIZE) is always Some; avoid panicking.
+        return Err(unsafe { NonZeroU8::new_unchecked(INVALID_MEM_SIZE) });
+    }
 
     let mut cfg: bleConfig_t = unsafe { core::mem::zeroed() };
 
     cfg.MEMAddr = unsafe { core::ptr::addr_of_mut!(BLE_HEAP.0) as *mut u8 as u32 };
-    cfg.MEMLen = HEAP_SIZE as _;
+    cfg.MEMLen = opts.mem_len;
 
-    cfg.BufMaxLen = BLE_BUFF_MAX_LEN;
-    cfg.BufNumber = BLE_BUFF_NUM;
+    cfg.BufMaxLen = opts.buf_max_len;
+    cfg.BufNumber = opts.buf_number;
     cfg.TxNumEvent = BLE_TX_NUM_EVENT;
-    cfg.TxPower = BLE_TX_POWER;
+    cfg.TxPower = opts.tx_power;
 
-    // No SNV (SNVAddr, SNVBlock, SNVNum, readFlashCB, writeFlashCB)
+    // No SNV (SNVAddr, SNVBlock, SNVNum, readFlashCB, writeFlashCB):
+    // bonding information is RAM-only in this shim.
 
     cfg.SelRTCClock = config.sel_rtc_clock;
 
-    cfg.ConnectNumber = (PERIPHERAL_MAX_CONNECTION & 3) | (CENTRAL_MAX_CONNECTION << 2);
+    cfg.ConnectNumber = opts.connect_number;
 
     cfg.srandCB = Some(srand); // tmos_rand will call this
 
     cfg.rcCB = config.rc_cb;
     cfg.tsCB = Some(temperature_raw);
 
-    // No need to set HAL_SLEEP(WakeUpTIme, sleepCB)
+    // No HAL_SLEEP(WakeUpTIme, sleepCB)
 
     cfg.MacAddr = config.mac_lsb;
 

@@ -1,0 +1,30 @@
+[package]
+name = "ble-evt-tests"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "Clean-room CH583 BLE EVT comparison binaries (ch5xx-hal + ch5xx-ble shim)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# The HAL is a path dependency on purpose: its build.rs reads the sibling
+# `../ch5xx-data/data` tree, which a bare git checkout does not carry.
+# From `ble-evt-tests/` the reference tree is two levels up.
+ch5xx-hal = { path = "../../reference/ch5xx-hal", default-features = false, features = ["ch582", "rt", "memory-x"] }
+ch5xx-ble = { path = "../vendor-src/ch5xx-ble" }
+qingke-rt = { version = "0.8.4", features = ["highcode"] }
+panic-halt = "1.0"
+embassy-sync = "0.8"
+embedded-hal = "1.0"
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+
+# `ch5xx-ble` names the HAL as a git dependency. Redirect it to the same
+# checkout used above so the shim's `UartTx` and our `UartTx` are one type.
+[patch."https://github.com/ch32-rs/ch5xx-hal"]
+ch5xx-hal = { path = "../../reference/ch5xx-hal" }

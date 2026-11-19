@@ -525,6 +525,73 @@ impl GAPRole {
     pub fn central_init() -> bStatus_t {
         unsafe { GAPRole_CentralInit() }
     }
+
+    /// Start a central discovery scan (`GAPRole_CentralStartDiscovery`).
+    pub fn central_start_discovery(mode: u8, active_scan: bool, white_list: bool) -> bStatus_t {
+        unsafe {
+            super::ffi::GAPRole_CentralStartDiscovery(mode, active_scan as u8, white_list as u8)
+        }
+    }
+
+    /// Cancel a central discovery scan (`GAPRole_CentralCancelDiscovery`).
+    pub fn central_cancel_discovery() -> bStatus_t {
+        unsafe { super::ffi::GAPRole_CentralCancelDiscovery() }
+    }
+
+    /// Establish a link to a peer (`GAPRole_CentralEstablishLink`).
+    ///
+    /// `peer_addr` is the 6-byte address in stack order (LSB first).
+    pub fn central_establish_link(
+        high_duty_cycle: bool,
+        white_list: bool,
+        addr_type_peer: u8,
+        peer_addr: &[u8; 6],
+    ) -> bStatus_t {
+        let mut addr = *peer_addr;
+        unsafe {
+            super::ffi::GAPRole_CentralEstablishLink(
+                high_duty_cycle as u8,
+                white_list as u8,
+                addr_type_peer,
+                addr.as_mut_ptr(),
+            )
+        }
+    }
+
+    /// Update connection parameters (`GAPRole_UpdateLink`).
+    pub fn update_link(
+        conn_handle: u16,
+        conn_interval_min: u16,
+        conn_interval_max: u16,
+        conn_latency: u16,
+        conn_timeout: u16,
+    ) -> bStatus_t {
+        unsafe {
+            super::ffi::GAPRole_UpdateLink(
+                conn_handle,
+                conn_interval_min,
+                conn_interval_max,
+                conn_latency,
+                conn_timeout,
+            )
+        }
+    }
+
+    /// Request a PHY update (`GAPRole_UpdatePHY`).
+    pub fn update_phy(
+        conn_handle: u16,
+        all_phys: u8,
+        tx_phys: u8,
+        rx_phys: u8,
+        phy_options: u16,
+    ) -> bStatus_t {
+        unsafe { super::ffi::GAPRole_UpdatePHY(conn_handle, all_phys, tx_phys, rx_phys, phy_options) }
+    }
+
+    /// Number of active links (`GAP_NumActiveConnections`, header absent).
+    pub fn num_active_connections() -> u8 {
+        unsafe { super::ffi::GAP_NumActiveConnections() }
+    }
 }
 
 // GAP
@@ -613,4 +680,35 @@ extern "C" {
     pub fn GAP_ResolvePrivateAddr(pIRK: *mut u8, pAddr: *mut u8) -> bStatus_t;
     #[doc = " @brief   Setup or change advertising and scan response data.\n\n @note    if the return status from this function is SUCCESS,the task isn't complete\n          until the GAP_ADV_DATA_UPDATE_DONE_EVENT is sent to the calling application task.\n\n @param   taskID - task ID of the app requesting the change\n @param   adType - TRUE - advertisement data, FALSE  - scan response data\n @param   dataLen - Octet length of advertData\n @param   pAdvertData - advertising or scan response data\n\n @return  SUCCESS: data accepted\n          bleIncorrectMode: invalid profile role"]
     pub fn GAP_UpdateAdvertisingData(taskID: u8, adType: u8, dataLen: u16, pAdvertData: *mut u8) -> bStatus_t;
+}
+
+// ---------------------------------------------------------------------------
+// M18：周期广播同步（SYNC_SCAN 对照所需；常量已在 ffi.rs，此处仅补结构/符号）
+// ---------------------------------------------------------------------------
+
+/// `gapCreateSync_t`（CH58xBLE_LIB.h 字段序逐字）。
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct gapCreateSync_t {
+    /// bit0 用 Periodic Advertiser List；bit1 初始关闭上报；bit2 初始开去重。
+    pub options: u8,
+    pub advertising_SID: u8,
+    pub addrType: u8,
+    pub addr: [u8; 6],
+    pub skip: u16,
+    /// N*10ms，0x000A..0x4000。
+    pub syncTimeout: u16,
+    pub syncCTEType: u8,
+}
+
+extern "C" {
+    /// 与周期广播 train 建立同步（HCI LE Periodic Advertising Create Sync）。
+    pub fn GAPRole_CreateSync(pSync: *mut gapCreateSync_t) -> bStatus_t;
+}
+
+impl GAPRole {
+    /// 建立周期广播同步的薄封装。
+    pub fn create_sync(sync: &mut gapCreateSync_t) -> bStatus_t {
+        unsafe { GAPRole_CreateSync(sync) }
+    }
 }
