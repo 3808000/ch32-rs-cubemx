@@ -3,8 +3,8 @@
 // + 画布或表格 + 右侧 Detail view + Code preview。
 // M15：外设时钟树（periCtx）、问题合并校验、画布/表格写回同一路由、路径高亮、右键菜单、
 // Reset 确认（可「不再询问」）、Shortcuts 浮层。
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Search, RefreshLeft, WarningFilled, CircleCheck } from '@element-plus/icons-vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ArrowRight, CircleCheck, Close, Connection, Grid, List, RefreshLeft, Search, WarningFilled } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { getPreference, setPreference } from '@/services/uiPreferences'
 import PanelResizer, {
@@ -74,6 +74,14 @@ const layoutError = computed(() => layoutState.value.error)
 const layoutReady = computed(() => layout.value.nodes.length > 0)
 
 const viewMode = ref<'graphic' | 'table'>('graphic')
+const canvas = ref<InstanceType<typeof ClockCanvas> | null>(null)
+const hasPeripherals = computed(() => layout.value.nodes.some((node) => node.kind === 'peri'))
+const clockReadouts = computed(() => [
+  { id: 'SYSCLK', label: 'SYSCLK', value: formatMhz(freqs.value.sysclkMhz) },
+  { id: 'AHB', label: 'HCLK', value: formatMhz(freqs.value.hclkMhz) },
+  { id: 'APB1', label: 'PCLK1', value: formatMhz(freqs.value.pclk1Mhz) },
+  { id: 'APB2', label: 'PCLK2', value: formatMhz(freqs.value.pclk2Mhz) },
+])
 
 // ---------- 面板可见性 / 宽度持久化（M6） ----------
 // 初始化即从偏好恢复（刷新后还原），读取时夹取到合法范围；可见性变化经 watch 写回。
@@ -104,6 +112,11 @@ function onCodeCommit(w: number) {
 const search = ref('')
 const selectedId = ref<string | null>(null)
 const showIssues = ref(false)
+const searchQuery = computed(() => search.value.trim().toLowerCase())
+const matchingNodes = computed(() => layout.value.nodes.filter((node) =>
+  [node.id, node.label, node.inputClockLabel].some((value) => value?.toLowerCase().includes(searchQuery.value)),
+))
+const searchMatches = computed(() => searchQuery.value ? new Set(matchingNodes.value.map((node) => node.id)) : null)
 
 /** 画布/表格统一写回路由：periParam 写外设参数，其余走 ClockConfig */
 function onControlChange(control: ClockNodeControl, value: string | number) {
@@ -198,37 +211,37 @@ const selectedPeriFreq = computed<PeripheralClockFreq | null>(() => {
 const showShortcuts = ref(false)
 const SHORTCUT_GROUPS: { title: string; items: [string, string][] }[] = [
   {
-    title: 'Move / pan',
+    title: '平移',
     items: [
       ['空白处拖动', '平移画布'],
       ['抓手模式 / 按住 Space', '任意位置拖动平移'],
-      ['方向键', '滚动画布'],
+      ['画布聚焦时按方向键', '滚动画布'],
     ],
   },
   {
-    title: 'Scroll',
+    title: '滚动',
     items: [
       ['滚轮', '上下滚动画布'],
       ['Shift + 滚轮', '水平滚动画布'],
     ],
   },
   {
-    title: 'Zoom',
+    title: '缩放',
     items: [
       ['Ctrl / ⌘ + 滚轮', '以光标为锚点缩放'],
       ['缩放条 +/-', '以视图中心缩放'],
-      ['缩放条「适合窗口」', '恢复自适应比例'],
+      ['回到主干 / 全图总览', '切换阅读比例或查看完整时钟树'],
     ],
   },
   {
-    title: 'Select',
+    title: '选择',
     items: [
-      ['单击节点', '在 Detail view 查看'],
+      ['单击节点', '查看节点详情'],
       ['右键节点', '锁定 / 路径高亮 / 配置外设'],
     ],
   },
   {
-    title: 'Other',
+    title: '编辑',
     items: [
       ['Enter / Esc', '提交 / 取消内联数字编辑'],
       ['Esc', '关闭右键菜单'],
@@ -240,11 +253,24 @@ function focusNode(nodeId: string) {
   selectedId.value = nodeId
 }
 
-/** 外部定位（CheckDialog / 生成前检查）：切回图形视图并聚焦节点 */
+/** 按需揭示画布位置，避免普通点选或编辑时画面跳动。 */
+async function revealNode(nodeId: string) {
+  focusNode(nodeId)
+  await nextTick()
+  await canvas.value?.revealNode(nodeId)
+}
+
 function focusNodeFromOutside(nodeId: string) {
   viewMode.value = 'graphic'
   showDetail.value = true
-  focusNode(nodeId)
+  void revealNode(nodeId)
+}
+
+function focusNextMatch() {
+  if (!searchQuery.value || !matchingNodes.value.length) return
+  const index = matchingNodes.value.findIndex((node) => node.id === selectedId.value)
+  const node = matchingNodes.value[(index + 1) % matchingNodes.value.length]!
+  void revealNode(node.id)
 }
 
 /** 锁定/解锁节点：写回 ClockConfig.locked（预设/解算/自动修复会跳过锁定节点） */
@@ -270,9 +296,9 @@ async function resolveIssues() {
       return
     }
     store.setClock(result.config)
-    if (result.issues.length > 0) {
+    if (issues.value.length > 0) {
       showIssues.value = true
-      store.notify(`已修复时钟错误，仍有 ${result.issues.length} 个警告需确认`, 'warning')
+      store.notify(`已应用自动解算，仍有 ${issues.value.length} 个时钟问题需确认`, 'warning')
     } else {
       store.notify('时钟问题已自动修复', 'info')
     }
@@ -299,8 +325,8 @@ function onRowClick(row: { id: string }) {
 
 /** 问题列表点击定位：选中节点并关闭对话框 */
 function locateIssue(nodeId: string) {
-  focusNode(nodeId)
   showIssues.value = false
+  focusNodeFromOutside(nodeId)
 }
 
 // 表格视图数据：Value 列复用节点 control（与画布同一写回路由）
@@ -333,81 +359,112 @@ function onTableControlChange(row: { control: ClockNodeControl | null }, v: stri
   if (val !== null) onControlChange(c, val)
 }
 const filteredRows = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  if (!q) return tableRows.value
-  return tableRows.value.filter((r) => r.label.toLowerCase().includes(q) || r.id.toLowerCase().includes(q))
+  const matches = searchMatches.value
+  return matches ? tableRows.value.filter((row) => matches.has(row.id)) : tableRows.value
 })
 </script>
 
 <template>
   <div class="clock-view">
-    <!-- 页头 -->
-    <div class="page-head">
-      <div>
-        <h1 class="page-title">Clock</h1>
-        <div class="page-sub">{{ store.deviceData.chip.chip }} {{ store.deviceData.chip.package }}</div>
+    <header class="clock-header">
+      <div class="page-head">
+        <div class="page-heading">
+          <el-icon class="page-icon" :size="20"><Connection /></el-icon>
+          <div>
+            <h1 class="page-title">时钟树</h1>
+            <div class="page-sub">{{ store.deviceData.chip.chip }} · {{ store.deviceData.chip.package }}</div>
+          </div>
+        </div>
+        <div class="clock-readouts" role="group" aria-label="主要时钟频率">
+          <button
+            v-for="readout in clockReadouts"
+            :key="readout.id"
+            type="button"
+            class="clock-readout"
+            :class="{ 'readout-selected': selectedId === readout.id }"
+            :title="`定位 ${readout.label}`"
+            :disabled="!layoutReady"
+            @click="focusNodeFromOutside(readout.id)"
+          >
+            <span>{{ readout.label }}</span>
+            <strong>{{ readout.value }}</strong>
+          </button>
+        </div>
+        <div class="toolbar-actions">
+          <span v-if="!issues.length" class="clock-ok" role="status"><el-icon><CircleCheck /></el-icon> 时钟正常</span>
+          <template v-else>
+            <el-button
+              plain
+              :type="issues.some((issue) => issue.level === 'error') ? 'danger' : 'warning'"
+              :icon="WarningFilled"
+              @click="showIssues = true"
+            >{{ issues.length }} 个问题</el-button>
+            <el-button :loading="solving" @click="resolveIssues">自动修复</el-button>
+          </template>
+          <el-button :icon="RefreshLeft" @click="requestReset">重置时钟</el-button>
+        </div>
       </div>
-    </div>
+    </header>
 
-    <!-- 工具栏 -->
-    <div class="toolbar">
-      <el-input v-model="search" placeholder="搜索节点" :prefix-icon="Search" size="small" style="width: 180px" clearable />
-      <div class="toolbar-fill"></div>
-      <el-button
-        size="small"
-        :type="!issues.length ? 'success' : issues.some((i) => i.level === 'error') ? 'danger' : 'warning'"
-        :icon="issues.length ? WarningFilled : CircleCheck"
-        :loading="solving"
-        :disabled="!issues.length"
-        @click="resolveIssues"
-      >
-        <template v-if="solving">求解中…</template>
-        <template v-else-if="issues.length">Resolve clock issues ({{ issues.length }})</template>
-        <template v-else>No clock issues</template>
-      </el-button>
-      <el-button size="small" :type="issues.length ? 'warning' : 'default'" @click="showIssues = true">
-        问题列表<template v-if="issues.length"> ({{ issues.length }})</template>
-      </el-button>
-      <el-button size="small" :disabled="!hasHighlight" @click="clearHighlight">Clear highlight</el-button>
-      <el-button size="small" type="primary" :icon="RefreshLeft" @click="requestReset">Reset clock</el-button>
-    </div>
-
-    <!-- 分段控件 + 右侧面板开关 -->
     <div class="view-controls">
-      <div class="segmented">
-        <button class="seg-btn" :class="{ active: viewMode === 'graphic' }" @click="viewMode = 'graphic'">Graphic view</button>
-        <button class="seg-btn" :class="{ active: viewMode === 'table' }" @click="viewMode = 'table'">Table view</button>
+      <div class="segmented" role="group" aria-label="时钟视图">
+        <button type="button" class="seg-btn" :class="{ active: viewMode === 'graphic' }" :aria-pressed="viewMode === 'graphic'" @click="viewMode = 'graphic'"><el-icon><Connection /></el-icon>图形视图</button>
+        <button type="button" class="seg-btn" :class="{ active: viewMode === 'table' }" :aria-pressed="viewMode === 'table'" @click="viewMode = 'table'"><el-icon><Grid /></el-icon>表格视图</button>
       </div>
+      <div class="clock-search">
+        <el-input
+          v-model="search"
+          placeholder="搜索节点或外设"
+          aria-label="搜索节点或外设"
+          :prefix-icon="Search"
+          clearable
+          @keydown.enter="focusNextMatch"
+        />
+        <button
+          v-if="searchQuery && matchingNodes.length"
+          type="button"
+          class="search-match"
+          :title="`定位下一个匹配（${matchingNodes.length} 项，Enter）`"
+          @click="focusNextMatch"
+        >
+          {{ matchingNodes.length }} 项 <el-icon><ArrowRight /></el-icon>
+        </button>
+        <span v-else-if="searchQuery" class="search-match no-match" role="status">无匹配</span>
+      </div>
+      <el-button v-if="viewMode === 'graphic' && hasPeripherals" @click="canvas?.revealPeripherals()">定位外设</el-button>
+      <el-button v-if="hasHighlight" @click="clearHighlight">清除高亮</el-button>
       <div class="toolbar-fill"></div>
-      <el-button size="small" :type="showShortcuts ? 'primary' : 'default'" @click="showShortcuts = !showShortcuts">
-        Shortcuts
-      </el-button>
-      <el-button size="small" :type="showCode ? 'primary' : 'default'" @click="showCode = !showCode">&lt;/&gt; Code preview</el-button>
-      <el-button size="small" :type="showDetail ? 'primary' : 'default'" @click="showDetail = !showDetail">Detail view</el-button>
+      <el-button :type="showCode ? 'primary' : 'default'" plain :aria-pressed="showCode" @click="showCode = !showCode">代码预览</el-button>
+      <el-button :type="showDetail ? 'primary' : 'default'" :icon="List" plain :aria-pressed="showDetail" @click="showDetail = !showDetail">节点详情</el-button>
     </div>
 
     <!-- 工作区 -->
-    <div class="work-area">
+    <div class="work-area" :class="{ 'both-panels': showDetail && showCode }">
       <!-- 最小渲染兜底：布局异常或无节点时给出空状态，避免 <main> 整页空白 -->
       <div v-if="!layoutReady" class="layout-empty">
         <div class="layout-empty-title">时钟树布局不可用</div>
         <div class="layout-empty-msg">
-          {{ layoutError ?? '未生成任何时钟节点，请尝试 Reset clock 或检查芯片数据。' }}
+          {{ layoutError ?? '未生成任何时钟节点，请重置时钟或检查芯片数据。' }}
         </div>
       </div>
       <ClockCanvas
         v-else-if="viewMode === 'graphic'"
+        ref="canvas"
         :layout="layout"
         :selected-id="selectedId"
-        :search="search"
+        :search-matches="searchMatches"
         :highlight-ids="highlightIds"
         @focus="focusNode"
         @control-change="onControlChange"
         @toggle-lock="toggleLock"
         @contextmenu="openContextMenu"
-      />
+      >
+        <template #actions>
+          <el-button :aria-expanded="showShortcuts" @click="showShortcuts = !showShortcuts">快捷键</el-button>
+        </template>
+      </ClockCanvas>
       <div v-else class="table-wrap">
-        <el-table :data="filteredRows" size="small" highlight-current-row @row-click="onRowClick">
+        <el-table :data="filteredRows" row-key="id" :current-row-key="selectedId ?? ''" size="small" highlight-current-row @row-click="onRowClick">
           <el-table-column prop="label" label="节点" min-width="130" />
           <el-table-column prop="id" label="ID" width="100" />
           <el-table-column label="当前值" min-width="180">
@@ -471,18 +528,30 @@ const filteredRows = computed(() => {
         :min="DETAIL_WIDTH_RANGE.min"
         :max="DETAIL_WIDTH_RANGE.max"
         side="right"
+        class="clock-panel-resizer"
         @resize="onDetailResize"
         @commit="onDetailCommit"
       />
-      <div v-if="showDetail" class="detail-col" :style="{ width: detailWidth + 'px' }">
+      <aside v-if="showDetail" class="detail-col" :style="{ width: detailWidth + 'px' }" aria-labelledby="clock-detail-title">
+        <header class="detail-header">
+          <el-icon><List /></el-icon>
+          <h2 id="clock-detail-title">节点详情</h2>
+          <button type="button" class="detail-close" aria-label="关闭节点详情" @click="showDetail = false">
+            <el-icon><Close /></el-icon>
+          </button>
+        </header>
+        <div v-if="selectedNode && viewMode === 'graphic'" class="detail-paths" role="group" aria-label="时钟路径">
+          <el-button size="small" @click="highlightPath(selectedNode.id, 'upstream')">追踪来源</el-button>
+          <el-button size="small" @click="highlightPath(selectedNode.id, 'both')">关联路径</el-button>
+        </div>
         <ClockDetail
           :node="selectedNode"
           :peri-freq="selectedPeriFreq"
           :issues="issues"
-          @focus="focusNode"
+          @focus="revealNode"
           @control-change="onControlChange"
         />
-      </div>
+      </aside>
 
       <!-- Code 预览：外层容器持有持久化宽度，PanelResizer 在面板左缘 -->
       <template v-if="showCode">
@@ -491,6 +560,7 @@ const filteredRows = computed(() => {
           :min="CODE_WIDTH_RANGE.min"
           :max="CODE_WIDTH_RANGE.max"
           side="right"
+          class="clock-panel-resizer"
           @resize="onCodeResize"
           @commit="onCodeCommit"
         />
@@ -519,7 +589,7 @@ const filteredRows = computed(() => {
     <!-- Reset 确认（可「不再询问」） -->
     <ConfirmDialog
       v-model="resetDialog"
-      title="Reset clock"
+      title="重置时钟"
       message="将时钟配置恢复为芯片默认档，当前时钟修改不会保留（外设参数不受影响）。是否继续？"
       confirm-text="重置"
       show-checkbox
@@ -528,9 +598,9 @@ const filteredRows = computed(() => {
     />
 
     <!-- Shortcuts 浮层（静态分组） -->
-    <div v-if="showShortcuts" class="shortcuts-pop">
+    <div v-if="showShortcuts && viewMode === 'graphic'" class="shortcuts-pop">
       <div class="shortcuts-head">
-        <span>Shortcuts</span>
+        <span>画布快捷键</span>
         <button class="shortcuts-close" title="关闭" @click="showShortcuts = false">×</button>
       </div>
       <div v-for="g in SHORTCUT_GROUPS" :key="g.title" class="shortcuts-group">
@@ -545,13 +615,13 @@ const filteredRows = computed(() => {
     <!-- 问题定位对话框 -->
     <el-dialog v-model="showIssues" title="时钟问题" width="520px">
       <div v-if="!issues.length" class="no-issue">当前时钟配置没有问题</div>
-      <div v-for="(i, idx) in issues" :key="idx" class="issue-row" @click="locateIssue(i.node)">
+      <button v-for="(i, idx) in issues" :key="idx" type="button" class="issue-row" @click="locateIssue(i.node)">
         <el-tag :type="i.level === 'error' ? 'danger' : 'warning'" size="small">
           {{ i.level === 'error' ? '错误' : '警告' }}
         </el-tag>
         <span class="issue-msg">{{ i.message }}</span>
         <span class="issue-node">{{ i.node }}</span>
-      </div>
+      </button>
       <template #footer>
         <el-button size="small" @click="showIssues = false">关闭</el-button>
       </template>
@@ -561,70 +631,184 @@ const filteredRows = computed(() => {
 
 <style scoped>
 .clock-view {
+  --mx-accent: #06675d;
+  --mx-accent-soft: #dff2eb;
+  --clock-ink: #172c2a;
+  --clock-muted: #4c655f;
+  --clock-border: #cddcd7;
+  --clock-paper: #f3f8f6;
+  --clock-wire: #849c96;
+  --clock-active-wire: #08796a;
+  --el-color-primary: var(--mx-accent);
+  --el-color-primary-light-3: #3d9386;
+  --el-color-primary-light-5: #79b4a9;
+  --el-color-primary-light-7: #acd2ca;
+  --el-color-primary-light-8: #c8e3dc;
+  --el-color-primary-light-9: var(--mx-accent-soft);
+  --el-color-primary-dark-2: #095349;
   position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  background: var(--clock-paper);
+}
+.clock-header {
+  padding: 15px 20px;
+  background: var(--mx-surface);
+  border-bottom: 1px solid var(--clock-border);
 }
 .page-head {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
   justify-content: space-between;
-  align-items: flex-start;
-  padding: 14px 20px 8px;
 }
-.page-title {
-  font-size: var(--mx-fz-page-title);
-  font-weight: 600;
-  margin: 0;
-}
-.page-sub {
-  font-size: 12px;
-  color: var(--mx-text-muted);
-  margin-top: 2px;
-}
-.toolbar {
+.page-heading {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 6px 20px;
+}
+.page-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--mx-accent);
+  background: var(--mx-accent-soft);
+}
+.page-title {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.18;
+  margin: 0 0 4px;
+  color: var(--clock-ink);
+}
+.page-sub {
+  font-size: 12px;
+  color: var(--clock-muted);
+}
+.clock-readouts {
+  display: flex;
+  max-width: 100%;
+  border: 1px solid var(--clock-border);
+  background: var(--clock-paper);
+  border-radius: 8px;
+}
+.clock-readout {
+  display: grid;
+  gap: 3px;
+  min-width: 88px;
+  padding: 6px 12px;
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
+  color: var(--clock-ink);
+  font: 13px var(--mx-font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+.clock-readout + .clock-readout {
+  border-inline-start: 1px solid var(--clock-border);
+}
+.clock-readout:first-child {
+  border-start-start-radius: 7px;
+  border-end-start-radius: 7px;
+}
+.clock-readout:last-child {
+  border-start-end-radius: 7px;
+  border-end-end-radius: 7px;
+}
+.clock-readout span {
+  color: var(--clock-muted);
+  font-size: 11px;
+}
+.clock-readout:enabled:hover,
+.clock-readout.readout-selected {
+  background: var(--mx-accent-soft);
+}
+.toolbar-actions,
+.view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.toolbar-actions :deep(.el-button + .el-button),
+.view-controls :deep(.el-button + .el-button) {
+  margin-left: 0;
 }
 .toolbar-fill {
   flex: 1;
 }
-.view-controls {
+.clock-search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 20px 10px;
+  gap: 6px;
+  flex: 0 1 295px;
+  min-width: 180px;
+}
+.search-match {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  white-space: nowrap;
+  border: 0;
+  background: transparent;
+  color: var(--mx-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.search-match.no-match {
+  color: var(--clock-muted);
+  cursor: default;
+}
+.clock-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: var(--mx-accent-soft);
+  color: var(--mx-accent);
+  font-size: 12px;
+}
+.view-controls {
+  padding: 12px 20px;
 }
 .segmented {
-  display: flex;
-  background: #e9edf5;
-  border-radius: 8px;
-  padding: 2px;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 7px;
+  border: 1px solid var(--clock-border);
+  background: #e8f0ed;
 }
 .seg-btn {
-  border: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
   background: transparent;
-  padding: 5px 14px;
-  font-size: 12px;
-  color: var(--mx-text-secondary);
+  padding: 5px 11px;
+  font: inherit;
+  color: var(--clock-muted);
   cursor: pointer;
-  border-radius: 6px;
-  position: relative;
+  border-radius: 4px;
+  white-space: nowrap;
 }
 .seg-btn.active {
   background: var(--mx-surface);
   color: var(--mx-accent);
-  font-weight: 600;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+  box-shadow: 0 1px 3px #163c3029;
 }
 .work-area {
   flex: 1;
   display: flex;
   min-height: 0;
-  border-top: 1px solid var(--mx-border);
+  min-width: 0;
+  padding: 0 20px 14px;
 }
 .table-wrap {
   flex: 1;
@@ -632,6 +816,8 @@ const filteredRows = computed(() => {
   background: var(--mx-surface);
   overflow: auto;
   padding: 12px 16px;
+  border: 1px solid var(--clock-border);
+  border-radius: 10px;
 }
 .layout-empty {
   flex: 1;
@@ -656,18 +842,104 @@ const filteredRows = computed(() => {
   max-width: 480px;
   line-height: 1.6;
 }
-.detail-col {
-  display: flex;
-  min-height: 0;
-  flex-shrink: 0;
-  max-height: 100%;
-}
+.detail-col,
 .code-col {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   min-width: 0;
-  max-height: 100%;
+  min-height: 0;
+}
+.detail-col {
+  border: 1px solid var(--clock-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--mx-surface);
+}
+.detail-header {
+  padding: 10px 10px 10px 15px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--clock-ink);
+  background: #edf5f1;
+  border-bottom: 1px solid var(--clock-border);
+}
+.detail-header h2 {
+  margin: 0;
+  font-size: 14px;
+  flex: 1;
+  font-weight: 700;
+}
+.detail-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--clock-muted);
+  cursor: pointer;
+}
+.detail-close:hover {
+  background: var(--mx-accent-soft);
+}
+.detail-paths {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--clock-border);
+}
+.detail-paths :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
+.code-col {
+  overflow: hidden;
+}
+@media (min-width: 761px) {
+  .detail-col, .code-col {
+    max-width: 44%;
+  }
+  .both-panels .detail-col, .both-panels .code-col {
+    max-width: 34%;
+  }
+}
+@media (max-width: 760px) {
+  .work-area {
+    flex-direction: column;
+    padding: 0 12px 8px;
+  }
+  .clock-panel-resizer {
+    display: none;
+  }
+  .detail-col, .code-col {
+    width: 100% !important;
+    margin-top: 4px;
+    flex-basis: min(34%, 220px);
+  }
+  .both-panels .detail-col, .both-panels .code-col {
+    flex-basis: min(28%, 180px);
+  }
+  .clock-header, .view-controls {
+    padding-inline: 12px;
+  }
+}
+@media (max-width: 550px) {
+  .clock-readouts {
+    order: 1;
+    width: 100%;
+  }
+  .clock-readout {
+    flex: 1;
+    min-width: 0;
+    padding-inline: 6px;
+    font-size: 12px;
+  }
+  .view-controls .toolbar-fill {
+    display: none;
+  }
 }
 .no-issue {
   color: var(--mx-success);
@@ -678,8 +950,12 @@ const filteredRows = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  width: 100%;
   padding: 8px 6px;
+  border: 0;
   border-radius: 6px;
+  background: transparent;
+  text-align: start;
   cursor: pointer;
 }
 .issue-row:hover {
@@ -702,13 +978,12 @@ const filteredRows = computed(() => {
   color: var(--mx-text-muted);
 }
 
-/* Shortcuts 浮层：右下角（对齐 MX2） */
 .shortcuts-pop {
   position: absolute;
   right: 20px;
-  bottom: 20px;
-  width: 300px;
-  max-height: 420px;
+  bottom: 66px;
+  width: min(320px, calc(100% - 32px));
+  max-height: min(420px, 75%);
   overflow-y: auto;
   background: var(--mx-surface);
   border: 1px solid var(--mx-border);

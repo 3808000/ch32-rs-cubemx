@@ -103,6 +103,10 @@ CORE（除 H417）：{kind:readout, label:'内核 / DMA / 存储器', inputs:[{i
 - H417/CH582 peripheralClocks 无 usb → 无 USB 行（diagram 写未知节点会 validate 失败）；H417 不建 CORE（V5F/V3F 即内核行）。
 - model 归组：TIM1/TIM2/ADC 域/USB/APB1/APB2 → g-out（g-tim/g-usb 退役）；回退列式测试过滤 g-out aux（CORE/SYSTICK 坐标仅对 diagram 竖列有意义）。
 
+## D13 外设画布分区
+
+主干继续使用芯片图的节点和正交走线。外设区按类别和实例顺序排列，每约六个实例增加一列，最多三列；一个类别跨列时标注「续」。外设卡直接标注输入域和频率，画布省略进入外设区的连线。布局模型仍保存这部分依赖，供详情、路径高亮及数据校验使用。
+
 ## D5 模型（E 域）
 
 tree/model.ts：kind 默认（源=osc；SYSCLK/ADC 域=mux；PLL=pll；AHB/APB=div（options 单档→readout）；TIM/USB=readout；P-*=peri）；diagram.nodes[id].kind 覆盖优先；aux 节点/边按 D4；displayOnly 源排除 control options + 边 active=false；`ClockNodeModel` 增 `kind: ClockNodeKind` + `displayOnly?: boolean`（tree/model.ts，types 的 kind 类型 import）。computeClock/validateClock/solvePll/resolveClockIssues/matchPreset/mergeClockConfig **零改动**（aux 无配置）。

@@ -23,9 +23,11 @@ import {
   type ClockNodeControl,
   type ClockTreeNode,
   type ClockTreeLayout,
+  type ClockTreeEdge,
   type PeripheralClockContext,
 } from '@/model/clock/tree'
 import { getDeviceData } from '@/model/device'
+import { arrangeClockDiagram, findClockJunctions } from '@/components/clock/diagram'
 
 const v003 = getDeviceData('CH32V003F4P6')
 const spec = v003.clock
@@ -1038,6 +1040,21 @@ describe('M16 D12 输出竖列 / 外设单列（七芯片真实数据）', () =>
       expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
     })
 
+    it(`${chip}：外设图独立分列，真实依赖仍可查询`, () => {
+      const diagram = arrangeClockDiagram(tree)
+      const sourcePeripherals = tree.nodes.filter((node) => node.kind === 'peri')
+      const graphicsPeripherals = diagram.nodes.filter((node) => node.kind === 'peri')
+      const ids = new Set(sourcePeripherals.map((node) => node.id))
+      const columns = new Set(graphicsPeripherals.map((node) => node.x))
+      expect(columns.size).toBe(Math.min(3, Math.ceil(sourcePeripherals.length / 6)))
+      expect(graphicsPeripherals.map((node) => node.id)).toEqual([...ids])
+      expect(graphicsPeripherals.every((node) => node.inputClockLabel && node.x >= diagram.peripheralSection!.x)).toBe(true)
+      expect(diagram.edges).toEqual(tree.edges.filter((edge) => !ids.has(edge.from) && !ids.has(edge.to)))
+      expect(tree.edges.filter((edge) => ids.has(edge.to))).toHaveLength(ids.size)
+      expect(diagram.height).toBeLessThanOrEqual(tree.height)
+      expect(diagram.nodes.filter((node) => node.kind !== 'peri')).toEqual(tree.nodes.filter((node) => node.kind !== 'peri'))
+    })
+
     it(`${chip}：输出竖列右缘 1400、行序 CORE→V3F→SYSTICK→APB1→TIM1→APB2→TIM2→USB→ADC`, () => {
       const ids = chip === 'CH32H417QEU6' ? ['V5F', 'V3F', 'SYSTICK'] : ['CORE', 'SYSTICK']
       ids.push('APB1', 'TIM1', 'APB2', 'TIM2')
@@ -1223,7 +1240,7 @@ describe('M16 diagram 驱动布局', () => {
       const a = byId.get(e.from)!
       const b = byId.get(e.to)!
       expect(e.points[0], `${e.id} out`).toEqual(anchorOut(a))
-      expect(e.points[e.points.length - 1], `${e.id} in`).toEqual(anchorIn(b, e.from))
+      expect(e.points[e.points.length - 1], `${e.id} in`).toEqual(anchorIn(b, e.from, e.inputIndex))
     }
   })
 
@@ -1502,5 +1519,39 @@ describe('formatMhz', () => {
   it('null/undefined 显示占位符', () => {
     expect(formatMhz(null)).toBe('—')
     expect(formatMhz(undefined)).toBe('—')
+  })
+})
+
+describe('画布连线接入', () => {
+  it('ADC 输入分频档切换时，连线进入对应行', () => {
+    const data = getDeviceData('CH32V203C8T6').clock
+    for (const [index, option] of data.adc.options.entries()) {
+      const config = { ...defaultClock(data), adc: option.id }
+      const tree = buildClockTree(data, config, computeClock(data, config))
+      const adc = tree.nodes.find((node) => node.id === 'ADC')!
+      const edge = tree.edges.find((edge) => edge.to === 'ADC')!
+      expect(edge.points.at(-1)).toEqual({
+        x: adc.x,
+        y: adc.y + PRIM.MUX_PAD + (index + 0.5) * PRIM.MUX_ROW,
+      })
+    }
+  })
+
+  it('同一来源的不同 MCO 档位接入独立行', () => {
+    const data = getDeviceData('CH32V307VCT6').clock
+    const config = defaultClock(data)
+    const tree = buildClockTree(data, config, computeClock(data, config))
+    const edges = tree.edges.filter((edge) => edge.from === 'PLL3' && edge.to === 'MCO')
+    expect(edges).toHaveLength(2)
+    expect(Math.abs(edges[0]!.points.at(-1)!.y - edges[1]!.points.at(-1)!.y)).toBe(PRIM.MUX_ROW)
+  })
+
+  it('只为共享同源路径的分叉绘制连接点', () => {
+    const route = (from: string, to: string, points: ClockTreeEdge['points'], active: boolean): ClockTreeEdge =>
+      ({ id: to, from, to, points, active, labelAt: { x: 0, y: 0 } })
+    const trunk = route('A', 'B', [{ x: 1, y: 5 }, { x: 20, y: 5 }], true)
+    const branch = route('A', 'C', [{ x: 1, y: 5 }, { x: 8, y: 5 }, { x: 8, y: 12 }], false)
+    const crossing = route('D', 'E', [{ x: 14, y: 1 }, { x: 14, y: 12 }], true)
+    expect(findClockJunctions([trunk, branch, crossing])).toEqual([{ x: 8, y: 5, active: true }])
   })
 })

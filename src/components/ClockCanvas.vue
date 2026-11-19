@@ -1,21 +1,21 @@
 <script setup lang="ts">
 // 时钟树画布：原生 SVG 绘制 + 缩放工具条 + 节点内嵌控件内联编辑。
 // 越界按级别着色（error 红 / warning 橙）、连接点实心蓝/空心灰、点节点向父级抛 focus。
-// M15：点状背景、抓手模式（按钮 + 按住 Space 临时启用）、方向键滚动、路径高亮 dim。
 // 节点 / 连线拆分到 components/clock/ 子组件；本组件保留画布、缩放与交互状态，
 // 并协调 editingNodeId：同一时刻画布内只允许一个节点处于编辑态（开新关旧）。
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ZoomIn, ZoomOut, FullScreen, Pointer } from '@element-plus/icons-vue'
+import { Aim, FullScreen, Position, Pointer, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import type { ClockNodeControl, ClockTreeGroup, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
 import ClockNode from '@/components/clock/ClockNode.vue'
 import ClockWire from '@/components/clock/ClockWire.vue'
-import { arrowScrollDelta, anchorZoomScroll, clampZoom, shouldIgnoreSceneKeys } from '@/components/common/canvasNav'
-import { edgeInHighlight } from '@/components/clock/graph'
+import { arrowScrollDelta, clampZoom, shouldIgnoreSceneKeys } from '@/components/common/canvasNav'
+import { computeHighlightSet, edgeInHighlight } from '@/components/clock/graph'
+import { arrangeClockDiagram, findClockJunctions } from '@/components/clock/diagram'
 
 const props = defineProps<{
   layout: ClockTreeLayout
   selectedId: string | null
-  search?: string
+  searchMatches?: ReadonlySet<string> | null
   /** 路径高亮节点集合（空=不高亮；非空时其余节点/边 dim） */
   highlightIds?: Set<string>
 }>()
@@ -26,6 +26,11 @@ const emit = defineEmits<{
   (e: 'toggle-lock', nodeId: string): void
   (e: 'contextmenu', nodeId: string, x: number, y: number): void
 }>()
+
+const diagram = computed(() => arrangeClockDiagram(props.layout))
+const trunkNodes = computed(() => computeHighlightSet(
+  diagram.value.edges.filter((edge) => edge.active), 'AHB', 'upstream',
+))
 
 // ---------- 分组标签截断（SVG text 无 ellipsis；全文走 <title>） ----------
 /** 单字符宽度估算（em）：CJK/全角≈1，窄字符≈0.3，大写/数字≈0.62，其余≈0.55 */
@@ -59,195 +64,178 @@ function truncateGroupLabel(text: string, maxWidth: number): string {
 
 /** 分组标签可用宽度 = 组宽 - 左右各 10px 内边距 */
 function groupLabelText(g: ClockTreeGroup): string {
-  return truncateGroupLabel(g.label, Math.max(20, g.w - 20))
+  const readable = g.id === 'g-aux' ? '辅助时钟' : g.label.split(/[（(·]/, 1)[0]!
+  return truncateGroupLabel(readable, Math.max(20, g.w - 20))
 }
 
-// ---------- 缩放（用户缩放 × 容器自适应比例） ----------
-const zoom = ref(1)
-const wrap = ref<HTMLElement | null>(null)
-const box = reactive({ w: 1200, h: 700 })
-const zoomAnimating = ref(false)
-let zoomTimer: number | null = null
-let ro: ResizeObserver | null = null
-onMounted(() => {
-  window.addEventListener('keydown', onSceneKeyDown)
-  window.addEventListener('keyup', onSceneKeyUp)
-  window.addEventListener('blur', onWindowBlur)
-  if (!wrap.value) return
-  ro = new ResizeObserver((entries) => {
-    const e = entries[0]
-    if (e) {
-      box.w = e.contentRect.width
-      box.h = e.contentRect.height
-    }
-  })
-  ro.observe(wrap.value)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onSceneKeyDown)
-  window.removeEventListener('keyup', onSceneKeyUp)
-  window.removeEventListener('blur', onWindowBlur)
-  ro?.disconnect()
-  if (zoomTimer !== null) window.clearTimeout(zoomTimer)
-})
-
-/** 容器自适应比例：布局比可视区大时自动缩小，避免右侧列被裁切 */
-const baseScale = computed(() => {
-  const availW = Math.max(200, box.w - 48)
-  const availH = Math.max(150, box.h - 72)
-  return Math.min(1, availW / props.layout.width, availH / props.layout.height)
-})
-const effScale = computed(() => baseScale.value * zoom.value)
-
-/** 缩放上限 3（与 Pinout 画布 30%~300% 一致） */
-const ZOOM_MAX = 3
-/**
- * 滚动容器内边距（与 .canvas-scroll padding 一致，锚定缩放数学需要）。
- * safe center 下未溢出轴的 SVG 原点还包含居中空白；溢出轴回退 start、原点即 padding。
- * 缩放前的实际原点由 contentOrigin() 量取并传入 anchorZoomScroll。
- */
-const SCROLL_PAD = 20
+// ---------- 缩放与定位 ----------
+const MIN_READABLE_SCALE = 0.64
+const MIN_OVERVIEW_SCALE = 0.56
+const MAX_SCALE = 3
+const SIDE_PAD = 24
+const TOP_PAD = 24
+const BOTTOM_PAD = 24
 const scrollEl = ref<HTMLElement | null>(null)
 const innerEl = ref<HTMLElement | null>(null)
+const box = reactive({ w: 0, h: 0 })
+const scaleMode = ref<'auto' | 'reading' | 'fit'>('auto')
+const manualScale = ref<number | null>(null)
+let resizeObserver: ResizeObserver | null = null
 
-/**
- * 缩放前 SVG 原点在滚动内容坐标系中的偏移（相对 scrollLeft/Top=0 的视口边缘）。
- * 左对齐时恒为 padding；safe center 下未溢出轴还包含两侧居中空白的一半，
- * 跨「未溢出 → 溢出」切换时把它传给 anchorZoomScroll 可抵消对齐回退造成的一次性跳变。
- */
-function contentOrigin(el: HTMLElement, axis: 'x' | 'y'): number {
-  const inner = innerEl.value
-  if (!inner) return SCROLL_PAD
-  const ir = inner.getBoundingClientRect()
-  const sr = el.getBoundingClientRect()
-  return axis === 'x' ? ir.left - sr.left + el.scrollLeft : ir.top - sr.top + el.scrollTop
-}
-
-/**
- * 光标锚定缩放（M12-hotfix）：缩放后调整 scrollLeft/Top，使光标下的时钟节点保持不动，
- * 用户可独立放大任意局部再配置。数学见 canvasNav.anchorZoomScroll。
- * 尺寸随 zoom 计算属性变化，scroll 校正须在 nextTick（DOM 更新）后执行。
- */
-async function zoomAt(f: number, cursorOffset?: { x: number; y: number }) {
-  const nz = clampZoom(zoom.value, f, 0.3, ZOOM_MAX)
-  const r = nz / zoom.value
-  if (r === 1) return
+function measureViewport() {
   const el = scrollEl.value
-  const u = cursorOffset ?? (el ? { x: el.clientWidth / 2, y: el.clientHeight / 2 } : { x: 0, y: 0 })
-  const ox = el ? contentOrigin(el, 'x') : SCROLL_PAD
-  const oy = el ? contentOrigin(el, 'y') : SCROLL_PAD
-  const sx = el ? anchorZoomScroll(el.scrollLeft, u.x, SCROLL_PAD, r, ox) : 0
-  const sy = el ? anchorZoomScroll(el.scrollTop, u.y, SCROLL_PAD, r, oy) : 0
-  zoom.value = nz
+  if (!el) return
+  // ResizeObserver 观察边框尺寸。缩放时滚动条出现或消失无需重算适应比例。
+  box.w = el.offsetWidth
+  box.h = el.offsetHeight
+}
+
+onMounted(() => {
+  if (!scrollEl.value) return
+  measureViewport()
+  resizeObserver = new ResizeObserver(measureViewport)
+  resizeObserver.observe(scrollEl.value, { box: 'border-box' })
+  window.addEventListener('keyup', onSceneKeyUp)
+  window.addEventListener('blur', onWindowBlur)
+})
+
+const widthScale = computed(() => Math.max(1, box.w - SIDE_PAD * 2) / diagram.value.width)
+const fitScale = computed(() => Math.min(1, widthScale.value, Math.max(1, box.h - TOP_PAD - BOTTOM_PAD) / diagram.value.height))
+const readingScale = computed(() => Math.min(1, Math.max(MIN_READABLE_SCALE, widthScale.value)))
+const fitting = computed(() => scaleMode.value === 'fit' || (scaleMode.value === 'auto' && fitScale.value >= MIN_OVERVIEW_SCALE))
+const effScale = computed(() => manualScale.value ?? (fitting.value ? fitScale.value : readingScale.value))
+const zoomPercent = computed(() => `${Math.max(1, Math.round(effScale.value * 100))}%`)
+
+async function zoomAt(factor: number, clientX?: number, clientY?: number) {
+  const el = scrollEl.value
+  const inner = innerEl.value
+  if (!el || !inner) return
+  const before = inner.getBoundingClientRect()
+  const viewport = el.getBoundingClientRect()
+  const x = clientX ?? viewport.left + el.clientWidth / 2
+  const y = clientY ?? viewport.top + el.clientHeight / 2
+  const oldScale = effScale.value
+  const target = clampZoom(oldScale, factor, Math.min(0.3, fitScale.value), MAX_SCALE)
+  if (target === oldScale) return
+  const sceneX = (x - before.left) / oldScale
+  const sceneY = (y - before.top) / oldScale
+  manualScale.value = target
   await nextTick()
-  if (el) {
-    el.scrollLeft = sx
-    el.scrollTop = sy
+  const after = inner.getBoundingClientRect()
+  el.scrollLeft += after.left + sceneX * target - x
+  el.scrollTop += after.top + sceneY * target - y
+}
+
+async function setScaleMode(mode: 'reading' | 'fit') {
+  manualScale.value = null
+  scaleMode.value = mode
+  await nextTick()
+  scrollEl.value?.scrollTo(0, 0)
+}
+
+async function revealNode(id: string) {
+  const el = scrollEl.value
+  const inner = innerEl.value
+  const node = diagram.value.nodes.find((item) => item.id === id)
+  if (!el || !inner || !node) return
+  if (effScale.value < readingScale.value) {
+    manualScale.value = null
+    scaleMode.value = 'reading'
+    await nextTick()
   }
-}
-/** 按钮缩放：以视口中心为锚，画布尺寸变化走 160ms CSS 过渡 */
-function zoomBy(f: number) {
-  zoomAnimating.value = true
-  if (zoomTimer !== null) window.clearTimeout(zoomTimer)
-  zoomTimer = window.setTimeout(() => {
-    zoomAnimating.value = false
-    zoomTimer = null
-  }, 200)
-  void zoomAt(f)
-}
-function fit() {
-  zoomBy(1 / zoom.value)
-  void nextTick().then(() => {
-    if (scrollEl.value) {
-      scrollEl.value.scrollLeft = 0
-      scrollEl.value.scrollTop = 0
-    }
+  const bounds = el.getBoundingClientRect()
+  const scene = inner.getBoundingClientRect()
+  el.scrollBy({
+    left: scene.left - bounds.left + (node.x + node.w / 2) * effScale.value - el.clientWidth / 2,
+    top: scene.top - bounds.top + (node.y + node.h / 2) * effScale.value - (el.clientHeight - BOTTOM_PAD) / 2,
   })
 }
-function onWheel(e: WheelEvent) {
-  // 与 GLSP/MX2 一致：Ctrl/⌘ + 滚轮缩放（光标锚定），普通滚轮用于滚动画布（触控板双指滚动不误缩放）
-  if (!e.ctrlKey && !e.metaKey) {
-    // Shift + 滚轮：水平滚动画布（部分浏览器不自动映射）
-    if (e.shiftKey && scrollEl.value) {
-      e.preventDefault()
-      scrollEl.value.scrollLeft += e.deltaY
-    }
-    return
-  }
-  e.preventDefault()
-  const rect = wrap.value?.getBoundingClientRect()
-  const cursor = rect ? { x: e.clientX - rect.left, y: e.clientY - rect.top } : undefined
-  void zoomAt(e.deltaY < 0 ? 1.1 : 0.9, cursor)
+async function revealPeripherals() {
+  const section = diagram.value.peripheralSection
+  const el = scrollEl.value
+  const inner = innerEl.value
+  if (!section || !el || !inner) return
+  if (effScale.value < readingScale.value) await setScaleMode('reading')
+  el.scrollBy({
+    left: inner.getBoundingClientRect().left - el.getBoundingClientRect().left + section.x * effScale.value - SIDE_PAD,
+    top: -el.scrollTop,
+  })
 }
-const zoomPercent = computed(() => `${Math.round(effScale.value * 100)}%`)
+defineExpose({ revealNode, revealPeripherals })
 
-// ---------- 背景拖动平移（M12-hotfix）：空白处按住左键/中键拖动 = 滚动画布 ----------
-// M15：抓手模式（工具条按钮或按住 Space）下任意画布区域（含节点）拖动平移。
+function onWheel(e: WheelEvent) {
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    if (!e.deltaY) return
+    void zoomAt(e.deltaY < 0 ? 1.12 : 1 / 1.12, e.clientX, e.clientY)
+  } else if (e.shiftKey && e.deltaY && !e.deltaX && scrollEl.value) {
+    e.preventDefault()
+    const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? scrollEl.value.clientWidth : 1
+    scrollEl.value.scrollLeft += e.deltaY * unit
+  }
+}
+
+// ---------- 平移与画布内快捷键 ----------
 const panning = ref(false)
 const handMode = ref(false)
 const spaceHeld = ref(false)
 const effectiveHand = computed(() => handMode.value || spaceHeld.value)
-const panStart = reactive({ x: 0, y: 0, sl: 0, st: 0 })
-function onPanMouseDown(e: MouseEvent) {
-  const t = e.target as Element | null
-  // 控件/工具条上不平移（保留按钮/内联编辑语义）
-  // M16：mux radio 行 / stepper 按钮为 SVG 图元（非 <button>），位于 .node 内；
-  // 指针模式下 `.node` 分支直接返回，故其 click handler 不会被 pan 吞掉。
-  if (t?.closest('button, input, select, textarea, foreignObject, .zoom-bar')) return
-  // 指针模式：节点上保留点选聚焦与内联编辑；抓手模式：节点上也平移
-  if (!effectiveHand.value && t?.closest('.node')) return
-  if (e.button !== 0 && e.button !== 1) return
-  if (e.button === 1) e.preventDefault()
+let panStart: { id: number; x: number; y: number; left: number; top: number } | null = null
+
+function onPanStart(e: PointerEvent) {
   const el = scrollEl.value
-  if (!el) return
+  if (!el || e.pointerType === 'touch' || (e.button !== 0 && e.button !== 1)) return
+  const target = e.target as Element
+  if (target.closest('button, input, select, textarea')) return
+  if (e.button === 0 && !effectiveHand.value && target.closest('.node')) return
+  e.preventDefault()
+  el.focus({ preventScroll: true })
+  el.setPointerCapture(e.pointerId)
+  panStart = { id: e.pointerId, x: e.clientX, y: e.clientY, left: el.scrollLeft, top: el.scrollTop }
   panning.value = true
-  panStart.x = e.clientX
-  panStart.y = e.clientY
-  panStart.sl = el.scrollLeft
-  panStart.st = el.scrollTop
 }
-function onPanMouseMove(e: MouseEvent) {
-  if (!panning.value || !scrollEl.value) return
-  scrollEl.value.scrollLeft = panStart.sl - (e.clientX - panStart.x)
-  scrollEl.value.scrollTop = panStart.st - (e.clientY - panStart.y)
+function onPanMove(e: PointerEvent) {
+  if (panStart?.id !== e.pointerId || !scrollEl.value) return
+  scrollEl.value.scrollLeft = panStart.left - (e.clientX - panStart.x)
+  scrollEl.value.scrollTop = panStart.top - (e.clientY - panStart.y)
 }
-function onPanMouseUp() {
+function onPanEnd(e: PointerEvent) {
+  if (panStart?.id !== e.pointerId) return
+  panStart = null
   panning.value = false
 }
-
-// ---------- M15 键盘导航：Space 临时抓手 / 方向键滚动画布（编辑态不劫持） ----------
-function sceneKeyBlocked(e: KeyboardEvent): boolean {
-  const t = e.target as HTMLElement | null
-  return shouldIgnoreSceneKeys(t?.tagName, !!t?.isContentEditable, editingNodeId.value !== null)
-}
-
 function onSceneKeyDown(e: KeyboardEvent) {
-  if (sceneKeyBlocked(e)) return
+  const target = e.target as HTMLElement | null
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey ||
+      shouldIgnoreSceneKeys(target?.tagName, !!target?.isContentEditable, editingNodeId.value !== null)) return
   if (e.key === ' ') {
     e.preventDefault()
     spaceHeld.value = true
     return
   }
-  const d = arrowScrollDelta(e.key)
-  if (d.x === 0 && d.y === 0) return
-  const el = scrollEl.value
-  if (!el) return
+  const delta = arrowScrollDelta(e.key)
+  if (!delta.x && !delta.y) return
   e.preventDefault()
-  el.scrollBy({ left: d.x, top: d.y })
+  scrollEl.value?.scrollBy({ left: delta.x, top: delta.y })
 }
-
 function onSceneKeyUp(e: KeyboardEvent) {
   if (e.key === ' ') spaceHeld.value = false
 }
-
 function onWindowBlur() {
-  spaceHeld.value = false
+  if (panStart && scrollEl.value?.hasPointerCapture(panStart.id)) {
+    scrollEl.value.releasePointerCapture(panStart.id)
+  }
+  panStart = null
   panning.value = false
+  spaceHeld.value = false
 }
 
-function toggleHand() {
-  handMode.value = !handMode.value
-}
+onBeforeUnmount(() => {
+  resizeObserver?.disconnect()
+  window.removeEventListener('keyup', onSceneKeyUp)
+  window.removeEventListener('blur', onWindowBlur)
+  if (pulseTimer !== null) window.clearTimeout(pulseTimer)
+})
 
 // ---------- 配置变化高亮脉冲（应用预设/修改控件后，频率发生变化的节点闪一次） ----------
 const pulseIds = ref<Set<string>>(new Set())
@@ -271,17 +259,6 @@ watch(
   },
 )
 
-// ---------- 搜索高亮 ----------
-const searchMatch = computed(() => {
-  const q = (props.search ?? '').trim().toLowerCase()
-  if (!q) return null
-  return new Set(
-    props.layout.nodes
-      .filter((n) => n.label.toLowerCase().includes(q) || n.id.toLowerCase().includes(q))
-      .map((n) => n.id),
-  )
-})
-
 /** 非空路径高亮集合（空集合视为未启用） */
 const highlight = computed<ReadonlySet<string> | null>(() =>
   props.highlightIds && props.highlightIds.size > 0 ? props.highlightIds : null,
@@ -296,8 +273,11 @@ const levelById = computed(() => {
 function edgeLevel(to: string): 'error' | 'warning' | null {
   return levelById.value.get(to) ?? null
 }
+function isTrunkEdge(edge: ClockTreeLayout['edges'][number]) {
+  return edge.active && edgeInHighlight(edge, trunkNodes.value)
+}
 function nodeDimmed(id: string): boolean {
-  const searchDim = searchMatch.value !== null && !searchMatch.value.has(id)
+  const searchDim = !!props.searchMatches && !props.searchMatches.has(id) && props.selectedId !== id
   const highlightDim = highlight.value !== null && !highlight.value.has(id)
   return searchDim || highlightDim
 }
@@ -310,11 +290,24 @@ const activeInputById = computed(() => {
 /** 仅显示源节点 id（M16：mux 灰行判定；不参与 control options） */
 const displayOnlyInputs = computed(() => props.layout.nodes.filter((n) => n.displayOnly).map((n) => n.id))
 function edgeDimmed(edge: { from: string; to: string }): boolean {
-  return highlight.value !== null && !edgeInHighlight(edge, highlight.value)
+  if (highlight.value !== null && !edgeInHighlight(edge, highlight.value)) return true
+  const matches = props.searchMatches
+  return !!matches && !matches.has(edge.from) && !matches.has(edge.to)
 }
 
-const svgW = computed(() => props.layout.width * effScale.value)
-const svgH = computed(() => props.layout.height * effScale.value)
+// 共享走廊先绘制灰线，避免覆盖已启用、告警或正在高亮的路径。
+const orderedEdges = computed(() => {
+  const weight = (edge: ClockTreeLayout['edges'][number]) =>
+    (edgeDimmed(edge) ? 0 : 8) + (edge.active ? 1 : 0) + (isTrunkEdge(edge) ? 2 : 0) + (edge.active && edgeLevel(edge.to) ? 4 : 0)
+  return [...diagram.value.edges].sort((a, b) => weight(a) - weight(b))
+})
+const junctions = computed(() => findClockJunctions(orderedEdges.value.filter((edge) => !edgeDimmed(edge))))
+function edgeHighlighted(edge: ClockTreeLayout['edges'][number]) {
+  return highlight.value !== null && edgeInHighlight(edge, highlight.value) && !edgeDimmed(edge)
+}
+
+const svgW = computed(() => diagram.value.width * effScale.value)
+const svgH = computed(() => diagram.value.height * effScale.value)
 
 // ---------- 节点内嵌控件内联编辑（foreignObject 原位编辑，画布协调单一编辑态） ----------
 const editingNodeId = ref<string | null>(null)
@@ -357,25 +350,34 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
 </script>
 
 <template>
-  <div
-    ref="wrap"
-    class="canvas-wrap"
-    :class="{ hand: effectiveHand, panning }"
-    @wheel="onWheel"
-    @click="closeEdit"
-    @mousedown="onPanMouseDown"
-    @mousemove="onPanMouseMove"
-    @mouseup="onPanMouseUp"
-    @mouseleave="onPanMouseUp"
-  >
-    <!-- 内联编辑器随 SVG 内容一起滚动，无需在滚动时关闭 -->
-    <div ref="scrollEl" class="canvas-scroll" :class="{ dragging: panning }">
-      <div ref="innerEl" class="canvas-inner" :class="{ 'zoom-anim': zoomAnimating }" :style="{ width: svgW + 'px', height: svgH + 'px' }">
-        <svg :width="svgW" :height="svgH" :viewBox="`0 0 ${layout.width} ${layout.height}`" class="clock-svg">
-          <!-- 分组容器 -->
-          <g v-for="g in layout.groups" :key="g.id">
-            <rect :x="g.x" :y="g.y" :width="g.w" :height="g.h" rx="8" class="group-box" />
-            <!-- M16：上移到 +12 给组内首节点的簇外标题（node.y-6）让位，避免两行 10/11px 字形相叠 -->
+  <div class="canvas-wrap" :class="{ hand: effectiveHand, panning }">
+    <div
+      ref="scrollEl"
+      class="canvas-scroll"
+      tabindex="0"
+      aria-label="时钟树画布"
+      @wheel="onWheel"
+      @click="closeEdit"
+      @keydown="onSceneKeyDown"
+      @pointerdown="onPanStart"
+      @pointermove="onPanMove"
+      @pointerup="onPanEnd"
+      @pointercancel="onPanEnd"
+      @lostpointercapture="onPanEnd"
+    >
+      <div ref="innerEl" class="canvas-inner" :style="{ width: svgW + 'px', height: svgH + 'px' }">
+        <svg :width="svgW" :height="svgH" :viewBox="`0 0 ${diagram.width} ${diagram.height}`" class="clock-svg">
+          <g v-if="diagram.peripheralSection">
+            <line
+              :x1="diagram.peripheralSection.x - 12" :x2="diagram.peripheralSection.x - 12"
+              :y1="diagram.peripheralSection.y" :y2="diagram.height - 22"
+              class="peripheral-divider"
+            />
+            <text :x="diagram.peripheralSection.x + 8" :y="diagram.peripheralSection.y + 21" class="peripheral-heading">外设时钟</text>
+          </g>
+          <g v-for="g in diagram.groups" :key="g.id">
+            <rect v-if="g.id === 'g-sys'" :x="g.x" :y="g.y" :width="g.w" :height="g.h" rx="7" class="system-lane" />
+            <path :d="`M ${g.x + 1} ${g.y + 3} v 10`" class="group-tick" />
             <text :x="g.x + 10" :y="g.y + 12" class="group-label">
               {{ groupLabelText(g) }}<title>{{ g.label }}</title>
             </text>
@@ -383,21 +385,34 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
 
           <!-- 连线（正交折线）：按目标节点问题级别着色 + 高亮 dim -->
           <ClockWire
-            v-for="e in layout.edges"
+            v-for="e in orderedEdges"
             :key="e.id"
             :edge="e"
             :target-level="edgeLevel(e.to)"
+            :primary="isTrunkEdge(e)"
             :dimmed="edgeDimmed(e)"
+            :highlighted="edgeHighlighted(e)"
+          />
+          <circle
+            v-for="junction in junctions"
+            :key="`${junction.x}-${junction.y}`"
+            :cx="junction.x"
+            :cy="junction.y"
+            r="2.7"
+            class="wire-junction"
+            :class="{ active: junction.active }"
           />
 
           <!-- 节点 -->
           <ClockNode
-            v-for="n in layout.nodes"
+            v-for="n in diagram.nodes"
             :key="n.id"
             :node="n"
             :selected="n.id === selectedId"
+            :search-hit="searchMatches?.has(n.id)"
             :dimmed="nodeDimmed(n.id)"
             :pulse="pulseIds.has(n.id)"
+            :primary="trunkNodes.has(n.id)"
             :editing="n.id === editingNodeId"
             :active-input="activeInputById.get(n.id) ?? null"
             :display-only-inputs="displayOnlyInputs"
@@ -412,23 +427,27 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
       </div>
     </div>
 
-    <!-- 底部浮动缩放条 -->
-    <div class="zoom-bar" title="空白处拖动平移；Ctrl/⌘ + 滚轮以光标为锚点缩放；也可使用按钮缩放">
-      <button
-        class="zb-btn"
-        :class="{ active: handMode }"
-        title="抓手模式：拖动任意位置平移画布（也可按住 Space 临时启用）"
-        @click="toggleHand"
-      >
-        <el-icon :size="15"><Pointer /></el-icon>
-      </button>
-      <span class="zb-sep"></span>
-      <button class="zb-btn" title="缩小" @click="zoomBy(0.85)"><el-icon :size="15"><ZoomOut /></el-icon></button>
-      <span class="zb-percent" title="当前有效缩放比例（随容器自适应）">{{ zoomPercent }}</span>
-      <button class="zb-btn" title="放大" @click="zoomBy(1.18)"><el-icon :size="15"><ZoomIn /></el-icon></button>
-      <span class="zb-sep"></span>
-      <button class="zb-btn" title="适合窗口" @click="fit"><el-icon :size="15"><FullScreen /></el-icon></button>
-      <span class="zb-hint">方向键滚动 · 抓手/Space 拖动 · Ctrl/⌘+滚轮缩放</span>
+    <div class="canvas-tools">
+      <div class="zoom-bar" role="group" aria-label="画布工具">
+        <button class="zb-btn" :class="{ active: !handMode }" :aria-pressed="!handMode" title="选择节点" aria-label="选择节点" @click="handMode = false">
+          <el-icon :size="17"><Position /></el-icon>
+        </button>
+        <button class="zb-btn" :class="{ active: handMode }" :aria-pressed="handMode" title="抓手平移" aria-label="抓手平移" @click="handMode = true">
+          <el-icon :size="17"><Pointer /></el-icon>
+        </button>
+        <span class="zb-sep"></span>
+        <button class="zb-btn" title="缩小" aria-label="缩小" @click="zoomAt(1 / 1.18)"><el-icon :size="17"><ZoomOut /></el-icon></button>
+        <output class="zb-percent" aria-label="缩放比例">{{ zoomPercent }}</output>
+        <button class="zb-btn" title="放大" aria-label="放大" @click="zoomAt(1.18)"><el-icon :size="17"><ZoomIn /></el-icon></button>
+        <span class="zb-sep"></span>
+        <button class="zb-btn" title="回到主干" aria-label="回到主干" @click="setScaleMode('reading')"><el-icon :size="17"><Aim /></el-icon></button>
+        <button class="zb-btn" title="全图总览" aria-label="全图总览" @click="setScaleMode('fit')"><el-icon :size="17"><FullScreen /></el-icon></button>
+      </div>
+      <div class="canvas-legend" aria-label="连线图例">
+        <span><i class="legend-wire active"></i>工作路径</span>
+        <span><i class="legend-wire"></i>其他路径</span>
+      </div>
+      <div class="canvas-actions"><slot name="actions" /></div>
     </div>
   </div>
 </template>
@@ -437,126 +456,161 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
 .canvas-wrap {
   position: relative;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   min-height: 0;
-  background: var(--mx-bg);
   overflow: hidden;
+  border: 1px solid var(--clock-border);
+  border-radius: 10px;
+  container: clock-canvas / inline-size;
 }
-/* 抓手模式（按钮或 Space）：整张画布可拖动平移 */
-.canvas-wrap.hand {
-  cursor: grab;
-}
-.canvas-wrap.hand.panning {
-  cursor: grabbing;
-  user-select: none;
-}
-/*
- * 内容小于视口时居中（M12-hotfix）：布局是窄高树，fit 比例由高度约束主导，
- * 左对齐会在右侧留下大片死区。flex + safe center 让卡片在未溢出轴上居中；
- * 溢出轴安全回退到 start，保证滚动可达（普通 center 会把起始侧裁到负偏移，滚不回去）。
- *
- * 锚定缩放数学（anchorZoomScroll）不受影响：
- * - 溢出轴：safe center 回退为 start，内容原点仍在 padding 边缘，公式成立；
- * - 未溢出轴：scroll 恒为 0（无滚动区间），锚定本就不可行，与改动前左对齐时一致。
- * 缩放跨越「未溢出 → 溢出」时，对齐方式从居中切到 start；contentOrigin() 把切换前
- * 的居中偏移传入锚定公式，消除跳变（补偿量超出滚动起点时由浏览器钳为 0，残余不可达）。
- */
 .canvas-scroll {
+  flex: 1 1 0;
   width: 100%;
-  height: 100%;
+  min-height: 0;
   overflow: auto;
-  padding: 20px;
+  padding: 24px;
   display: flex;
   justify-content: safe center;
-  align-items: safe center;
+  align-items: flex-start;
+  overscroll-behavior: contain;
+  background-color: #f0f5f2;
 }
-/* 背景拖动平移中：抓取光标 + 禁选文本 */
-.canvas-scroll.dragging {
+.canvas-scroll:focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: -2px;
+}
+.hand .canvas-scroll,
+.hand .canvas-scroll :deep(.node *) {
+  cursor: grab;
+}
+.panning .canvas-scroll,
+.panning .canvas-scroll :deep(.node *) {
   cursor: grabbing;
   user-select: none;
 }
 .canvas-inner {
   position: relative;
-  flex-shrink: 0;
-  /* M16 白纸面板（MX2 实机）：纯白底 + 细边框，去点阵背景 */
-  background: var(--mx-surface);
-  border-radius: var(--mx-radius-card);
-  border: 1px solid var(--mx-border);
-  box-shadow: var(--mx-shadow-card);
-}
-/* 仅按钮缩放触发尺寸过渡；Ctrl/⌘+滚轮缩放不加此类，保持即时 */
-.canvas-inner.zoom-anim {
-  transition:
-    width var(--mx-dur-zoom) var(--mx-ease-out),
-    height var(--mx-dur-zoom) var(--mx-ease-out);
+  flex: none;
+  background: #fff;
+  border-radius: 4px;
 }
 .clock-svg {
   display: block;
   width: 100%;
   height: 100%;
 }
-
-/* 分组容器：MX2 淡描边矩形 + 11px 左上标题 */
-.group-box {
+.wire-junction {
+  fill: var(--clock-wire);
+  pointer-events: none;
+}
+.wire-junction.active {
+  fill: var(--clock-active-wire);
+}
+.peripheral-divider {
+  stroke: var(--clock-border);
+}
+.peripheral-heading {
+  font-size: 16px;
+  font-weight: 700;
+  fill: var(--clock-ink);
+}
+.system-lane {
+  fill: #edf6f1;
+}
+.group-tick {
   fill: none;
-  stroke: #d5dbe5;
-  stroke-width: 1;
+  stroke: #829b90;
+  stroke-width: 2;
 }
 .group-label {
-  font-size: 11px;
-  fill: var(--mx-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  fill: var(--clock-ink);
 }
-
-/* 底部浮动缩放条 */
+.canvas-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+  padding: 5px 10px;
+  background: var(--mx-surface);
+  border-top: 1px solid var(--clock-border);
+}
 .zoom-bar {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #fff;
-  border: 1px solid var(--mx-border);
-  border-radius: 12px;
-  box-shadow: var(--mx-shadow-popover);
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 5px 8px;
 }
 .zb-btn {
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: none;
-  border-radius: 7px;
-  color: var(--mx-text-secondary);
+  border-radius: 5px;
+  color: var(--clock-muted);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
 }
-.zb-btn:hover {
-  background: var(--mx-accent-soft);
-  color: var(--mx-accent);
-}
+.zb-btn:hover,
 .zb-btn.active {
   background: var(--mx-accent-soft);
   color: var(--mx-accent);
 }
 .zb-percent {
   font-size: 12px;
-  color: var(--mx-text-secondary);
-  min-width: 42px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--clock-ink);
+  min-width: 44px;
   text-align: center;
 }
 .zb-sep {
   width: 1px;
   height: 18px;
-  background: var(--mx-border);
-  margin: 0 4px;
+  background: var(--clock-border);
+  margin: 0 2px;
 }
-.zb-hint {
-  font-size: 11px;
-  color: var(--mx-text-muted);
-  padding: 0 4px 0 6px;
+.canvas-legend {
+  display: flex;
+  gap: 12px;
+  margin-inline-start: auto;
+  color: var(--clock-muted);
+  font-size: 12px;
   white-space: nowrap;
+}
+.canvas-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.legend-wire {
+  width: 15px;
+  border-block-start: 2px dashed var(--clock-wire);
+}
+.legend-wire.active {
+  border-block-start: 2px solid var(--clock-active-wire);
+}
+@container clock-canvas (max-width: 535px) {
+  .canvas-legend {
+    display: none;
+  }
+  .canvas-actions {
+    margin-inline-start: auto;
+  }
+}
+@container clock-canvas (max-width: 360px) {
+  .canvas-tools {
+    gap: 4px;
+    padding-inline: 5px;
+  }
+  .zb-btn {
+    width: 26px;
+  }
+  .zb-percent {
+    min-width: 32px;
+  }
 }
 </style>
