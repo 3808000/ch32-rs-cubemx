@@ -146,6 +146,6 @@
 - **vendor 强制**：ch5xx-hal `build.rs:610/667` 硬读兄弟 `../ch5xx-data/data`；纯 git checkout 无该目录 → panic（复现日志 m17-shim-notes §9）。生成期对 `vendorHal=false` 报 `TARGET_FEATURE_UNSUPPORTED`；vendor zip 必须同时内嵌 `vendor/ch5xx-hal` + `vendor/ch5xx-data`，BLE 档再加 `vendor/ch5xx-ble`。
 - **legacy 兼容**：chip.json `halBackend=ch5xx-hal`/`legacyHalBackend=ch58x-hal`；历史 cube.json 缺 halBackend 的 CH582M 按 legacy 导入；设置页可覆盖；BLE+legacy 继续旧 ch58x 路径。
 - **运行时**：ch5xx BLE 档 busy-poll（不启 hal embassy/time-driver；`loop { TMOS_SystemProcess(); … }`），延续 §14.2bis 的 WFI 停计规避；embassy 档用 `time-driver-tmr0` + embassy 0.10/0.5.1 git patch。
-- **验证（诚实分级）**：五档 cargo 绿——ch5xx blocking/embassy/BLE（nightly）与 legacy blocking/BLE（stable），产物 `/tmp/m17{ch5,ch5e,ch5b,legacy,legacyble}`；**ch5xx BLE 实机未复验，只标 cargo-build 级**。M17 新增 ch5xx 套件见 `tests/ch5xx*`，总数以主控门禁为准（不在文档编造）。
-- **COMMON 未清零（既有）**：qingke-rt 0.8.4/0.5 的 `link-highcode.x` `.bss` 通配缺 `*(COMMON)`；WCH blob 81 个 COMMON（1116 B）排在 `_ebss` 后，启动不清零。legacy 同样存在且实机曾工作；缓解（生成 `-T` 片段或 fork link.x）待实机裁决。
-- **上游**：ch58x-hal#13/#14 仍 OPEN（#13 维护者已指引 ch5xx-hal），ch5xx-hal issues 为空；英文草稿 `/tmp/m17-issue-comments/{13,14,ch5xx-buildrs-data}.md` 待主控审核发布，未自动提交。
+- **验证**：五档 cargo 绿 + **1621 用例/63 文件全绿** + verify 6/6+6/6+BLE(CH582) ch5xx 1/1+legacy 1/1；**ch5xx BLE 实机复验通过 ×2**（OpenOCD Verified OK；连接/ServicesResolved/FFE1 读 00→FFE2 写 42→读回 42/notify 20 包 20s；`/tmp/m17-ble-test/`）。
+- **COMMON 未清零（既有）**：qingke-rt 0.8.4/0.5 `link-highcode.x` `.bss` 通配缺 `*(COMMON)`；实机两轮复验未造成功能故障 → 缓解列可选加固候选，非阻塞。
+- **上游**：#13/#14 跟进评论已发（2026-11-19，含迁移/shim/参数化说明与实机状态）；ch5xx-hal build.rs 兄弟目录新 issue 草稿 `/tmp/m17-issue-comments/ch5xx-buildrs-data.md` 留用户裁决未发。

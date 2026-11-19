@@ -15,7 +15,7 @@
 - **封装图点引脚**：GPIO、复用功能（AF/remap）、模拟、EXTI、保留引脚统一在封装图上分配；九态过滤、图例、右键菜单、信号选择器、拖拽移脚、90° 旋转与 Bottom 镜像、分组与冲突检查。
 - **外设配置**：USART / SPI / I2C / ADC / EXTI 实例配置，含 remap 档位、Mode + Activate 流程与参数编辑；时钟树覆盖 AHB/APB、TIM、USB、ADC 等时钟域（USB 48M 域为仅显示）。
 - **MX2 风格时钟树**：逐芯片按 RM/DS 时钟框图转录并手写布局（7 份转录，含版本/图号/页码/SHA-256）；输入源左列、主干水平，输出与外设**上下并联竖排**；PLL 求解器、预设匹配、锁定节点、冲突检查与 `Resolve issues` 自动修复；无驱动/未建模域以灰显**仅显示**补全（LSI/LSE/RTC/MCO/PLL2/3/USBHS/32K、CORE/SYSTICK 等），不进入配置与代码生成。
-- **BLE 配置（CH582M）**：数据驱动的 peripheral（含简单 GATT 服务）/ broadcaster / observer 三角色，广播名、间隔、MAC、UUID16、notify 等参数；legacy ch58x-hal 路径的广播、连接建立与手机侧 GATT 读写已实机验证；ch5xx-hal 路径（`ch5xx-ble` shim）已通过 cargo build/链接，实机 BLE 复验进行中（见 [HAL_API_NOTES §17](docs/HAL_API_NOTES.md)）。
+- **BLE 配置（CH582M）**：数据驱动的 peripheral（含简单 GATT 服务）/ broadcaster / observer 三角色，广播名、间隔、MAC、UUID16、notify 等参数；legacy ch58x-hal 路径的广播、连接建立与手机侧 GATT 读写已实机验证；ch5xx-hal 路径（`ch5xx-ble` shim）亦已实机验证通过（连接 → GATT 读写 → notify 1s 周期，2026-11-19 复验 ×2；见 [HAL_API_NOTES §17](docs/HAL_API_NOTES.md)）。
 - **中断与 DMA 视图**：NVIC/PFIC 中断使能与优先级，生成 `generated/irq.rs`；DMA 通道配置用于 embassy 档。
 - **代码生成**：`src/generated/**` 每次导出整体重写，`src/main.rs` 永不覆盖；导出工程内嵌完整 vendor HAL 并以 path 依赖引用；H417 生成双核 Cargo workspace；导出前有冲突预览与逐文件决议，保留用户手改内容。
 - **工程回读与管理**：`cube.json` 导入/导出可往返编辑；桌面端磁盘工程库、自动保存、最近工程、全局撤销/重做、Monaco 只读预览与 diff、HTML 单文件报告、可选 VS Code 配置。

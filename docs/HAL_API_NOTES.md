@@ -805,15 +805,15 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 ### 17.7 验证状态（诚实分级）
 
 - **五档 cargo 绿（2026-11-19，本机）**：ch5xx blocking / embassy / BLE 三档（nightly；三档 target 下均有 `build/core/*/out/libcore-*.rlib`，证明 `build-std` 实际执行）+ legacy blocking / BLE 两档（stable；无 build-std 产物）。产物均存在 `target/riscv32imc-unknown-none-elf/release/verify-build`（ELF，20136 / 27256 / 358500 / 21400 / 360272 B）；临时工程目录 `/tmp/m17ch5`、`/tmp/m17ch5e`、`/tmp/m17ch5b`、`/tmp/m17legacy`、`/tmp/m17legacyble`（vendor 树分别含 `ch5xx-hal`+`ch5xx-data`(+`ch5xx-ble`) 或 `ch58x-hal`）。
-- **BLE 实机：未过，标 cargo-build 级**。ch5xx+shim 的广播/连接/GATT/notify 需主控实机复验；在复验通过前，本仓库对 ch5xx BLE 只宣称“编译与链接通过”。legacy BLE 的实机结论仍见 §14.2quater/quinquies（广播→连接→GATT 读写→notify 周期）。
-- **测试**：M17 新增 ch5xx 套件见 `tests/ch5xx*`；**总数以主控全量门禁为准，本节不填数字**。vitest/vue-tsc/eslint/validate/build/浏览器验收同样由主控门禁执行。
+- **BLE 实机：已通过（2026-11-19，主控复验 ×2）**。ch5xx+shim 固件（`/tmp/m17ch5b` BLE 档 ELF，nightly 重建）经 MRS OpenOCD `program … verify reset exit` **Verified OK** 烧录（用户 pkexec 授权）；宿主 AX210（1M PHY 持久化）bluez D-Bus 复验：扫描命中出厂 MAC `0C:3D:5E:A6:62:94`（与 legacy/C 同源）→ Connect + ServicesResolved → FFE1/FFE2 发现 → 读 FFE1=00 → 写 FFE2=42 → 读 FFE1=42 → **notify 20 包/20s**（首轮间隔 0.99–1.03s，二轮 0.77–1.17s，`systick_hz()` 派生周期正确）。脚本 `/tmp/m17-ble-test/gatt-test.py`、日志 `result.log`。**ch5xx BLE 升级为实机验证级**；legacy 结论仍见 §14.2quater/quinquies。
+- **测试**：**1621 用例 / 63 文件全绿**（ch5xxCodegen 59 / ch5xxBleCodegen 32 + 分流/导出/往返；ch58x 72+91 零 regress）；vue-tsc/eslint/validate 0/0/build 绿；verify 6/6 + embassy 6/6 + BLE(CH582) ch5xx 1/1 + legacy 1/1；浏览器抽查 ch5xx 默认 Cargo/build.rs/cube.json halBackend 与 legacy 切换联动。
 - 已知边界：BLE shim 未做 PA 控制；`sel_rtc_clock=0` 依赖板上 32.768 kHz 晶振，无晶振板需 LSI 回退（校准未移植，连接稳定性未保证）；温度回调在 CH583 上上游自述“未上板测试”。
 
 ### 17.8 COMMON 未清零风险（既有问题，非 shim 引入）
 
 - `qingke-rt` 0.8.4 的 `link-highcode.x` 中 `.bss` 通配只含 `*(.sbss .sbss.* .bss .bss.*)`，**不含 `*(COMMON)`**。WCH blob 使用 81 个 tentative definition（`gTmosPara`/`gBleLlPara`/`ble`/队列头等，共 0x45c=1116 B）；ld 将它们排在 `_ebss` 之后、`.bss` 段尾，而启动清零循环只清 `_sbss.._ebss`，故这段 COMMON **不会在启动时归零**。M17 的 ch5xx BLE 二进制实测 `gTmosPara = _ebss = 0x2000_3ac8`（`nm`），即 COMMON 起点正好落在清零区间之外。
 - 旧 `ch58x-hal` 使用的 qingke-rt 0.5 `link-highcode.x` 通配完全相同——**legacy 路径同样存在**，且 legacy BLE 实机曾正常工作（§14.2ter/quinquies），说明该风险未必必然致命，但**不能据此宣称安全**：`cargo build` 无法暴露，只有实机长跑/连接路径能裁决。
-- 待裁决/缓解方向（S2/实机）：生成工程自带 `-T` 片段把 `*(COMMON)` 收进具名段并在 `ch5xx_ble::init` 前清零；或 fork `link.x` 把 `*(COMMON)` 并入 `.bss` 通配。M17 未改链接布局，结论标注为“待主控实机复验裁决”。
+- **实机裁决（2026-11-19）**：ch5xx+shim 固件两轮连接/GATT/notify 复验全过 → COMMON 未清零在本路径**未造成功能故障**（与 legacy 实机表现一致；推断 blob 自初始化或其初值容忍）。缓解（生成 `-T` 片段收 `*(COMMON)` 并在 init 前清零、或 fork link.x）保留为**可选加固候选**，非阻塞项；长跑/掉电重连压力测试未做，不宣称绝对安全。
 
 ### 17.9 上游沟通草稿（待主控审核后发布）
 

@@ -74,7 +74,7 @@ Cargo：`ch5xx-hal { path/git 同 rev, default-features=false }`、`ch5xx-metapa
 ## D7 验证矩阵
 
 - verify:build：CH582 ch5xx blocking / embassy(tmr0) / --ble(ch5xx+shim) 三路 cargo build；legacy --ble --chip CH582M 仍 1/1；ch32 6/6+6/6 不变。
-- 实机（BLE 测试流授权内）：ch5xx+shim peripheral 烧录 → 宿主 gatt-test.py 连接/读 FFE1/写 FFE2/notify 20 包/20s（周期用 systick_hz 派生=1s）；未过前文档标 cargo-build 级。
+- 实机（BLE 测试流授权内）：**已通过 ×2（2026-11-19）**——OpenOCD Verified OK → 宿主 gatt-test.py 连接/读 FFE1=00/写 FFE2=42/读回 42/notify 20 包 20s（systick_hz 派生=1s）；证据 /tmp/m17-ble-test/result.log。
 - 测试：ch5xxCodegen/ch5xxBleCodegen 新套件；ch58x 旧套件零 regress；chipPicker/exportBackend/codegen 分流与 cube.json halBackend 往返用例。
 - 门禁：vitest/vue-tsc/eslint/validate/build；浏览器 CH582 预览含 ch5xx import/new_blocking/shim 依赖；legacy 切换回 ch58x。
 
@@ -90,7 +90,7 @@ Cargo：`ch5xx-hal { path/git 同 rev, default-features=false }`、`ch5xx-metapa
 - **SPI mode 同源**（S3 发现错码，主控修）：`spiModeVariant(params)` 委托 `spiModeNumber(params)`（显式 mode/clockPhase 优先），校验与渲染单一真相；回归用例 tests/ch5xxCodegen.test.ts「显式 mode3+缺省极性→MODE_3」。
 - **target 保留 riscv32imc**（IMAC 子集，portable-atomic/critical-section 覆盖原子；五档 cargo 实测过）；上游推荐 imac 列后续候选（需 targetByBackend + rust-std 安装裁决）。
 - **I2C 单例名**：HAL 为 `I2C0`（数据层 id 仍 `I2C`），生成器 halInstance 映射。
-- **COMMON 未清零风险**：WCH blob COMMON 符号排 `_ebss` 后、启动清零不覆盖（旧 qingke-rt 0.5 同存在且 legacy 实机曾工作）；待 ch5xx 实机复验裁决，必要时生成器补清零片段。
+- **COMMON 未清零风险**：WCH blob COMMON 符号排 `_ebss` 后、启动清零不覆盖（旧 qingke-rt 0.5 同存在）；**实机两轮复验未造成功能故障** → 缓解（生成 `-T` 片段/fork link.x）列可选加固候选，非阻塞。
 - 历史 cube.json 缺 halBackend → resolveHalBackend 回 legacy（D1 兼容规则落地于 codegen 层；projectFile.ts 不规范化写入）。
 
 ## D8 文件域（排他）
