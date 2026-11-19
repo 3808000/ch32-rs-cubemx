@@ -78,14 +78,34 @@ pub static UUID_REPORT_REF: u16 = GATT_REPORT_REF_UUID;
 // Constructors
 // ---------------------------------------------------------------------------
 
-pub const fn svc(uuid: &'static u16) -> GattAttribute {
+/// Primary-service declaration.
+///
+/// WCH blob encoding (verified against the hardware-passing M17 generator
+/// output): the declaration's `value` points at a `GattAttrType`
+/// (`len` + UUID pointer), **not** at the raw UUID bytes. Pointing it at the
+/// bare u16 makes the stack read `len=UUID&0xFF` and a garbage UUID pointer,
+/// so the Read-By-Group-Type walk finds no services at all.
+pub const fn svc(uuid: &'static GattAttrType) -> GattAttribute {
     GattAttribute {
         type_: GattAttrType::PRIMARY_SERVICE,
         permissions: GATT_PERMIT_READ,
         handle: 0,
-        value: uuid as *const u16 as *const u8,
+        value: uuid as *const GattAttrType as *const u8,
     }
 }
+
+/// `GattAttrType` wrappers for the service UUIDs (see [`svc`]).
+pub static UUID_FFE0_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_FFE0 as *const u16 as *const u8 };
+pub static UUID_FFF0_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_FFF0 as *const u16 as *const u8 };
+pub static UUID_FFF3_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_FFF3 as *const u16 as *const u8 };
+pub static UUID_FEE0_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_FEE0 as *const u16 as *const u8 };
+pub static UUID_180A_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_180A as *const u16 as *const u8 };
+pub static UUID_180F_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_180F as *const u16 as *const u8 };
+pub static UUID_180D_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_180D as *const u16 as *const u8 };
+pub static UUID_1816_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_1816 as *const u16 as *const u8 };
+pub static UUID_1814_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_1814 as *const u16 as *const u8 };
+pub static UUID_1812_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_1812 as *const u16 as *const u8 };
+pub static UUID_1813_T: GattAttrType = GattAttrType { len: 2, uuid: &UUID_1813 as *const u16 as *const u8 };
 
 pub const fn decl_attr(value: *const u8) -> GattAttribute {
     GattAttribute {
@@ -165,7 +185,7 @@ pub mod simple {
     pub static mut CCCD4: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 17] = [
-        svc(&UUID_FFE0),
+        svc(&UUID_FFE0_T),
         decl_attr(addr_of!(D1) as *const u8),
         val(&UUID_FFE1, GATT_PERMIT_READ | GATT_PERMIT_WRITE, addr_of!(V1) as *const u8),
         desc(&UUID_USER_DESC, U1.as_ptr()),
@@ -203,8 +223,6 @@ pub mod simple {
             note_value(U3.as_ptr(), 5, 0);
             note_value(U4.as_ptr(), 5, 0);
             note_value(U5.as_ptr(), 5, 0);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -268,7 +286,7 @@ pub mod simple8 {
     pub static mut CCCD4: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 17] = [
-        svc(&UUID_FFE0),
+        svc(&UUID_FFE0_T),
         decl_attr(addr_of!(D1) as *const u8),
         val(&UUID_FFE1, GATT_PERMIT_READ | GATT_PERMIT_WRITE, addr_of!(V1) as *const u8),
         desc(&UUID_USER_DESC, U1.as_ptr()),
@@ -304,8 +322,6 @@ pub mod simple8 {
             note_value(U3.as_ptr(), 5, 0);
             note_value(U4.as_ptr(), 5, 0);
             note_value(U5.as_ptr(), 5, 0);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -349,7 +365,7 @@ pub mod battery {
     pub static mut CCCD: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 4] = [
-        svc(&UUID_180F),
+        svc(&UUID_180F_T),
         decl_attr(addr_of!(D) as *const u8),
         val(&UUID_2A19, GATT_PERMIT_READ, addr_of!(V) as *const u8),
         cccd(addr_of!(CCCD) as *const gattCharCfg_t),
@@ -359,8 +375,6 @@ pub mod battery {
         unsafe {
             note_value(addr_of!(D) as *const u8, 5, 0);
             note_value(addr_of!(V) as *const u8, 1, 0);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -395,7 +409,7 @@ pub mod devinfo {
     static V26: [u8; 5] = *b"0.1.0";
 
     pub static mut ATTRS: [GattAttribute; 7] = [
-        svc(&UUID_180A),
+        svc(&UUID_180A_T),
         decl_attr(addr_of!(D29) as *const u8),
         val(&UUID_2A29, GATT_PERMIT_READ, V29.as_ptr()),
         decl_attr(addr_of!(D24) as *const u8),
@@ -434,7 +448,7 @@ pub mod heart_rate {
     pub static mut CCCD37: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 8] = [
-        svc(&UUID_180D),
+        svc(&UUID_180D_T),
         decl_attr(addr_of!(D37) as *const u8),
         val(&UUID_2A37, GATT_PERMIT_READ, addr_of!(V37) as *const u8),
         cccd(addr_of!(CCCD37) as *const gattCharCfg_t),
@@ -452,8 +466,6 @@ pub mod heart_rate {
             note_value(addr_of!(V37) as *const u8, 2, 0);
             note_value(addr_of!(V38) as *const u8, 1, 0);
             note_value(addr_of!(V39) as *const u8, 1, 1);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -493,7 +505,7 @@ pub mod csc {
     pub static mut CCCD55: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 11] = [
-        svc(&UUID_1816),
+        svc(&UUID_1816_T),
         decl_attr(addr_of!(D5B) as *const u8),
         val(&UUID_2A5B, GATT_PERMIT_READ, addr_of!(V5B) as *const u8),
         cccd(addr_of!(CCCD5B) as *const gattCharCfg_t),
@@ -520,8 +532,6 @@ pub mod csc {
             note_value(addr_of!(V5C) as *const u8, 2, 0);
             note_value(addr_of!(V5D) as *const u8, 1, 0);
             note_value(addr_of!(V55) as *const u8, 1, 1);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
             // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
@@ -574,7 +584,7 @@ pub mod rsc {
     pub static mut CCCD55: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 11] = [
-        svc(&UUID_1814),
+        svc(&UUID_1814_T),
         decl_attr(addr_of!(D53) as *const u8),
         val(&UUID_2A53, GATT_PERMIT_READ, addr_of!(V53) as *const u8),
         cccd(addr_of!(CCCD53) as *const gattCharCfg_t),
@@ -601,8 +611,6 @@ pub mod rsc {
             note_value(addr_of!(V54) as *const u8, 2, 0);
             note_value(addr_of!(V5D) as *const u8, 1, 0);
             note_value(addr_of!(V55) as *const u8, 1, 1);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
             // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
@@ -650,7 +658,7 @@ pub mod scan_params {
     pub static mut CCCD31: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 6] = [
-        svc(&UUID_1813),
+        svc(&UUID_1813_T),
         decl_attr(addr_of!(D4F) as *const u8),
         val(&UUID_2A4F, GATT_PERMIT_WRITE, addr_of!(V4F) as *const u8),
         decl_attr(addr_of!(D31) as *const u8),
@@ -664,8 +672,6 @@ pub mod scan_params {
             note_value(addr_of!(D31) as *const u8, 5, 0);
             note_value(addr_of!(V4F) as *const u8, 4, 4);
             note_value(addr_of!(V31) as *const u8, 1, 0);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -694,7 +700,7 @@ pub mod uart {
     pub static mut CCCD1: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 6] = [
-        svc(&UUID_FFF0),
+        svc(&UUID_FFF0_T),
         decl_attr(addr_of!(D1) as *const u8),
         val(&UUID_FFF1, GATT_PERMIT_READ, addr_of!(V1) as *const u8),
         cccd(addr_of!(CCCD1) as *const gattCharCfg_t),
@@ -712,8 +718,6 @@ pub mod uart {
             note_value(addr_of!(D2) as *const u8, 5, 0);
             note_value(addr_of!(V1) as *const u8, 1, 0);
             note_value(addr_of!(V2) as *const u8, 1, 1);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -746,7 +750,7 @@ pub mod iochub {
     pub static mut CCCD1: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 6] = [
-        svc(&UUID_FFF3),
+        svc(&UUID_FFF3_T),
         decl_attr(addr_of!(D1) as *const u8),
         val(&UUID_FFF4, GATT_PERMIT_READ, addr_of!(V1) as *const u8),
         cccd(addr_of!(CCCD1) as *const gattCharCfg_t),
@@ -764,8 +768,6 @@ pub mod iochub {
             note_value(addr_of!(D2) as *const u8, 5, 0);
             note_value(addr_of!(V1) as *const u8, 1, 0);
             note_value(addr_of!(V2) as *const u8, 1, 1);
-            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
-            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -803,7 +805,7 @@ pub mod ota {
     pub static mut RESP_LEN: u16 = 20;
 
     pub static mut ATTRS: [GattAttribute; 4] = [
-        svc(&UUID_FEE0),
+        svc(&UUID_FEE0_T),
         decl_attr(addr_of!(D1) as *const u8),
         val(
             &UUID_FEE1,
@@ -879,7 +881,8 @@ mod hid_common {
     }
 
     pub fn init_cccd(tbl: *mut gattCharCfg_t) {
-        // M18 实机：全局 InitCharCfg(0xFFFF) 停广播，跳过；CCCD_INIT 静态初始化。
+        // CCCD 初始化统一在 register_attrs 内按表执行（M17 验证序列）。
+        let _ = tbl;
     }
 }
 
@@ -927,7 +930,7 @@ pub mod hid_keyboard {
     pub static mut CCCD_BOOT: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 24] = [
-        svc(&UUID_1812),
+        svc(&UUID_1812_T),
         decl_attr(addr_of!(D4A) as *const u8),
         val(&UUID_2A4A, GATT_PERMIT_READ, addr_of!(VINFO) as *const u8),
         decl_attr(addr_of!(D4B) as *const u8),
@@ -1036,7 +1039,7 @@ pub mod hid_mouse {
     pub static mut CCCD_IN: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 16] = [
-        svc(&UUID_1812),
+        svc(&UUID_1812_T),
         decl_attr(addr_of!(D4A) as *const u8),
         val(&UUID_2A4A, GATT_PERMIT_READ, addr_of!(VINFO) as *const u8),
         decl_attr(addr_of!(D4B) as *const u8),
@@ -1114,7 +1117,7 @@ pub mod hid_consumer {
     pub static mut CCCD_IN: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 16] = [
-        svc(&UUID_1812),
+        svc(&UUID_1812_T),
         decl_attr(addr_of!(D4A) as *const u8),
         val(&UUID_2A4A, GATT_PERMIT_READ, addr_of!(VINFO) as *const u8),
         decl_attr(addr_of!(D4B) as *const u8),
@@ -1195,7 +1198,7 @@ pub mod hid_touch {
     pub static mut CCCD_IN: [gattCharCfg_t; 3] = [CCCD_INIT; 3];
 
     pub static mut ATTRS: [GattAttribute; 16] = [
-        svc(&UUID_1812),
+        svc(&UUID_1812_T),
         decl_attr(addr_of!(D4A) as *const u8),
         val(&UUID_2A4A, GATT_PERMIT_READ, addr_of!(VINFO) as *const u8),
         decl_attr(addr_of!(D4B) as *const u8),

@@ -20,15 +20,7 @@ use ble_evt_tests::prelude::*;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 unsafe fn on_gap(event: *mut gapRoleEvent_t) {
     if (*event).gap.opcode == GAP_DEVICE_INIT_DONE_EVENT {
@@ -47,8 +39,8 @@ fn main() -> ! {
     let boot = ble_evt_tests::boot(BootCfg::peripheral());
     let task = boot.task_id;
 
-    set_gap_handler(on_gap);
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
 
     unsafe {
         let _ = GAPRole_BroadcasterInit();

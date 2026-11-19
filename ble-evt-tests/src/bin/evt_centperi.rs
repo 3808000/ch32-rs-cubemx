@@ -23,15 +23,7 @@ use core::ptr::addr_of_mut;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 static mut LINK: Option<SingleLink> = None;
 static mut PCNN: u16 = INVALID_CONNHANDLE;
@@ -121,6 +113,7 @@ fn main() -> ! {
 
     set_gap_handler(on_gap);
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
     bond_peripheral(true, GAPBOND_IO_CAP_DISPLAY_ONLY);
     bond_central(false, GAPBOND_IO_CAP_NO_INPUT_NO_OUTPUT);
     set_peripheral_conn(6, 100, 0, 100);

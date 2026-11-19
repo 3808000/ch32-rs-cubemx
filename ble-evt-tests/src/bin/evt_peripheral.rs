@@ -25,15 +25,7 @@ use core::ptr::addr_of_mut;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 struct Ctx {
     conn: u16,
@@ -133,9 +125,25 @@ fn main() -> ! {
     let task = boot.task_id;
 
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
     set_write_hook(on_write);
     bond_peripheral(true, GAPBOND_IO_CAP_DISPLAY_ONLY);
     set_peripheral_conn(6, 100, 0, 100);
+
+    // M17 hardware-passing order (A/B-verified on this board): role init →
+    // adv params + advert enabled → GGS/GATTServApp → service registration →
+    // device name → StartDevice. Registering services before the role task
+    // exists, or enabling advertising only after StartDevice, leaves the
+    // GATT server silent during discovery.
+    peripheral_role_init();
+
+    let mut adv = ble_evt_tests::adv::simple_adv(0xFFE0);
+    set_adv_data(adv.as_slice());
+    let mut rsp = AdvBuilder::new();
+    rsp.name_complete(b"Simple Peripheral");
+    set_scan_rsp(rsp.as_slice());
+    set_adv_interval(80);
+    adv_enable(true);
 
     unsafe {
         let _ = GGS_AddService(GATT_ALL_SERVICES);
@@ -144,15 +152,9 @@ fn main() -> ! {
     let _ = services::simple::register();
     set_device_name("Simple Peripheral");
 
-    let mut adv = ble_evt_tests::adv::simple_adv(0xFFE0);
-    set_adv_data(adv.as_slice());
-    let mut rsp = AdvBuilder::new();
-    rsp.name_complete(b"Simple Peripheral")
-        ;
-    set_scan_rsp(rsp.as_slice());
-    set_adv_interval(80);
-
-    start_peripheral(task);
+    unsafe {
+        let _ = GAPRole_PeripheralStartDevice(task, bond_cbs(), role_cbs());
+    }
 
     unsafe {
         *addr_of_mut!(CTX) = Some(Ctx {

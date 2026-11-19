@@ -33,16 +33,26 @@ test_peripheral.py（扫名→连接→服务/特征集+flags 核对→读/写/�
 
 ## D5 验证状态（诚实分级）
 
-- 22/22 bin `cargo build --release --bins` 绿（nightly + build-std=core，riscv32imac）。
-- 仓库门禁 1621/63 绿、tsc/eslint/validate 0/0。
-- 实机矩阵（部分，诚实分级）：
-  - **PASS**：evt_broadcaster（btmgmt find dev_found 0C:3D:5E:A6:62:94 rssi -38 flags 0x04；bluez StartDiscovery 按规范过滤 flags 0x04，须用 btmgmt find）；**peripheral 角色广播（根因修复后空口证实 rssi -35）**；完整 GATT 读/写/notify（M17 上午 ×2，同 shim API）。
-  - **根因已定位并修复（UART 直证，取代此前 bisect 相关性）**：`start_peripheral` 漏 `GAPRole_PeripheralInit()` → `GAPRole_PeripheralStartDevice`=INVALIDPARAMETER(0x02)、gapRole state 永停 0。`evt_uart_dbg` 逐调用状态打印：修复前 Err(2)/state=0（AdvEnabled=1 被接受但无效、TMOS 泵正常）；补 Init 后 Ok/state 1→2、空口可见。其余角色 bin 各有 `<Role>Init()`，唯 peripheral 漏——精确解释族内静默。M17 生成器模板始终含该调用（生成器无缺陷）。修复 = `ble-evt-tests/src/lib.rs` 一行，覆盖全部 16 个 peripheral 族 bin。此前 hooks/CTX/TLV bisect 相关性作废（dbg15 配置不可重建，存疑注记）。
-  - **待跑（修复已就位）**：evt_peripheral 完整 GATT 判据（连接/FFE1–FFE5 读写/FFE4 notify 0x88@1600ms）——宿主 `test_peripheral.py` 已重建；受阻于板子 RF 模拟态卡住（多轮调试 halt/resume 诱发；软复位/CH-Link 端口断电未恢复，需板子完整断电，供电路径待用户确认）。
+- 22+1 bin `cargo build --release --bins` 绿（nightly + build-std=core，riscv32imac；+evt_uart_dbg 诊断）。
+- 仓库门禁 1631/63 绿、tsc/eslint/validate 0/0。
+- **根因链（全部 UART/寄存器直证，取代此前 bisect 相关性；生成器产物无缺陷，M17 参照产物同板同时刻全通作 A/B 基准）**：
+  1. **漏 `GAPRole_PeripheralInit()`** → `PeripheralStartDevice`=INVALIDPARAMETER(0x02)、gapRole state 永停 0、广播不上空口。其余角色 bin 各有 `<Role>Init()`，唯 peripheral 漏。
+  2. **svc 属性编码错**：WCH blob 要求主服务声明的 `value` 指向 `GattAttrType{len,uuid*}`（M17 生成器编码），而非裸 UUID u16 指针；裸指针使 Read-By-Group-Type 遍历读到垃圾 UUID → bluez 发现 0 服务。修复：`svc(&UUID_x_T)` + 每服务 `_T` 静态。
+  3. **初始化顺序**（M17 硬件验证序，A/B 实证必需）：role init → adv 参数 + `ADVERT_ENABLED=true` → GGS/GATTServApp → `init_char_cfg`+服务注册 → 设备名 → StartDevice。服务先于 role task 注册、或广播仅在 StartDevice 后使能 → GATT 发现无响应/不广播。
+  4. **LSI 32K 时钟毁连接时序**：`SelRTCClock=1`（内部 RC）下连接事件与对端窗口 widening 失配 → ATT 全丢、发现挂起、监督超时断连（reason 0x08）；广播本身容忍 LSI。**改 LSE（外部晶振，M17 同源）后全通**——偏离 EVT `CLK_OSC32K=1`，注记为板级实测裁决。
+  5. **blob ISR 踩 s1**：WCH blob 的 BB/LLE 处理路径破坏 callee-saved s1（主循环 SysTick 基址存于 s1）→ mcause=4 取指/ load 异常 → DefaultHandler 挂死（boot 后 18–84s 不定，连接/扫描负载下更早）。qingke-rt 默认 wrapper 仅存 ra。**修复：`ble_isr!` 宏全存 ra+s0–s11**（.trap RAM wrapper，直接 auipc/jalr 到 blob handler）。
+  6. 配套：shim pubsub 订阅者必须存活并在主循环 drain（`TmosEvent::Drop`=`tmos_msg_deallocate`；M17 `tmos_poll` 同型）；StartDevice 传 shim hal_task_id（不另注册 app_task）；GAP 连接事件经 `pfnStateChange(newState,pEvent)` 分发（WCH peripheral 角色不向 app task 发 TMOS GAP 消息）；WAITING 态自动重开广播。
+- **实机矩阵（诚实分级，CH582M + CH-Link + bluez）**：
+  - **完整判据 PASS ×7**：evt_peripheral（FFE0/FFE1–5 全特征+flags、初值读、写回读、FFE4 notify 0x88 中位 1560ms/标称 1600ms）、evt_heart_rate（180D/2A37 notify 中位 1950ms/2000ms + 2A38 读 + 2A39 写 + 180F/180A）、evt_cycling（1816/2A5B notify 1000ms）、evt_running（1814/2A53 notify 2000ms）、evt_speedtest_peripheral（满包 notify 流）、evt_onlyupdate_peripheral（FFE3 写=OTA-jump stub 主动断连，设计行为，判据排除该项）、evt_ota_peripheral（FEE0 发现 + FEE1 read/write + INFO 0x84 写；FEE1 实现无 notify CCCD——INFO 应答仅 UART，偏离 EVT notify 路径，注记）。
+  - **HID 族（keyboard/mouse/consumer/touch）部分 PASS**：发现+全特征集+读 PASS；**CCCD 写被 blob 内部拒绝（ATT 0x0e），服务写回调不被调用**（9600 无丢字节 UART 证实无 `wr` 打印）——blob 对 HID 服务 CCCD 的内部处理路径未明，待解（simple/csc 的 CCCD 同路径却成功）。
+  - **待干净复跑（宿主侧）**：evt_ble_uart / evt_iochub_16bit——固件身份已验证（广播名正确）、广播正常，但 bluez 连接 `le-connection-abort-by-local`（多次复现；疑似宿主适配器多会话后状态退化，待 bluetoothd 重启后复跑）。
   - **BLOCKED（无对端）**：central 族（宿主 GattManager1.RegisterApplication 超时待修）、observer（peer_advertiser 待重建）。
-  - **build-only**：sync_adv/sync_scan（需第二块板对跑；BlueZ 无周期同步 API）。
-- UART 观测通道：CH-Link 自带串口（PA9→CH-Link RX，ttyACM0 115200 8N1，`uart_capture.py`）；boot 突发丢字节（桥接缓冲），稳态完整；休眠恢复掉线需重插/端口断电；autosuspend 已关。
-- 探针事故注记：被停后台任务遗留 root openocd 占用 USB（claim interface failed）→ pkexec kill 清理；`pkill -f openocd` 会匹配自身命令行自杀 → 用 `pkill -x openocd`；pkexec 改 cwd → 绝对路径；被杀会话后 halt 偶发挂死 → CH-Link 断电重枚举；`program verify reset exit` 后偶发 mcause=4（s1 踩脏，干净复位不复现，判为调试诱发）→ 安全烧录序列 `program verify`+`reset halt`+`resume`。
+  - **build-only**：sync_adv/sync_scan（需第二块板；BlueZ 无周期同步 API）。
+- **探针/宿主教训（本轮新增）**：
+  - wch_riscv 目标 **`reset halt`/`reset run` 是空操作**（无 reset handler）——`program verify`+`reset halt`+`resume` 不会重启固件（RAM 名字符串取证证实旧固件继续跑）！可靠复位：`program <elf> verify reset exit`（多数有效）或 `halt; reg pc 0; resume`（软跳转复位，亦偶发失效）；**每次烧录后必须用 UART boot banner 或广播名验证固件身份**。
+  - CH-Link 串口桥接 115200 突发丢字节（boot banner 残缺）；**诊断期降 9600 可全量捕获**；稳态逐行 115200 可用。
+  - bluez 设备缓存跨固件切换残留（旧名/旧服务集）→ 换 bin 前 `Adapter1.RemoveDevice`（必要时先 StartDiscovery 使设备对象存在再删）。
+  - 旧事故：root openocd 占 USB → pkexec kill；`pkill -f openocd` 自杀 → `pkill -x`；pkexec 改 cwd → 绝对路径；休眠恢复 WCH-Link 掉线 → 重插/端口断电（`3-2-port2/disable`）；autosuspend 已关。
 
 ## D6 文件域
 

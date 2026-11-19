@@ -29,15 +29,7 @@ use core::ptr::addr_of_mut;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 struct Ctx {
     conn: u16,
@@ -133,17 +125,14 @@ fn main() -> ! {
     let task = boot.task_id;
 
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
     set_write_hook(on_write);
     bond_peripheral(false, GAPBOND_IO_CAP_NO_INPUT_NO_OUTPUT);
     set_peripheral_conn(8, 8, 0, 500);
 
-    add_gatt_services();
-    let _ = services::hid_keyboard::register();
-    let _ = services::battery::register();
-    let _ = services::scan_params::register();
-    let _ = services::devinfo::register();
-    set_device_name("HID Keyboard");
-    set_appearance(0x03C1);
+    // M17 hardware-passing order: role init → adv params + advert enabled
+    // → GGS/GATTServApp → services → name → StartDevice.
+    peripheral_role_init();
 
     let mut adv = AdvBuilder::new();
     adv.flags(GAP_ADTYPE_FLAGS_LIMITED | GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED);
@@ -155,8 +144,20 @@ fn main() -> ! {
     rsp.uuids16_more(&[0x1812, 0x180F]);
     rsp;
     set_scan_rsp(rsp.as_slice());
+    adv_enable(true);
 
-    start_peripheral(task);
+    add_gatt_services();
+    let _ = services::hid_keyboard::register();
+    let _ = services::battery::register();
+    let _ = services::scan_params::register();
+    let _ = services::devinfo::register();
+    set_device_name("HID Keyboard");
+    set_appearance(0x03C1);
+
+
+    unsafe {
+        let _ = GAPRole_PeripheralStartDevice(task, bond_cbs(), role_cbs());
+    }
 
     unsafe {
         *addr_of_mut!(CTX) = Some(Ctx {

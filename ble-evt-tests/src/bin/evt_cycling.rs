@@ -26,15 +26,7 @@ use core::ptr::addr_of_mut;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 struct Ctx {
     conn: u16,
@@ -132,16 +124,15 @@ fn main() -> ! {
     let task = boot.task_id;
 
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
     set_write_hook(on_write);
     bond_peripheral(false, GAPBOND_IO_CAP_NO_INPUT_NO_OUTPUT);
     bond_no_white_list_sync();
     set_peripheral_conn(20, 200, 20, 1000);
 
-    add_gatt_services();
-    let _ = services::csc::register();
-    let _ = services::battery::register();
-    let _ = services::devinfo::register();
-    set_device_name("CSC Sensor");
+    // M17 hardware-passing order: role init → adv params + advert enabled
+    // → GGS/GATTServApp → services → name → StartDevice.
+    peripheral_role_init();
 
     let mut adv = AdvBuilder::new();
     adv.flags(GAP_ADTYPE_FLAGS_GENERAL | GAP_ADTYPE_FLAGS_BREDR_NOT_SUPPORTED);
@@ -152,8 +143,18 @@ fn main() -> ! {
     rsp;
     set_scan_rsp(rsp.as_slice());
     set_adv_interval(32);
+    adv_enable(true);
 
-    start_peripheral(task);
+    add_gatt_services();
+    let _ = services::csc::register();
+    let _ = services::battery::register();
+    let _ = services::devinfo::register();
+    set_device_name("CSC Sensor");
+
+
+    unsafe {
+        let _ = GAPRole_PeripheralStartDevice(task, bond_cbs(), role_cbs());
+    }
 
     unsafe {
         *addr_of_mut!(CTX) = Some(Ctx {

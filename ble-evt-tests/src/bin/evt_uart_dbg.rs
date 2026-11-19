@@ -10,18 +10,18 @@
 
 use ble_evt_tests::prelude::*;
 use core::ptr::addr_of_mut;
-use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
+/// Print the panic message + location before halting (panic_halt is silent).
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    unsafe { ble::println!("PANIC {}", info) };
+    loop {
+        core::hint::spin_loop();
+    }
 }
 
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 struct Ctx {
     conn: u16,
@@ -142,22 +142,21 @@ fn on_tick(now: u32) {
 
 #[entry]
 fn main() -> ! {
-    let boot = ble_evt_tests::boot(ble_evt_tests::BootCfg::peripheral());
+    let boot = ble_evt_tests::boot(ble_evt_tests::BootCfg::central());
     let task = boot.task_id;
 
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
     set_write_hook(on_write);
     bond_peripheral(true, GAPBOND_IO_CAP_DISPLAY_ONLY);
     set_peripheral_conn(6, 100, 0, 100);
 
+    // M17 hardware-passing order: role init → role params (adv enabled first)
+    // → GGS/GATTServApp → init_char_cfg + register_service → StartDevice.
     unsafe {
-        let ggs = GGS_AddService(GATT_ALL_SERVICES);
-        let gatt = GATTServApp::add_service(GATT_ALL_SERVICES);
-        ble::println!("GGS_AddService={:?} GATTServApp_AddService={:?}", ggs, gatt);
+        let i = GAPRole_PeripheralInit();
+        ble::println!("PeripheralInit={:?}", i);
     }
-    let reg = services::simple::register();
-    ble::println!("simple::register={:?}", reg);
-    set_device_name("Simple Peripheral");
 
     let mut adv = ble_evt_tests::adv::simple_adv(0xFFE0);
     unsafe {
@@ -179,21 +178,22 @@ fn main() -> ! {
         ble::println!("set scan_rsp len={} st={:?}", rsp.as_slice().len(), s);
     }
     set_adv_interval(80);
-    ble::println!(
-        "adv int min={} max={}",
-        unsafe { GAP_GetParamValue(TGAP_DISC_ADV_INT_MIN) },
-        unsafe { GAP_GetParamValue(TGAP_DISC_ADV_INT_MAX) }
-    );
+    adv_enable(true);
 
     unsafe {
-        let i = GAPRole_PeripheralInit();
-        ble::println!("PeripheralInit={:?}", i);
+        let ggs = GGS_AddService(GATT_ALL_SERVICES);
+        let gatt = GATTServApp::add_service(GATT_ALL_SERVICES);
+        ble::println!("GGS_AddService={:?} GATTServApp_AddService={:?}", ggs, gatt);
+        GATTServApp::init_char_cfg(INVALID_CONNHANDLE, services::simple::CCCD4.as_mut_ptr());
+    }
+    let reg = services::simple::register();
+    ble::println!("simple::register={:?}", reg);
+    set_device_name("Simple Peripheral");
+
+    unsafe {
         let s = GAPRole_PeripheralStartDevice(task, bond_cbs(), role_cbs());
         ble::println!("PeripheralStartDevice={:?}", s);
         dump_role("after-start");
-        let e = GAPRole_SetParameter(GAPROLE_ADVERT_ENABLED, 1, &1u8 as *const u8 as *const _);
-        ble::println!("adv_enable st={:?}", e);
-        dump_role("after-enable");
     }
 
     unsafe {

@@ -22,15 +22,7 @@ use core::ptr::addr_of_mut;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 static mut LINK: Option<SingleLink> = None;
 static mut CYCLE: Option<Ticker> = None;
@@ -99,6 +91,7 @@ fn main() -> ! {
 
     set_gap_handler(on_gap);
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
     bond_central(false, GAPBOND_IO_CAP_NO_INPUT_NO_OUTPUT);
     set_gap_param(TGAP_CONN_EST_INT_MIN, 20);
     set_gap_param(TGAP_CONN_EST_INT_MAX, 60);

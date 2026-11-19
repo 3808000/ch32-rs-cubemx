@@ -96,10 +96,18 @@ pub const OPTIONS_DEFAULT: ble::Options = ble::Options {
 
 impl BootCfg {
     /// Peripheral defaults: internal 32 kHz RC (`CLK_OSC32K=1`).
+    /// Peripheral-role defaults.
+    ///
+    /// 32K source = **LSE** (external crystal), deviating from EVT's
+    /// `CLK_OSC32K=1` (internal RC): with LSI the blob's connection-event
+    /// timing drifts against the central's window widening — ATT requests
+    /// are missed, service discovery hangs and the link dies by supervision
+    /// timeout (reason 0x08). LSE passes the full GATT criteria on hardware
+    /// (same source the M17 generator uses). Advertising alone tolerates LSI.
     pub const fn peripheral() -> Self {
         Self {
             options: OPTIONS_DEFAULT,
-            sel_rtc_clock: 1,
+            sel_rtc_clock: 0,
             mac_lsb: MAC_DEFAULT_LSB,
             rc_cb: None,
         }
@@ -156,27 +164,101 @@ unsafe extern "C" fn app_task(task_id: u8, events: u16) -> u16 {
     events & !SYS_EVENT_MSG
 }
 
+/// BLEB/BLEL ISR wrappers saving **all callee-saved registers** (ra+s0–s11).
+///
+/// qingke-rt's stock `#[interrupt]` wrapper saves only `ra`, relying on the
+/// handler's C ABI to preserve s0–s11. The WCH blob clobbers s1 (observed:
+/// s1=0xffffff82 while the main loop holds the SysTick base there →
+/// misaligned-load exception 4 → DefaultHandler hang, non-deterministic
+/// ~18–84 s after boot, earlier under connection/scan load). Saving every
+/// s register in the wrapper makes the main loop immune regardless of the
+/// blob's internal register usage. Invoke once per binary instead of the
+/// two `#[qingke_rt::interrupt]` handlers.
+#[macro_export]
+macro_rules! ble_isr {
+    () => {
+        core::arch::global_asm!(
+            ".section .trap, \"ax\"",
+            ".align 2",
+            ".global BLEB",
+            "BLEB:",
+            "addi sp, sp, -52",
+            "sw ra, 0(sp)",
+            "sw s0, 4(sp)",
+            "sw s1, 8(sp)",
+            "sw s2, 12(sp)",
+            "sw s3, 16(sp)",
+            "sw s4, 20(sp)",
+            "sw s5, 24(sp)",
+            "sw s6, 28(sp)",
+            "sw s7, 32(sp)",
+            "sw s8, 36(sp)",
+            "sw s9, 40(sp)",
+            "sw s10, 44(sp)",
+            "sw s11, 48(sp)",
+            "1: auipc t1, %pcrel_hi(BB_IRQLibHandler)",
+            "jalr t1, %pcrel_lo(1b)(t1)",
+            "lw ra, 0(sp)",
+            "lw s0, 4(sp)",
+            "lw s1, 8(sp)",
+            "lw s2, 12(sp)",
+            "lw s3, 16(sp)",
+            "lw s4, 20(sp)",
+            "lw s5, 24(sp)",
+            "lw s6, 28(sp)",
+            "lw s7, 32(sp)",
+            "lw s8, 36(sp)",
+            "lw s9, 40(sp)",
+            "lw s10, 44(sp)",
+            "lw s11, 48(sp)",
+            "addi sp, sp, 52",
+            "mret",
+            ".global BLEL",
+            "BLEL:",
+            "addi sp, sp, -52",
+            "sw ra, 0(sp)",
+            "sw s0, 4(sp)",
+            "sw s1, 8(sp)",
+            "sw s2, 12(sp)",
+            "sw s3, 16(sp)",
+            "sw s4, 20(sp)",
+            "sw s5, 24(sp)",
+            "sw s6, 28(sp)",
+            "sw s7, 32(sp)",
+            "sw s8, 36(sp)",
+            "sw s9, 40(sp)",
+            "sw s10, 44(sp)",
+            "sw s11, 48(sp)",
+            "1: auipc t1, %pcrel_hi(LLE_IRQLibHandler)",
+            "jalr t1, %pcrel_lo(1b)(t1)",
+            "lw ra, 0(sp)",
+            "lw s0, 4(sp)",
+            "lw s1, 8(sp)",
+            "lw s2, 12(sp)",
+            "lw s3, 16(sp)",
+            "lw s4, 20(sp)",
+            "lw s5, 24(sp)",
+            "lw s6, 28(sp)",
+            "lw s7, 32(sp)",
+            "lw s8, 36(sp)",
+            "lw s9, 40(sp)",
+            "lw s10, 44(sp)",
+            "lw s11, 48(sp)",
+            "addi sp, sp, 52",
+            "mret",
+        );
+    };
+}
+
 /// Power-on sequence shared by every binary.
 ///
 /// Order (spec §0.2/§0.3): `hal::init` at 60 MHz, 32 kHz source, UART1 log,
 /// `BLE_LibInit`, application task, BLE interrupt vectors.
 pub fn boot(cfg: BootCfg) -> Boot {
-    // M18 实机根因修复：qingke-rt link.x 的 `_ebss` 落在 .bss 输出段中部——lib 的
-    // orphan .bss 输入段（gapRole_* 等全局）排在 `_ebss` 之后，启动清零不覆盖；
-    // 软复位保留 RAM 旧态 → peripheral 角色读脏状态不上空口（broadcaster 偶容忍）。
-    // 在 hal::init 前把 `_ebss` 到当前栈帧下方 2KiB 的安全区清零（不碰栈/ .data/.highcode）。
-    unsafe {
-        extern "C" {
-            static _ebss: u8;
-        }
-        let sp: usize;
-        core::arch::asm!("mv {}, sp", out(reg) sp, options(nomem, nostack));
-        let start = core::ptr::addr_of!(_ebss) as usize;
-        let end = (sp.saturating_sub(2048)) & !0x3ff;
-        if end > start {
-            core::ptr::write_bytes(start as *mut u8, 0, end - start);
-        }
-    }
+    // M18 bisect 注记：此处曾有 `_ebss..sp-2KiB` 预清零（怀疑 orphan .bss 脏态）。
+    // 后续 UART 直证表明 peripheral 静默的真实根因是漏调 GAPRole_PeripheralInit，
+    // 预清零与本缺陷无关；且 M17 生成器产物（无预清零）实机 GATT 全通。
+    // 移除以对齐 M17 启动路径（A/B 实证）。
 
     let p = hal::init(hal::Config {
         rcc: hal::rcc::Config::PLL_60MHZ,
@@ -204,7 +286,11 @@ pub fn boot(cfg: BootCfg) -> Boot {
     ble::println!("mac {}", ble::MacAddress::from_raw(cfg.mac_lsb));
     ble::println!("systick_hz {}", ble::systick_hz());
 
-    let (_, _subscriber) = ble::init_with(
+    // M17 A/B：直接使用 shim 的 hal TMOS 任务（M17 生成器把该 task_id 传给
+    // *StartDevice；事件经 hal_tmos_task → pubsub → run() drain）。不再额外
+    // 注册 app_task——独立任务槽 + 把 app_task 传给 StartDevice 的组合在实机
+    // 上导致 GATT 发现无响应（M17 参照产物同板同时刻全通）。
+    let (task_id, subscriber) = ble::init_with(
         ble::Config {
             mac_lsb: cfg.mac_lsb,
             sel_rtc_clock: cfg.sel_rtc_clock,
@@ -213,14 +299,7 @@ pub fn boot(cfg: BootCfg) -> Boot {
         cfg.options,
     )
     .expect("BLE_LibInit failed");
-
-    let task_id = unsafe { TMOS_ProcessEventRegister(Some(app_task)) };
-    if task_id == INVALID_TASK_ID {
-        ble::println!("TMOS_ProcessEventRegister failed");
-        loop {
-            core::hint::spin_loop();
-        }
-    }
+    unsafe { EVENT_SUB = Some(subscriber) };
     unsafe { APP_TASK_ID = task_id };
 
     unsafe {
@@ -236,8 +315,20 @@ pub fn boot(cfg: BootCfg) -> Boot {
 // GAP callbacks shared by the binaries
 // ---------------------------------------------------------------------------
 
-pub unsafe extern "C" fn gap_state_change(state: u32, _event: *mut gapRoleEvent_t) {
+pub unsafe extern "C" fn gap_state_change(state: u32, event: *mut gapRoleEvent_t) {
     ble::println!("gap state {}", state);
+    // WCH peripheral role delivers link events through the state-change
+    // callback's pEvent (not as TMOS messages to the app task); forward to
+    // the per-binary handler so connect/disconnect bookkeeping runs.
+    if !event.is_null() {
+        if let Some(handler) = GAP_HANDLER {
+            handler(event);
+        }
+    }
+    if state == GAPROLE_WAITING {
+        // Resume advertising after a disconnect (EVT peripheral behavior).
+        adv_enable(true);
+    }
 }
 
 pub unsafe extern "C" fn gap_param_update(
@@ -467,18 +558,31 @@ pub fn set_central_conn(min: u16, max: u16, latency: u16, timeout: u16) {
     set_gap_param(TGAP_CONN_EST_SUPERV_TIMEOUT, timeout);
 }
 
+/// Register the peripheral role's TMOS task.
+///
+/// M17 hardware-passing order requires this **before** service registration
+/// (GGS/GATTServApp/register_service); with the role task absent the GATT
+/// server accepts registrations but never answers discovery. Call right after
+/// `boot`, ahead of bond/service/adv setup.
+pub fn peripheral_role_init() {
+    unsafe {
+        let _ = GAPRole_PeripheralInit();
+    }
+}
+
 /// Start the peripheral role and enable advertising.
 ///
-/// `GAPRole_PeripheralInit()` must run first (registers the role's TMOS task);
-/// without it `GAPRole_PeripheralStartDevice` returns INVALIDPARAMETER(0x02)
-/// and the role stays in state 0 — advertising never reaches the air.
-/// The M17 codegen has always emitted this call; the M18 test lib missed it.
+/// [`peripheral_role_init`] must have run earlier (before services); the
+/// redundant Init here keeps standalone callers safe (second call returns
+/// bleAlreadyInRequestedMode, ignored).
 pub fn start_peripheral(task: u8) {
+    // M17 order: advertising enabled BEFORE StartDevice (A/B-verified —
+    // enabling only afterwards leaves the GATT server silent in discovery).
+    adv_enable(true);
     unsafe {
         let _ = GAPRole_PeripheralInit();
         let _ = GAPRole_PeripheralStartDevice(task, &GAP_BOND_CBS, &GAP_ROLE_CBS);
     }
-    adv_enable(true);
 }
 
 /// Add the mandatory GAP/GATT server services before custom services.
@@ -712,6 +816,16 @@ pub fn service_cbs() -> &'static gattServiceCBs_t {
 ///
 /// Handles are assigned by the stack in registration order.
 pub fn register_attrs(attrs: &'static mut [GattAttribute]) -> bStatus_t {
+    // M17 hardware-passing sequence: initialize every CCCD table before
+    // registering the service (the earlier bisect suspicion that
+    // InitCharCfg stops advertising was disproven by UART status evidence).
+    for attr in attrs.iter() {
+        if attr_uuid(attr) == gatt_uuid::GATT_CLIENT_CHAR_CFG_UUID {
+            unsafe {
+                GATTServApp::init_char_cfg(INVALID_CONNHANDLE, attr.value as *mut gattCharCfg_t);
+            }
+        }
+    }
     let ptr = attrs.as_mut_ptr();
     let len = attrs.len();
     let status = unsafe { GATTServApp::register_service(attrs, 16, &SERVICE_CBS) };
@@ -866,6 +980,15 @@ impl Deadline {
     }
 }
 
+/// Live shim pubsub subscriber, installed by [`boot`].
+///
+/// `hal_tmos_task` publishes stack events into the shim channel and defers
+/// `tmos_msg_deallocate` to `TmosEvent::Drop`. The subscriber must stay alive
+/// and be drained (see [`run`]); dropping it at boot pins message buffers in
+/// the 4-slot queue and the library's GATT server stalls once the small
+/// buffer pool exhausts (M17's `tmos_poll` performs the same drain).
+static mut EVENT_SUB: Option<ble::EventSubscriber> = None;
+
 /// Busy-poll TMOS pump, one callback per millisecond.
 ///
 /// This mirrors the EVT main loops (`HAL_SLEEP=FALSE`, no WFI).
@@ -873,6 +996,13 @@ pub fn run<F: FnMut(u32)>(mut on_tick: F) -> ! {
     let mut last = now_ms();
     loop {
         unsafe { TMOS_SystemProcess() };
+        unsafe {
+            if let Some(sub) = (*core::ptr::addr_of_mut!(EVENT_SUB)).as_mut() {
+                while let Some(event) = sub.try_next_message_pure() {
+                    let _ = event.message_id();
+                }
+            }
+        }
         let now = now_ms();
         if now != last {
             last = now;

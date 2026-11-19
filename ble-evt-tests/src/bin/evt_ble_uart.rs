@@ -23,15 +23,7 @@ use core::ptr::addr_of_mut;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 struct Ctx {
     conn: u16,
@@ -139,13 +131,14 @@ fn main() -> ! {
     .unwrap();
 
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
     set_write_hook(on_write);
     bond_peripheral(true, GAPBOND_IO_CAP_DISPLAY_ONLY);
     set_peripheral_conn(8, 20, 0, 100);
 
-    add_gatt_services();
-    let _ = services::uart::register();
-    set_device_name("ch583_ble_uart");
+    // M17 hardware-passing order: role init → adv params + advert enabled
+    // → GGS/GATTServApp → services → name → StartDevice.
+    peripheral_role_init();
 
     let mut adv = ble_evt_tests::adv::simple_adv(0xFFF0);
     set_adv_data(adv.as_slice());
@@ -154,8 +147,16 @@ fn main() -> ! {
         ;
     set_scan_rsp(rsp.as_slice());
     set_adv_interval(160); // 100 ms
+    adv_enable(true);
 
-    start_peripheral(task);
+    add_gatt_services();
+    let _ = services::uart::register();
+    set_device_name("ch583_ble_uart");
+
+
+    unsafe {
+        let _ = GAPRole_PeripheralStartDevice(task, bond_cbs(), role_cbs());
+    }
 
     unsafe {
         *addr_of_mut!(CTX) = Some(Ctx {

@@ -25,15 +25,7 @@ use core::ptr::addr_of_mut;
 use panic_halt as _;
 use qingke_rt::entry;
 
-#[qingke_rt::interrupt]
-unsafe fn BLEB() {
-    ble::BB_IRQLibHandler();
-}
-
-#[qingke_rt::interrupt]
-unsafe fn BLEL() {
-    ble::LLE_IRQLibHandler();
-}
+ble_evt_tests::ble_isr!();
 
 static mut SYNCED: bool = false;
 
@@ -105,6 +97,7 @@ fn main() -> ! {
 
     set_gap_handler(on_gap);
     set_app_handler(on_event);
+    set_gap_handler(on_gap);
 
     unsafe {
         let _ = GAPRole_ObserverInit();
