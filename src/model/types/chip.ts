@@ -51,8 +51,12 @@ export interface ChipData {
   sram: string
   deviceId: string
   halFeature: string // ch32-hal Cargo feature（完整小写型号）
-  /** HAL 后端 crate：缺省 'ch32-hal'；CH58x 系列为 'ch58x-hal'（代码生成后端尚未接入时阻止导出） */
+  /** HAL 后端 crate：缺省 'ch32-hal'；CH582M 默认 'ch5xx-hal'（M17），CH58x 系 legacy 为 'ch58x-hal' */
   halBackend?: string
+  /** 可选 legacy 后端（M17）：存在时设置页显示「HAL 后端」切换；历史 cube.json 缺 halBackend → 走此后端 */
+  legacyHalBackend?: string
+  /** 按后端区分的工具链需求（M17，verify-build 的 toolchainOf 消费）：如 { "ch5xx-hal": true } */
+  nightlyByBackend?: Record<string, boolean>
   target: string
   nightly: boolean
   /** 自定义 target JSON 内容（M14，如 V307 的 ilp32f spec）：存在且 nightly 时输出 <target>.json 并启用 build-std */

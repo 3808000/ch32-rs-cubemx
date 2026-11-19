@@ -122,16 +122,17 @@ describe('生成支持徽标判定', () => {
     expect(buildChipRows([chip])[0].halBackend).toBe('ch32-hal')
   })
 
-  it('显式 ch32-hal 与 ch58x-hal 均可生成（M11）；未知后端不支持', () => {
+  it('显式 ch32-hal / ch58x-hal / ch5xx-hal 均可生成（M11/M17）；未知后端不支持', () => {
     expect(chipGenerationSupported(mkChip({ halBackend: 'ch32-hal' }))).toBe(true)
     expect(chipGenerationSupported(mkChip({ halBackend: 'ch58x-hal' }))).toBe(true)
+    expect(chipGenerationSupported(mkChip({ halBackend: 'ch5xx-hal' }))).toBe(true)
     expect(chipGenerationSupported(mkChip({ halBackend: 'other-hal' }))).toBe(false)
-    expect(SUPPORTED_HAL_BACKENDS).toEqual(['ch32-hal', 'ch58x-hal'])
+    expect(SUPPORTED_HAL_BACKENDS).toEqual(['ch32-hal', 'ch58x-hal', 'ch5xx-hal'])
   })
 
-  it('CH582M（ch58x-hal）标注「可生成」且仍保留在列表中', () => {
+  it('CH582M（M17 默认 ch5xx-hal，legacy ch58x-hal）标注「可生成」且仍保留在列表中', () => {
     const row = rowOf('CH582M')
-    expect(row.halBackend).toBe('ch58x-hal')
+    expect(row.halBackend).toBe('ch5xx-hal')
     expect(row.supported).toBe(true)
     expect(registeredRows.some((r) => r.chip === 'CH582M')).toBe(true)
   })

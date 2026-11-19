@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 项目记忆
 
-> 供编码 Agent 使用：修改代码前先读本文件。最后更新：2026-11-15。
+> 供编码 Agent 使用：修改代码前先读本文件。最后更新：2026-11-19。
 
 ## 1. 概述
 
@@ -135,3 +135,17 @@
 - 干跑 3/3 绿后推 tag v0.1.0@a9afa6a → run 44321903872 全绿自动转正式，15 assets（各附 sha256，app.tar.gz 除外）。发布说明 /tmp/release-notes-v0.1.0.md 套用。
 - 版本号四处早已对齐 0.1.0（package.json/package-lock/tauri.conf.json/Cargo.toml+lock），无需 bump。
 - 教训：workflow 注册秒级延迟（push 后立即 dispatch 404）；Git Data API 建 tag 可触发 push-tag 工作流；gh run watch 瞬时断网退出≠run 失败→容错轮询。
+
+## 12. M17 CH582 迁移 ch5xx-hal + BLE shim（2026-11-19）
+
+- **立项**：ch58x-hal#13 维护者指引转向活跃开发的 ch5xx-hal；侦察确认其 README「BLE Not implemented」。用户裁决：移植 ch58x BLE 层为自建 shim，CH582M 默认切 ch5xx-hal，ch58x-hal 保留 legacy opt-in。
+- **真相源**：ch5xx-hal @ `875651b6`（0.1.0，rust-version 1.95）、ch5xx-metapac `680e2e12`、ch5xx-data `42237c4d`（vendor 快照；与 metapac 生成数据对齐；上游另核对 `fba766c1` 的 CH569 RAMX 修正，未纳入本次快照）；legacy BLE 源 ch58x-hal @ `611954e`（MIT/Apache-2.0，(c) Andelf）+ WCH blob。
+- **shim**：`vendor-src/ch5xx-ble/`，ffi/gap/gatt/gatt_uuid/gattservapp/linkdb 逐字移植；门面提供 `Config{mac_lsb, sel_rtc_clock, rc_cb}`/`init`/`TmosEvent`/`enable_lse`/`set_clock32k_lsi`/`temperature_raw`/`srand`/`systick_hz`/`set_default_serial`/`println!`。偏离与证据见 m17-shim-notes §8（TOUCHKEY、non_exhaustive、unwrap_or(0)、PA 不移植等）。
+- **API 差异要点**：预设是 `rcc::Config::PLL_*` 关联常量（无 `rcc::presets` 模块）；UART `new_blocking::<REMAP: u8>(peri, rx, tx, cfg)` 参数序反转；I2C 无上拉、Fsys 2..=36MHz；ADC 通道=GPIO `Peri`、SampleClock 判别值同序；无 `println`/32K API → shim；中断 BLEB=20/BLEL=21。全部差异表见 HAL notes §17.2。
+- **工具链**：默认 nightly + rust-src + `[unstable] build-std=["core"]`（三档均照 reference examples/ch582）；stable 1.100.0 可编但 build-std 被**静默忽略**，需预装 target rust-std（S1 证明工程用 riscv32imac，生成工程 target 仍 imc）。`nightlyByBackend` 数据驱动 verify。
+- **vendor 强制**：ch5xx-hal `build.rs:610/667` 硬读兄弟 `../ch5xx-data/data`；纯 git checkout 无该目录 → panic（复现日志 m17-shim-notes §9）。生成期对 `vendorHal=false` 报 `TARGET_FEATURE_UNSUPPORTED`；vendor zip 必须同时内嵌 `vendor/ch5xx-hal` + `vendor/ch5xx-data`，BLE 档再加 `vendor/ch5xx-ble`。
+- **legacy 兼容**：chip.json `halBackend=ch5xx-hal`/`legacyHalBackend=ch58x-hal`；历史 cube.json 缺 halBackend 的 CH582M 按 legacy 导入；设置页可覆盖；BLE+legacy 继续旧 ch58x 路径。
+- **运行时**：ch5xx BLE 档 busy-poll（不启 hal embassy/time-driver；`loop { TMOS_SystemProcess(); … }`），延续 §14.2bis 的 WFI 停计规避；embassy 档用 `time-driver-tmr0` + embassy 0.10/0.5.1 git patch。
+- **验证（诚实分级）**：五档 cargo 绿——ch5xx blocking/embassy/BLE（nightly）与 legacy blocking/BLE（stable），产物 `/tmp/m17{ch5,ch5e,ch5b,legacy,legacyble}`；**ch5xx BLE 实机未复验，只标 cargo-build 级**。M17 新增 ch5xx 套件见 `tests/ch5xx*`，总数以主控门禁为准（不在文档编造）。
+- **COMMON 未清零（既有）**：qingke-rt 0.8.4/0.5 的 `link-highcode.x` `.bss` 通配缺 `*(COMMON)`；WCH blob 81 个 COMMON（1116 B）排在 `_ebss` 后，启动不清零。legacy 同样存在且实机曾工作；缓解（生成 `-T` 片段或 fork link.x）待实机裁决。
+- **上游**：ch58x-hal#13/#14 仍 OPEN（#13 维护者已指引 ch5xx-hal），ch5xx-hal issues 为空；英文草稿 `/tmp/m17-issue-comments/{13,14,ch5xx-buildrs-data}.md` 待主控审核发布，未自动提交。

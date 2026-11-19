@@ -1,0 +1,25 @@
+[package]
+name = "ch5xx-ble"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "WCH CH58x BLE 5.x stack shim for ch5xx-hal / ch5xx-metapac (CH582/CH583)"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ch32-rs/ch58x-hal"
+categories = ["embedded", "no-std", "hardware-support"]
+keywords = ["ch582", "ch583", "ble", "risc-v", "hal"]
+readme = "README.md"
+
+# The HAL is pinned to the same upstream revision the configurator exports, so
+# this manifest works both in-tree (through a [patch] in the proof project) and
+# in a generated vendor/ tree where the [patch] redirects it to vendor/ch5xx-hal.
+[dependencies]
+ch5xx-hal = { git = "https://github.com/ch32-rs/ch5xx-hal", rev = "875651b693ef437e045d023171adaf052a07525c", default-features = false }
+ch5xx-metapac = { git = "https://github.com/ch32-rs/ch5xx-metapac", rev = "680e2e12", features = ["rt"] }
+embassy-sync = "0.8"
+critical-section = "1.2"
+
+[features]
+# The CH58x BLE blob is linked unconditionally; the feature exists so a
+# generated project can keep the dependency shape stable.
+default = []

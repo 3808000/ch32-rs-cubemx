@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 功能完善路线图（对标 STM32CubeMX2）
 
-> **总体进度（2026-11-18）：M1–M16 十六个里程碑核心项全部完成；v0.1.0 已正式发布（MIT 许可 + 三平台 Actions 自动构建）。** 测试 380→1524，62 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
+> **总体进度（2026-11-19）：M1–M17 十七个里程碑核心项完成（M17 的 ch5xx BLE 实机复验待主控门禁）；v0.1.0 已正式发布（MIT 许可 + 三平台 Actions 自动构建）。** 测试 380→1621（63 文件；M17 新增 ch5xxCodegen 59 / ch5xxBleCodegen 32 + 分流/导出/往返用例），66 个子智能体分域并行 + 主控基座/接线/集成/实机取证/UI 对照修正/编译与射频阻塞攻坚。每个里程碑均通过 vue-tsc / eslint / validate:device / vite build / verify:build / 浏览器验收；M14 芯片扩至 **7 颗**（V003/V103/V203/V307/X035/H417/CH582M，verify blocking 6/6 + embassy 6/6 + BLE 1/1），BLE 实机连接建立打通（根因 #5：32K 域错配）；宿主 AX210 GATT 卡点 btmon 实证闭环（2M PHY 切换后首包 PB 损坏→强制 1M PHY 修复 + systemd 持久化）+ notify 周期实机裁决修复（hclk/8≈1s，20 包/20s 复验）。**M17 将 CH582M 默认后端迁移到 ch5xx-hal（875651b6）并把 legacy BLE 层移植为 `ch5xx-ble` shim：ch5xx blocking/embassy/BLE + legacy blocking/BLE 五档 cargo 全绿；ch5xx 档强制 vendor（内嵌 ch5xx-data）、默认 nightly+build-std，legacy ch58x-hal 保留 opt-in，实机 BLE 复验待门禁。** 剩余为低优先 P2 与上游缺陷项（见各里程碑「暂缓」标注）。
 
 > 依据：[ANALYSIS-MX2-GAP.md](ANALYSIS-MX2-GAP.md)（视图与交互，CDP 实机分析） + [ANALYSIS-MX2-CODEGEN-GAP.md](ANALYSIS-MX2-CODEGEN-GAP.md)（生成器与工程生态，.ioc2/bundle 一手分析）。
 > 制定日期：2026-11-16。基线：v0.01（380 测试 / 三芯片端到端编译 / MVC 分层完成）。
@@ -315,6 +315,35 @@
 **D12（2026-11-18 用户裁决，参照 CubeMX2 时钟树截图）**：输入 LSI/LSE/HSE/HSI 左列竖排；主干 System Mux→System Clock→AHB Prescaler→HCLK 水平；输出右列上下并联竖排（CORE「内核/DMA/存储器」/SYSTICK「系统定时器」/APB1→TIM1→APB2→TIM2→USB→ADC，读数卡右对齐 x+w=1400）；外设 SPI/I2C/USART/ADC **单列上下并联**（「并联是上下并联不是左右」），类别分组框上下堆叠。MX2「To Power」在 WCH 无独立域不造假行；SysTick 逐芯片 HAL 事实（QingKe V2/V4/X035/H417=HCLK、V3/CH582=HCLK÷8，见 HAL notes §16.6）。aux schema 增 deriveDiv/group（readout 单输入派生，仅显示不生成）；TIM/USB/ADC/APB 归 g-out。画布宽 1790；高度随外设实例数（V003 696 → H417 2376，18 卡竖排自然结果，fit-zoom 全览）。4 子代理（E 测试 + G1/G2/G3 数据）并行 + 主控引擎/契约/验收。
 
 **暂缓**：KernelMux/AuxPlls/I2S 建模、aux 域代码生成、X035 CLK_DIV 完整 9 位编码表（需 RM 表逐字）、V203 prediv 支路建模、非预设 PLL 显式导出（M17 候选）、时钟单位切换。
+
+---
+
+## M17（v0.18）CH582 迁移 ch5xx-hal + BLE shim —— 「跟进上游活跃后端，BLE 能力自持」 ✅ 核心项完成（2026-11-19；实机 BLE 复验待门禁）
+
+> **立项缘由**：ch32-rs/ch58x-hal#13 维护者 andelf 评论「Thanks, you can checkout https://github.com/ch32-rs/ch5xx-hal as it's actively developed」。侦察证实 ch5xx-hal 为重写后端，README 能力表明确 **BLE Not implemented**。用户裁决：把 ch58x 的 BLE 模块移植给 ch5xx（自建 shim crate），CH582M 默认切 ch5xx-hal，ch58x-hal 保留 legacy opt-in。
+> **落地状态**：`ch5xx-hal` 后端 + `ch5xx-ble` shim 全链路接入。**五档 cargo 绿**：ch5xx blocking / embassy / BLE（nightly + `build-std=["core"]`，build-std 生效）与 legacy blocking / BLE（stable）。ch5xx 档强制 vendor 模式（vendor 树必须并列 `ch5xx-data`，否则 HAL build.rs panic）；默认 nightly + rust-src，stable 仅作“已预装 target rust-std”的备选（build-std 被静默忽略）。**实机 BLE 尚未复验通过，文档按 cargo-build 级表述**；legacy BLE 的既有实机结论（广播/连接/GATT/notify）仍有效。
+> **契约与证据**：[CH5XX_BACKEND_CONTRACT.md](CH5XX_BACKEND_CONTRACT.md)（D1–D8 决策 + D4 的 presets 路径由 S1 实测纠正为 `rcc::Config::PLL_*`）；S1 实测 [m17-shim-notes.md](m17-shim-notes.md)（证明工程、逐条偏离、git 模式 panic 日志、COMMON 风险）；迁移 API 差异与验证分级 [HAL_API_NOTES §17](HAL_API_NOTES.md)。
+> **上游现状**：ch58x-hal#13 OPEN（维护者已指引 ch5xx-hal）、#14 OPEN（0 评论）；ch5xx-hal issues 为空。三份英文沟通草稿在 `/tmp/m17-issue-comments/`，待主控审核后发布（不在本里程碑内自动提交）。
+
+| # | 任务 | 改动落点 | 验收 |
+|---|---|---|---|
+| 17.1 | S1：legacy BLE 层逐字移植为 `ch5xx-ble` shim（ffi/gap/gatt/gatt_uuid/gattservapp/linkdb + 门面 API + WCH blob 链接），32K/ADC/日志/熵适配 ch5xx-metapac；最小 BLE 证明工程双工具链 cargo build | `vendor-src/ch5xx-ble/**`、`docs/m17-shim-notes.md` | stable/nightly 均编译链接；偏离逐条；`/tmp/m17-shim-proof` |
+| 17.2 | S2：ch5xx 独立 codegen 管线（三档 Cargo/clock/pins/usart/spi/i2c/adc/README/vendor）、derive 校验、数据扩展（backend/presetConstMap/pllDivRange）、导出分流（ch5xx-hal.zip + BLE shim zip + ch5xx-data）、vendor 打包与 verify 五档 | `src/model/codegen/ch5xx/**`、`data/devices/ch582m/*`、`services/projectExport.ts`、`scripts/build-hal5xx-vendor.mjs`、`scripts/verify-build*` | D5 生成期错误；五档 cargo；vendor zip 含数据 |
+| 17.3 | S3：ch5xx codegen/BLE/cargo/分流测试与 legacy 零 regress | `tests/ch5xx*.test.ts`、`tests/{chipPicker,exportBackend,codegen}.test.ts` | 新套件通过；旧断言更新 |
+| 17.4 | S4：文档与上游沟通（本节、HAL notes §17、MEMORY §12、README 芯片行/许可/边界、#13/#14/新 issue 草稿） | `docs/ROADMAP.md`、`docs/HAL_API_NOTES.md`、`docs/PROJECT_MEMORY.md`、`README.md`、`/tmp/m17-issue-comments/*` | 事实可追溯；未验证项分级标注 |
+
+**决策记录**：
+- **新后端默认 + legacy opt-in**：`chip.json halBackend=ch5xx-hal` / `legacyHalBackend=ch58x-hal`；历史 `cube.json` 无 `halBackend` 的 CH582M 工程按 legacy 导入；新工程默认 ch5xx。
+- **BLE 自持**：ch5xx-hal 无 BLE，shim 以 path 依赖随导出内嵌；`Config{sel_rtc_clock, rc_cb}` 把 #14 的硬编码修复面固化。
+- **vendor 强制**：`ch5xx-hal/build.rs` 硬读兄弟 `../ch5xx-data/data`，纯 git rev 消费者必 panic（build.rs:667:62），故仅支持 vendor 并内嵌 `vendor/ch5xx-data`。
+- **工具链**：默认 nightly + rust-src + build-std（照 reference examples/ch582）；stable 只在预装 target rust-std 时可行且 build-std 静默失效。
+- **运行时**：BLE 档 busy-poll（不启 hal embassy/time-driver），延续对 WFI 停计缺陷的规避。
+
+**M17 验收门禁（主控执行）**：`tests/ch5xx*` 与全量 vitest、vue-tsc、eslint、validate:device、vite build；verify:build 五档（ch5xx blocking/embassy/BLE + legacy blocking/BLE）及 ch32 6/6+6/6 不回归；浏览器 CH582 预览含 ch5xx import/new_blocking/shim 依赖，legacy 切换回 ch58x；**门禁实测：1621 用例 / 63 文件全绿（ch58x 72+91 零 regress）**。
+
+**实机计划**：OpenOCD `program … verify reset exit` 烧录 ch5xx+shim peripheral 固件 → 宿主 gatt-test.py（或手机 nRF Connect）验证广播→连接→FFE1 读/FFE2 写/notify 20 包/20s；同时观察 COMMON 未清零是否在连接/长跑路径暴露。**未通过前不得升级为“实机验证”**。
+
+**暂缓**：向上游提 PR（build.rs 数据依赖/target 对齐等，先发 issue 草稿）；`riscv32imac` target 与上游 examples 对齐（当前仍用 imc）；LSI 校准回调移植（`Calibration_LSI`，无 LSE 板稳定性未保证）；BLE PA 控制（`BLE_PAControlInit`/PaConfig）；embassy BLE 档（现仅 busy-poll）；ch5xx 实机 BLE 复验本身。
 
 ---
 

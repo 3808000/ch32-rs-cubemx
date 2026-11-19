@@ -25,6 +25,8 @@ export type ViewId = 'home' | 'pinout' | 'clock' | 'peripherals' | 'project-sett
 
 interface ProjectState {
   chip: string
+  /** 工程级 HAL 后端覆盖（M17）：undefined = 按 chip 缺省解析（历史工程 → legacyHalBackend） */
+  halBackend?: string
   projectName: string
   assignments: PinAssignment[]
   groups: PinGroup[]
@@ -60,6 +62,7 @@ interface ProjectState {
 export const useProjectStore = defineStore('project', {
   state: (): ProjectState => ({
     chip: 'CH32V003F4P6',
+    halBackend: undefined,
     projectName: 'ch32-project',
     assignments: [],
     groups: [],
@@ -89,10 +92,17 @@ export const useProjectStore = defineStore('project', {
     clockConfig(): ClockConfig {
       return mergeClockConfig(this.deviceData.clock, this.clock ?? undefined)
     },
+    /** 生效 HAL 后端（M17）：显式覆盖 > 历史工程 legacy > chip 默认。 */
+    effectiveHalBackend(): string {
+      const chip = this.deviceData.chip
+      return this.halBackend ?? chip.legacyHalBackend ?? chip.halBackend ?? 'ch32-hal'
+    },
     config(): ProjectConfig {
       return {
         version: 1,
         chip: this.chip,
+        // M17：仅显式选择时写入 cube.json（ch32 工程保持逐字节不变）
+        ...(this.halBackend ? { halBackend: this.halBackend } : {}),
         projectName: this.projectName,
         pins: this.assignments,
         groups: this.groups,
@@ -321,6 +331,12 @@ export const useProjectStore = defineStore('project', {
       this.markDirty()
     },
 
+    /** 切换 HAL 后端（M17；undefined = 回到芯片缺省解析）。 */
+    setHalBackend(backend: string | undefined) {
+      this.halBackend = backend || undefined
+      this.markDirty()
+    },
+
     setPrefix(prefix: string) {
       this.prefix = prefix
       this.markDirty()
@@ -349,6 +365,8 @@ export const useProjectStore = defineStore('project', {
     /** 导入工程配置（兼容缺省字段）。 */
     loadConfig(cfg: Partial<ProjectConfig>) {
       if (cfg.chip) this.chip = cfg.chip
+      // M17：历史 cube.json 无 halBackend → undefined（由 resolveHalBackend 走 legacy）
+      this.halBackend = typeof cfg.halBackend === 'string' && cfg.halBackend !== '' ? cfg.halBackend : undefined
       if (cfg.projectName) this.projectName = cfg.projectName
       this.assignments = (cfg.pins ?? []).map((p) => ({ ...p, params: p.params ?? {} }))
       this.groups = cfg.groups ?? []
@@ -374,6 +392,10 @@ export const useProjectStore = defineStore('project', {
     },
 
     switchDevice(chip: string) {
+      // M17：新建/切换芯片时显式写默认后端；无 legacy 的芯片不写（保持 ch32 cube.json 不变）。
+      // 同芯片再次「新建工程」也要回到默认，故赋值放在提前返回之前。
+      const chipData = getDeviceData(chip)
+      this.halBackend = chipData.chip.legacyHalBackend ? (chipData.chip.halBackend ?? undefined) : undefined
       if (chip === this.chip) return
       this.chip = chip
       this.assignments = []

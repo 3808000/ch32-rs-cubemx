@@ -153,8 +153,8 @@ export function useGenerationFlow() {
       notes: [
         ...(selection.vendorHal
           ? [
-              // M11：按芯片 HAL 后端标注实际内嵌目录（ch32-hal / ch58x-hal）
-              `ZIP 内含 vendor/${store.deviceData.chip.halBackend ?? 'ch32-hal'} 完整 HAL 源码。`,
+              // M11/M17：按生效 HAL 后端标注实际内嵌目录（ch32-hal / ch58x-hal / ch5xx-hal）
+              `ZIP 内含 vendor/${store.effectiveHalBackend} 完整 HAL 源码。`,
             ]
           : []),
         ...(selection.htmlReport ? ['report.html 为单文件工程报告，浏览器直接打开即可查阅。'] : []),

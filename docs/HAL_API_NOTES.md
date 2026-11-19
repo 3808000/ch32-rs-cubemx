@@ -729,3 +729,98 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 - **aux schema 扩展**：`deriveDiv?: number`（readout 单输入且 fixedMhz=null → outMhz=输入 outMhz÷deriveDiv）、`group?: string`（缺省 g-aux；CORE/SYSTICK/V5F/V3F 入 g-out）。model 把 TIM1/TIM2/ADC 域/USB/APB1/APB2 归 g-out（g-tim/g-usb 退役）；validate 5c 守 deriveDiv 正数+group 同名框。仅显示不生成，codegen 零改动。
 - **坐标基线实测偏离**（走线硬约束 STUB≥10/GRAZE3 所致，G 域实测）：1 参数 PLL 簇宽 284 → PLL x=290~292 或 SYSCLK x=620（V307/H417）保 pll-sys 缓冲；USBPRE x=600~620（PLL 右缘外）；lanes pll-usb 逐芯片 −6/−8/−10/11；外设组框 h=n×120+24、组间 24（跨组卡距 168）；H417/CH582 无 USB 行（peripheralClocks 无 usb，诚实）；X035 SYSCLK 单行 → AHB y=240。
 - **验收**：1524 测试/61 文件（clockTree 127 含 28 D12 断言：peri 单列同 x/y 递增/类别连续、E 右缘 1400 行序、CORE=hclk、SYSTICK=hclk÷deriveDiv）；validate 7 芯片 0/0；verify 6/6+embassy 6/6+BLE(CH582) 1/1；七芯片 fit 截图（V203 48%/V003 84%/X035 66%/CH582 66%/V103 58%/V307 34%+77%/H417 29%+56%）结构核过；画布宽 1790、高 696(V003)~2376(H417 18 卡)。
+
+## 17. M17 CH582 迁移 ch5xx-hal + BLE shim 移植（2026-11-19）
+
+> 契约：[CH5XX_BACKEND_CONTRACT.md](CH5XX_BACKEND_CONTRACT.md)（D1–D8）。实测笔记：[m17-shim-notes.md](m17-shim-notes.md)（S1，含证明工程与逐条偏离）。本节记录**迁移证据链、API 差异、shim 移植面、工具链/vendor 裁决与验证状态**；legacy ch58x 证据仍以 §13/§14 为准。
+
+### 17.1 真相源与上游状态
+
+| 对象 | 锁定版本/事实 | 说明 |
+|---|---|---|
+| ch5xx-hal | `875651b693ef437e045d023171adaf052a07525c`（0.1.0，rust-version 1.95） | `../reference/ch5xx-hal` 为 tarball 解包（非 git 树）；BLE 支持如实为 **Not implemented** |
+| ch5xx-metapac | `680e2e12`（由 ch5xx-hal Cargo.toml 锁定） | PAC 新 svd2rust 风格；提供 `memory-x`/`rt` |
+| ch5xx-data | `42237c4d`（vendor 快照；即 metapac `680e2e12` 生成所用数据）；上游另核对 `fba766c1`（CH569/CH565 RAMX 默认 32K 修正） | **不是 crate 依赖**：HAL `build.rs` 读兄弟目录 `../ch5xx-data/data`。两版数据在 CH569/CH565/SPI/UART 寄存器定义上有差异，本次 vendor 仍锁 `42237c4d` 以与 metapac 对齐；见 §17.5 |
+| legacy BLE 源 | ch58x-hal @ `611954e`（MIT/Apache-2.0，(c) 2023 Andelf） | `src/ble/{ffi,gap,gatt,gatt_uuid,gattservapp,linkdb}.rs` 逐字移植为 `vendor-src/ch5xx-ble` |
+| WCH blob | `LIBCH58xBLE.a` 1,133,340 B / `libISP583.a` 5,374 B | 原样随 shim 分发，未修改；链接名用 `nm` 核对 |
+
+上游 issue 现状（2026-11-19 只读核实）：ch32-rs/ch58x-hal **#13 OPEN**（维护者 andelf 评论指引转向 ch5xx-hal）、**#14 OPEN**（0 评论）；ch32-rs/ch5xx-hal **issues 为空**，README 能力表为 `USB host, BLE, NFC | Not implemented`。因此本里程碑的 BLE 能力全部由我方 shim 承载；三份英文草稿见 `/tmp/m17-issue-comments/`（§17.9）。
+
+### 17.2 API 差异表（legacy ch58x-hal → ch5xx-hal）
+
+| 维度 | legacy @611954e | ch5xx-hal @875651b6 | 生成器/shim 处置 |
+|---|---|---|---|
+| entry | `#[qingke_rt::entry]`，qingke-rt 0.5 直依赖，highcode | 同样不 re-export entry；qingke-rt **0.8.4** 直依赖，`features=["highcode"]` | Cargo 显式写 qingke-rt 0.8.4 |
+| 时钟 | `Config{clock,low_power,enable_dcdc}`；sysctl 具名档 | `hal::rcc::Config`；预设是**关联常量** `Config::PLL_60MHZ` 等（`presets!` 宏在 `impl Config` 内，rcc.rs:264/277/525），**没有 `rcc::presets` 模块** | D4 旧文案已按 S1 §9 纠正；clock.rs 用 `hal::rcc::Config::PLL_*` |
+| 频率类型 | `Hertz` | `time::Hertz(pub u32)`；无 `.Hz()`/U32Ext 扩展 | 生成 `Hertz(n)` / `Hertz::hz(n)` |
+| 外设所有权 | 直接 `p.PAx` 单例 | `Peri<'d, T>`（`embassy_hal_internal` re-export，lib.rs:30）+ `Peripherals::take` | 模板统一 `Peri`；shim 温度通道用 `Peri::steal()` |
+| UART | `new::<REMAP: bool>(peri, **tx, rx**, cfg)` | `new_blocking::<REMAP: u8>(peri, **rx, tx**, cfg) -> Result` | **参数顺序反转**；REMAP 由 bool 改 u8 |
+| REMAP | `const REMAP: bool`（0/1 档） | `const REMAP: u8`（多档引脚集） | usart/spi/i2c 模板全部 `::<u8>` |
+| GPIO | `Output::new(pin, Level, OutputDrive::{_5mA,_20mA})`；无 Speed | `Output::new(pin, Level, Speed::{Low(5mA),High(20mA)})`；`Input::new(pin, Pull)` | 生成映射 Low/High；旧字段名仅剩 UI 语义 |
+| SPI | 仅 SPI0；polarity（无 phase），半双工路径 | `embedded_hal::spi::Mode` 支持 **MODE_0/MODE_3**；全双工 `new_blocking::<REMAP: u8>(spi, sck, mosi, miso, cfg)` | 只生成 mode 0/3；mode 1/2 与 txonly/rxonly 生成期报错 |
+| I2C | 单实例；有上拉参数；`transaction()` todo!() | `Config{frequency, duty}`，**无上拉字段**；Fsys 必须 **2..=36 MHz**（i2c.rs:162） | ch5xx 档忽略上拉并警告；时钟范围生成期 `I2C_CLOCK_OUT_OF_RANGE` |
+| ADC | `Config{clk, pga_gain}`；`read()` 返回 u16；通道号整数 | `Config{gain, sample_clock}`（`#[non_exhaustive]`）；`SampleClock::Divide1..4` **判别值 0..3 与旧枚举同序**；通道类型是 **GPIO `Peri`**（`impl_channel` 表，如 PA4=ch0；CH582 的完整 pin→channel 映射随各自芯片 cfg） | 模板按引脚传通道；`blocking_read(&mut ch) -> Result<u16,_>`；温度用 `unwrap_or(0)` |
+| 寄存器风格 | `pac::SYS::PTR` 全局单例 | `pac::SYS` const 实例 + `.reg()`；触摸键拆成独立 **`pac::TOUCHKEY`**（原 `SYS.tkey_cfg`，同地址 0x57） | shim 改读 `TOUCHKEY.cfg()`；寄存器语义不变 |
+| SysTick | 32 位 `CNT` 视图 | `pac::SYSTICK.cnt()` 为 64 位视图 | shim `srand()` 取低 32 位（CNTL） |
+| 32K / 日志 | `ble::Config` 硬编码 `SelRTCClock=0/rcCB=None`；HAL 有 `println!`/`set_default_serial` | **rcc 无 32K API**（无 `enable_lse`/`Clock32KSrc`）；**无 `println!`/`set_default_serial`** | 由 shim 提供 `enable_lse()`/`set_clock32k_lsi()`/`set_default_serial()`/`println!`（§17.3） |
+| embassy | executor 0.7 + SysTick tick | executor 0.10 / embassy-time 0.5.1；time driver 用 `time-driver-tmr0` 或 SysTick；SysTick init 置 `STCLK=1`（HCLK 全速）+ compare 中断 + 软件高 32 位（time_driver_systick.rs:161-174） | BLE 档不启用 embassy；embassy 档按 reference 例程锁定 git rev |
+
+### 17.3 shim 移植面与偏离
+
+`vendor-src/ch5xx-ble/`（package `ch5xx-ble` 0.1.0，edition 2021）：
+
+- 逐字移植（仅改 crate 路径/依赖）：`ffi.rs` 727、`gap.rs` 616、`gatt.rs` 690、`gatt_uuid.rs` 283、`gattservapp.rs` 166、`linkdb.rs` 109 行。`#[link(name="CH58xBLE")]` 原样保留；`build.rs` 追加 link-search + `static=CH58xBLE`/`ISP583`。
+- 新增门面 `src/lib.rs`：D3 冻结 API（`Config{mac_lsb, sel_rtc_clock, rc_cb}`、`init`、`EventSubscriber`、`TmosEvent`、`MacAddress`、`lib_version`、`temperature_raw`、`srand`、`systick_hz`、`enable_lse`、`set_clock32k_lsi`、`set_default_serial`/`println!`），以及 `LLE_IRQLibHandler`/`BB_IRQLibHandler` 外部声明（旧 ffi 未声明这两符号）。
+- 偏离逐条（详证 m17-shim-notes §8）：①`SYS.tkey_cfg` → `TOUCHKEY.cfg`；②`adc::Config` 为 non_exhaustive，改 `default()` 后赋字段；③`srand` 64 位视图取低 32；④温度超时 `unwrap_or(0)` 而非 panic（协议栈内部回调不能死机）；⑤`enable_lse` 延用 `hal::delay::Delay` 的 µs 换算，寄存器序列与旧实现一致；⑥**PA 控制不移植**（不调 `BLE_PAControlInit`，用芯片默认功率，契约已声明）；⑦`set_default_serial` 为安全 fn、写 UART 错误忽略、未安装时 no-op；⑧新增两个 blob ISR 符号声明；⑨未移植 `use_factory_mac_address`、`isp`、`PaConfig`；⑩`TmosEvent` 4/2/2 pubsub、Drop 归还、单订阅者语义与旧版一致。
+- 32K/ADC 实现事实：`enable_lse()` 在 SAM 窗口（0x57/0xA8/0x00 + `fence.i` + critical-section）内写 `CK32K_CONFIG`，延时按 Fsys 换算（60 MHz ≈25 ms + 60 µs）；`set_clock32k_lsi()` 写 `CLK_OSC32K_XT=0`/`CLK_INT32K_PON=1`；温度通道 15/电池 14，读前保存恢复 `TOUCHKEY.CFG`/`ADC.TEM_SENSOR`/`ADC.CHANNEL`/`ADC.CFG`。
+- 链接结果（S1 证明工程）：`.highcode` 0x2000_0000 含向量表与 BLE IRQ；`.bss` 尾 COMMON 1116 B；`BLEB/BLEL` 中断号 **20/21**（metapac `Interrupt` 枚举），链接符号 `BLE_LibInit`/`TMOS_SystemProcess`/`BB_IRQLibHandler`/`LLE_IRQLibHandler` 均在。
+
+### 17.4 三档 cargo 与工具链裁决
+
+| 档位 | features / 依赖 | 工具链实测 |
+|---|---|---|
+| blocking | `["ch582","rt","memory-x"]` + qingke-rt 0.8.4 + embedded-hal 1.0 | **nightly + `[unstable] build-std=["core"]` + rust-src**（与 reference examples/ch582 一致） |
+| embassy | `+["embassy","time-driver-tmr0"]` + embassy-executor 0.10 / embassy-time 0.5.1 + `[patch.crates-io]` embassy git `4e2fa2e3…` | 同上 |
+| BLE | `["ch582","rt","memory-x"]`（**不启** hal embassy/time-driver）+ `ch5xx-ble` path + embassy-sync 0.8（crates.io）/ critical-section / portable-atomic | 同上；busy-poll，无 executor/WFI |
+
+- **stable 可行性（S1 实测，两条自洽路线）**：stable 1.100.0 能编过，但 cargo **静默忽略 `[unstable] build-std`**（不编译 core），前提是主机已预装目标平台的 `rust-std`（S1 证明工程为 `rust-std-riscv32imac-unknown-none-elf`）。生成工程沿用 chip.json 的 `riscv32imc`，若降 stable 需预装 **该 target** 的 rust-std。默认仍选 **nightly + rust-src + build-std**（D2 原文不动）；`nightlyByBackend={"ch5xx-hal":true,"ch58x-hal":false}` 驱动 verify 选工具链。
+- **BLE 档不启用 hal `embassy`**：协议栈由 `generated::ble::run()` 的 `loop { TMOS_SystemProcess(); … }` 推进，shim 自带 `embassy-sync 0.8` pubsub。这是对 §14.2bis 实机缺陷（WFI 停计/时间驱动饿死）的延续规避。
+- **vendor 模式 patch**：shim 的 Cargo.toml 以 git rev 依赖 ch5xx-hal；工程 vendor 模式必须 `[patch."https://github.com/ch32-rs/ch5xx-hal"] ch5xx-hal = { path = "vendor/ch5xx-hal" }`，否则出现两份 HAL、`UartTx` 等类型不兼容。
+- 注记：ch5xx-hal 自身 Cargo.toml 对 qingke 0.8.4 启用 `unsafe-trust-wch-atomics` + `critical-section-impl`；生成 target 仍沿用 M11 的 `riscv32imc`（无 target_has_atomic → embassy-sync 走 critical-section）。二者并存，本轮未改变 M11 决策，实机原子/中断行为随 BLE 复验一并观察。
+
+### 17.5 git-mode 阻断裁决（强制 vendor）
+
+- 根因：`ch5xx-hal/build.rs:610` 的 `data_root()` 硬编码 `CARGO_MANIFEST_DIR/../ch5xx-data/data`；`register_version_opt()` 等在 `chips/<CHIP>.yaml` 缺失时 `panic!`（build.rs:667:62）。
+- 复现：纯 git rev 依赖（去掉全部 `[patch]`）→ cargo git checkout 只有一个仓库、无 submodule →
+  `thread 'main' panicked at .../ch5xx-hal-be2dc8f8a6a22123/875651b/build.rs:667:62: reading .../875651b/../ch5xx-data/data/chips/CH582.yaml: No such file or directory`。原始日志 `/tmp/m17-shim-proof-git/build.log`，摘要归档 m17-shim-notes §9。
+- 裁决：**ch5xx 档只支持 vendor 模式**。`selection.vendorHal=false` 时生成期报 `TARGET_FEATURE_UNSUPPORTED`（附原因），不产出必然 panic 的工程；vendor zip 同时内嵌 `vendor/ch5xx-hal` 与 `vendor/ch5xx-data`（目录形状正好是 `../ch5xx-data/data`）。非 BLE 档不嵌 shim zip；BLE 档额外内嵌 `vendor/ch5xx-ble`（shim 无 git 上游，Cargo 始终 path 依赖）。
+- 上游建议与草稿：见 §17.9（`ch5xx-buildrs-data.md`）。
+
+### 17.6 legacy 兼容规则
+
+- `data/devices/ch582m/chip.json`：`halBackend="ch5xx-hal"`、`legacyHalBackend="ch58x-hal"`；新建工程默认 ch5xx。
+- 历史 `cube.json` 缺 `halBackend` 且芯片为 CH582M → 导入时按 **legacy ch58x-hal** 解析（保护旧 main.rs/生成物）；设置页提供「HAL 后端」覆盖（仅当 chip 有 `legacyHalBackend`）。
+- BLE + legacy → 旧 `ch58x-hal` 路径（§14 能力与实机结论继续有效）；BLE + ch5xx → shim。legacy 的 cargo 两档（blocking/BLE）本轮保持绿色，未改其模板语义。
+
+### 17.7 验证状态（诚实分级）
+
+- **五档 cargo 绿（2026-11-19，本机）**：ch5xx blocking / embassy / BLE 三档（nightly；三档 target 下均有 `build/core/*/out/libcore-*.rlib`，证明 `build-std` 实际执行）+ legacy blocking / BLE 两档（stable；无 build-std 产物）。产物均存在 `target/riscv32imc-unknown-none-elf/release/verify-build`（ELF，20136 / 27256 / 358500 / 21400 / 360272 B）；临时工程目录 `/tmp/m17ch5`、`/tmp/m17ch5e`、`/tmp/m17ch5b`、`/tmp/m17legacy`、`/tmp/m17legacyble`（vendor 树分别含 `ch5xx-hal`+`ch5xx-data`(+`ch5xx-ble`) 或 `ch58x-hal`）。
+- **BLE 实机：未过，标 cargo-build 级**。ch5xx+shim 的广播/连接/GATT/notify 需主控实机复验；在复验通过前，本仓库对 ch5xx BLE 只宣称“编译与链接通过”。legacy BLE 的实机结论仍见 §14.2quater/quinquies（广播→连接→GATT 读写→notify 周期）。
+- **测试**：M17 新增 ch5xx 套件见 `tests/ch5xx*`；**总数以主控全量门禁为准，本节不填数字**。vitest/vue-tsc/eslint/validate/build/浏览器验收同样由主控门禁执行。
+- 已知边界：BLE shim 未做 PA 控制；`sel_rtc_clock=0` 依赖板上 32.768 kHz 晶振，无晶振板需 LSI 回退（校准未移植，连接稳定性未保证）；温度回调在 CH583 上上游自述“未上板测试”。
+
+### 17.8 COMMON 未清零风险（既有问题，非 shim 引入）
+
+- `qingke-rt` 0.8.4 的 `link-highcode.x` 中 `.bss` 通配只含 `*(.sbss .sbss.* .bss .bss.*)`，**不含 `*(COMMON)`**。WCH blob 使用 81 个 tentative definition（`gTmosPara`/`gBleLlPara`/`ble`/队列头等，共 0x45c=1116 B）；ld 将它们排在 `_ebss` 之后、`.bss` 段尾，而启动清零循环只清 `_sbss.._ebss`，故这段 COMMON **不会在启动时归零**。M17 的 ch5xx BLE 二进制实测 `gTmosPara = _ebss = 0x2000_3ac8`（`nm`），即 COMMON 起点正好落在清零区间之外。
+- 旧 `ch58x-hal` 使用的 qingke-rt 0.5 `link-highcode.x` 通配完全相同——**legacy 路径同样存在**，且 legacy BLE 实机曾正常工作（§14.2ter/quinquies），说明该风险未必必然致命，但**不能据此宣称安全**：`cargo build` 无法暴露，只有实机长跑/连接路径能裁决。
+- 待裁决/缓解方向（S2/实机）：生成工程自带 `-T` 片段把 `*(COMMON)` 收进具名段并在 `ch5xx_ble::init` 前清零；或 fork `link.x` 把 `*(COMMON)` 并入 `.bss` 通配。M17 未改链接布局，结论标注为“待主控实机复验裁决”。
+
+### 17.9 上游沟通草稿（待主控审核后发布）
+
+| 文件 | 目标 | 要点 |
+|---|---|---|
+| `/tmp/m17-issue-comments/13.md` | ch58x-hal#13 评论 | 感谢指引；ch5xx SysTick 驱动阅读结论（HCLK 全速 + compare 中断 + 软件高 32 位；未见 WFI 停计补偿）；我方 busy-poll 不受影响；已基于 875651b6 完成迁移 + shim；询问 WFI/停计是否在 roadmap |
+| `/tmp/m17-issue-comments/14.md` | ch58x-hal#14 评论 | ch5xx-hal 无 ble 模块，#14 上游无承载点；shim 把 `sel_rtc_clock`/`rc_cb` 参数化并固化；邀请未来上游 BLE 包装采纳该参数化；附 shim 路径 |
+| `/tmp/m17-issue-comments/ch5xx-buildrs-data.md` | ch5xx-hal 新 issue | build.rs 硬读兄弟 `../ch5xx-data/data` 致纯 git 消费者 panic（复现/日志见 m17-shim-notes §9）；建议 git 依赖 ch5xx-data 或把数据纳入 crate；附 vendor 内嵌 workaround |
+
+三份草稿均为英文，未发布；#13/#14 保持 OPEN、ch5xx-hal issues 仍为空。

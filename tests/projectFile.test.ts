@@ -150,3 +150,29 @@ describe('parseProjectFile unlockedPins 校验', () => {
     expect(config.unlockedPins).toEqual(['PD7', 'PA1'])
   })
 })
+
+describe('parseProjectFile halBackend 往返（M17 D1）', () => {
+  it('ch5xx-hal 显式后端在解析/序列化后保留', () => {
+    const config = expectConfig(
+      JSON.stringify({ version: 1, chip: 'CH582M', halBackend: 'ch5xx-hal' }),
+    )
+    expect(config.halBackend).toBe('ch5xx-hal')
+    expect(expectConfig(serializeProjectFile(config))).toEqual(config)
+  })
+
+  it('legacy ch58x-hal 显式后端在解析/序列化后保留', () => {
+    const config = expectConfig(
+      JSON.stringify({ version: 1, chip: 'CH582M', halBackend: 'ch58x-hal' }),
+    )
+    expect(config.halBackend).toBe('ch58x-hal')
+    expect(expectConfig(serializeProjectFile(config)).halBackend).toBe('ch58x-hal')
+  })
+
+  it('历史 CH582 工程缺 halBackend → 字段保持缺省（由 resolveHalBackend 走 legacy）', () => {
+    const config = expectConfig(JSON.stringify({ version: 1, chip: 'CH582M' }))
+    expect(config.halBackend).toBeUndefined()
+    expect('halBackend' in config).toBe(false)
+    // 序列化也不凭空写入后端字段（保持逐字节兼容的往返形状）
+    expect(serializeProjectFile(config)).not.toContain('halBackend')
+  })
+})

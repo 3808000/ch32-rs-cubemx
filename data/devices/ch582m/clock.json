@@ -178,7 +178,29 @@
       "24MHZ_PLL": "config.clock.use_pll_24mhz()",
       "20MHZ_PLL": "config.clock.use_pll_20mhz()"
     },
-    "fallback": "explicit"
+    "fallback": "explicit",
+    "backends": {
+      "ch5xx-hal": {
+        "presetConstMap": {
+          "60MHZ_PLL": "hal::rcc::Config::PLL_60MHZ",
+          "80MHZ_PLL": "hal::rcc::Config::PLL_80MHZ",
+          "48MHZ_PLL": "hal::rcc::Config::PLL_48MHZ",
+          "32MHZ_PLL": "hal::rcc::Config::PLL_32MHZ",
+          "24MHZ_PLL": "hal::rcc::Config::PLL_24MHZ"
+        },
+        "pllDivRange": [6, 32]
+      },
+      "ch58x-hal": {
+        "presetConstMap": {
+          "60MHZ_PLL": "config.clock.use_pll_60mhz()",
+          "80MHZ_PLL": "config.clock.use_pll_80mhz()",
+          "48MHZ_PLL": "config.clock.use_pll_48mhz()",
+          "32MHZ_PLL": "config.clock.use_pll_32mhz()",
+          "24MHZ_PLL": "config.clock.use_pll_24mhz()",
+          "20MHZ_PLL": "config.clock.use_pll_20mhz()"
+        }
+      }
+    }
   },
-  "notes": "时钟模型来自 ch58x-hal（commit 611954e）src/sysctl.rs 并与《CH583/CH582 数据手册》CH583DS1.PDF V1.9 §7 交叉核对：①HSE 为固定 32MHz 晶振（X32MI/X32MO），PLL 为固定 480MHz VCO，Fsys=Fpll/RB_CLK_PLL_DIV 或 Fck32m/div，div 2..31（5 位寄存器，32 写入被截断为 0，div=1 表示关 HCLK），数据手册 Fsys 范围 32KHz、2~10MHz、15~80MHz，故 div<6（>80MHz）或走 HSE 直连分频时部分档位超范围，校验器会报错属预期行为；②无 HSI（sysctl.rs 明确 No HSI）；③无 AHB/APB1/APB2 分频器（Clocks 仅 hclk，外设时钟=系统时钟），三总线 options 固定 [1]；④LSI/LSE 32KHz 为独立低频时钟域（Clock32KSrc，供 RTC/看门狗/embassy tick），SYSCLK 可选 CK32K 直连（ClockSrc::Clock32K）但无对应 HAL 预设，未在 sources 建模；⑤ADC 采样时钟实际取自 CK32M（32MHz 固定）经 4/6/8/10 分频得 8/5.33/4/3.2MHz（ch58x-hal adc.rs SamplingClock 枚举），受 schema 限制以 SYS/APB2 占位表示、不设 maxMhz；⑥上电默认 6.4MHz（CK32M÷5）；⑦presetConstMap 为 ch58x-hal sysctl::Config 方法名，ch58x-hal 后端已接入（M11，见 docs/CH58X_BACKEND_CONTRACT.md D3）：20MHz 档对应 use_pll_20mhz()（480÷24，src/sysctl.rs:95-98）；div 合法 2..31（5 位寄存器，32 写入被截断为 0 等同于关闭 HCLK，故选项不含 32，src/sysctl.rs:168）。M15 外设时钟：无 APB 分频，USART/SPI/I2C 源均为 HCLK；SPI0 线性分频 fdiv=sysclk/freq 整除 clamp 2..255（ch58x-hal spi.rs:169-177）；USART DIV=1、DL=round(Fsys/(8·baud))、actual=Fsys/(8·DL)（uart.rs:360-371）；I2C 按 sysclk/(2/3/25·CCR)（i2c.rs:128-155）；ADC clock.adc 改为 CK32M 真实模型（32MHz 固定源经 SamplingClock ÷4/6/8/10 = 8/5.33/4/3.2MHz，adc.rs:8-15），节点 MHz 取枚举映射不按总线派生。M16 图（契约 D3/D4ter）：CH583DS1 V1.9 图 6-1 时钟树框图（印刷 p34 / PDF p34，第 6 章 系统时钟及 RTC → 6.1.1 时钟结构），逐元素转录见 docs/m16-rm/ch582.md。①无 HSI、无 AHB/APB 分频：全图只有一个 RB_CLK_PLL_DIV 分频器在 SYSCLK 前，AHB/APB1/APB2 ≡ HCLK，故三总线在图上以读数卡呈现（kind 覆盖 readout，options 仍固定 [1]，配置能力保留于 Detail/表格）；②PLL 固定 ×15=480MHz（Fpll=Fck32m×15），RB_CLK_PLL_DIV 档 2..31（5 位寄存器，0 代表最大值 32、写 1 关闭 HCLK；HAL ClockSrc::PLL(u8) 同界，repo 不开放 32 为诚实边界）；③SYSCLK 为 ClockSrc 三路（RB_CLK_SYS_MOD：00/10=CK32M(HSE)、01=PLL、11=CK32K），CK32K 以 displayOnly 源呈现为 mux 灰行（不可选、无 HAL 预设，选中导出已有 CLOCK_PRESET_UNAVAILABLE 边界）；④32K 域：LSE 32.768kHz / LSI 32kHz 经 R8_CK32K_CONFIG.RB_CLK_OSC32K_XT 选为 CK32K → RTC（BLE 时基，M12 强制 LSE）。LSI/LSE 不作 sources displayOnly 而作 aux osc 节点：模型会把全部 displayOnly 源追加进 SYSCLK 与 PLL 的 muxInputs，而 RM ClockSrc 三路仅 PLL/HSE/CK32K，LSI/LSE 放入 sources 会伪造两条不存在的可选输入行；aux osc 可让 CK32KSEL 的 inputs 引用树内真实节点 id，语义与像素均诚实；⑤ADC：采信 CK32M（32MHz 固定域，÷4/6/8/10=8/5.33/4/3.2MHz），图 6-1 把 ADC_CLK_DIV 画到 Fsys 轨与之冲突 → 并存于 peripheralClocks.adc.note，不按图改模型；⑥USB（Fpll/10=48MHz 经 SLP_CLK_USB/2 门控）与 BLE 门控不画：M15 无 usb 块、BLE 由 M12 契约单独处理；⑦模型通用灰行规则会把 displayOnly 源追加为所有 mux 的灰行，故 PLL 簇也带 CK32K 灰行（RM 图 6-1 PLL 输入仅 HSE）——该灰行不可选、置灰，仅为输入列表一致性，非 PLL 真实支路。M16-D12（2026-11-18）：diagram 按 CubeMX2 主干重构——输出右列上下并联竖排（CORE/SYSTICK 派生仅显示行）、外设单列上下并联竖排；取代 D11b 左右均衡列。"
+  "notes": "M17：codegen.backends['ch5xx-hal'] 为 ch5xx-hal（commit 875651b6）src/rcc.rs 的预设关联常量（hal::rcc::Config::PLL_60/80/48/32/24MHZ；CH582 无 20MHz 预设 → 生成器用显式 Config::new(Osc::Hse32, Sys::Pll(24))）；pllDivRange [6,32]（480MHz÷div，Fsys 15..80MHz，HAL assert）；codegen.backends['ch58x-hal'] 与顶层 presetConstMap 保留 legacy 映射（旧测试/旧工程零 regress）。时钟模型来自 ch58x-hal（commit 611954e）src/sysctl.rs 并与《CH583/CH582 数据手册》CH583DS1.PDF V1.9 §7 交叉核对：①HSE 为固定 32MHz 晶振（X32MI/X32MO），PLL 为固定 480MHz VCO，Fsys=Fpll/RB_CLK_PLL_DIV 或 Fck32m/div，div 2..31（5 位寄存器，32 写入被截断为 0，div=1 表示关 HCLK），数据手册 Fsys 范围 32KHz、2~10MHz、15~80MHz，故 div<6（>80MHz）或走 HSE 直连分频时部分档位超范围，校验器会报错属预期行为；②无 HSI（sysctl.rs 明确 No HSI）；③无 AHB/APB1/APB2 分频器（Clocks 仅 hclk，外设时钟=系统时钟），三总线 options 固定 [1]；④LSI/LSE 32KHz 为独立低频时钟域（Clock32KSrc，供 RTC/看门狗/embassy tick），SYSCLK 可选 CK32K 直连（ClockSrc::Clock32K）但无对应 HAL 预设，未在 sources 建模；⑤ADC 采样时钟实际取自 CK32M（32MHz 固定）经 4/6/8/10 分频得 8/5.33/4/3.2MHz（ch58x-hal adc.rs SamplingClock 枚举），受 schema 限制以 SYS/APB2 占位表示、不设 maxMhz；⑥上电默认 6.4MHz（CK32M÷5）；⑦presetConstMap 为 ch58x-hal sysctl::Config 方法名，ch58x-hal 后端已接入（M11，见 docs/CH58X_BACKEND_CONTRACT.md D3）：20MHz 档对应 use_pll_20mhz()（480÷24，src/sysctl.rs:95-98）；div 合法 2..31（5 位寄存器，32 写入被截断为 0 等同于关闭 HCLK，故选项不含 32，src/sysctl.rs:168）。M15 外设时钟：无 APB 分频，USART/SPI/I2C 源均为 HCLK；SPI0 线性分频 fdiv=sysclk/freq 整除 clamp 2..255（ch58x-hal spi.rs:169-177）；USART DIV=1、DL=round(Fsys/(8·baud))、actual=Fsys/(8·DL)（uart.rs:360-371）；I2C 按 sysclk/(2/3/25·CCR)（i2c.rs:128-155）；ADC clock.adc 改为 CK32M 真实模型（32MHz 固定源经 SamplingClock ÷4/6/8/10 = 8/5.33/4/3.2MHz，adc.rs:8-15），节点 MHz 取枚举映射不按总线派生。M16 图（契约 D3/D4ter）：CH583DS1 V1.9 图 6-1 时钟树框图（印刷 p34 / PDF p34，第 6 章 系统时钟及 RTC → 6.1.1 时钟结构），逐元素转录见 docs/m16-rm/ch582.md。①无 HSI、无 AHB/APB 分频：全图只有一个 RB_CLK_PLL_DIV 分频器在 SYSCLK 前，AHB/APB1/APB2 ≡ HCLK，故三总线在图上以读数卡呈现（kind 覆盖 readout，options 仍固定 [1]，配置能力保留于 Detail/表格）；②PLL 固定 ×15=480MHz（Fpll=Fck32m×15），RB_CLK_PLL_DIV 档 2..31（5 位寄存器，0 代表最大值 32、写 1 关闭 HCLK；HAL ClockSrc::PLL(u8) 同界，repo 不开放 32 为诚实边界）；③SYSCLK 为 ClockSrc 三路（RB_CLK_SYS_MOD：00/10=CK32M(HSE)、01=PLL、11=CK32K），CK32K 以 displayOnly 源呈现为 mux 灰行（不可选、无 HAL 预设，选中导出已有 CLOCK_PRESET_UNAVAILABLE 边界）；④32K 域：LSE 32.768kHz / LSI 32kHz 经 R8_CK32K_CONFIG.RB_CLK_OSC32K_XT 选为 CK32K → RTC（BLE 时基，M12 强制 LSE）。LSI/LSE 不作 sources displayOnly 而作 aux osc 节点：模型会把全部 displayOnly 源追加进 SYSCLK 与 PLL 的 muxInputs，而 RM ClockSrc 三路仅 PLL/HSE/CK32K，LSI/LSE 放入 sources 会伪造两条不存在的可选输入行；aux osc 可让 CK32KSEL 的 inputs 引用树内真实节点 id，语义与像素均诚实；⑤ADC：采信 CK32M（32MHz 固定域，÷4/6/8/10=8/5.33/4/3.2MHz），图 6-1 把 ADC_CLK_DIV 画到 Fsys 轨与之冲突 → 并存于 peripheralClocks.adc.note，不按图改模型；⑥USB（Fpll/10=48MHz 经 SLP_CLK_USB/2 门控）与 BLE 门控不画：M15 无 usb 块、BLE 由 M12 契约单独处理；⑦模型通用灰行规则会把 displayOnly 源追加为所有 mux 的灰行，故 PLL 簇也带 CK32K 灰行（RM 图 6-1 PLL 输入仅 HSE）——该灰行不可选、置灰，仅为输入列表一致性，非 PLL 真实支路。M16-D12（2026-11-18）：diagram 按 CubeMX2 主干重构——输出右列上下并联竖排（CORE/SYSTICK 派生仅显示行）、外设单列上下并联竖排；取代 D11b 左右均衡列。"
 }

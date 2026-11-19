@@ -11,6 +11,7 @@ import { Expand, Fold, FolderOpened, Menu, Promotion } from '@element-plus/icons
 import type { BleConfig, ConflictPolicyMode, ConflictResolution, FileGroup } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
 import { HAL_GIT, CH58X_HAL_GIT, CH58X_HAL_REV } from '@/model/codegen/halRev'
+import { CH5XX_HAL_GIT, CH5XX_HAL_REV } from '@/model/codegen/ch5xx'
 import { BLE_NAME_BUDGET } from '@/model/conflicts/rules/bleRules'
 import { storagePreview, wizardIsDesktop } from '@/components/home/CreateProjectWizard.vue'
 import CollapsiblePanel from '@/components/common/CollapsiblePanel.vue'
@@ -24,16 +25,31 @@ const store = useProjectStore()
 
 // ---- General（M9：名称与存储位置创建时设定，此处只读） ----
 const chip = computed(() => store.deviceData.chip)
+/** M17：生效 HAL 后端（工程覆盖 > 历史 legacy > chip 默认），设置页一切后端相关文案以它为准。 */
+const backend = computed(() => store.effectiveHalBackend)
+const isCh5xx = computed(() => backend.value === 'ch5xx-hal')
+/** legacy ch58x 后端被选中（仅 CH582 等声明 legacyHalBackend 的芯片可能为 true）。 */
+const isCh58x = computed(() => backend.value === 'ch58x-hal')
+/** 芯片是否有 BLE 能力（CH58x 家族）：与当前选择的后端无关，BLE 节可见性使用。 */
+const supportsBle = computed(() => !!chip.value.legacyHalBackend || (chip.value.halBackend ?? '') === 'ch58x-hal')
 const toolchain = computed(() => {
-  // M11：ch58x 工具链随运行时档（embassy 需 nightly：impl_trait_in_assoc_type），blocking 用 stable；
-  // M13：BLE 档固定 busy-poll（stable，不用 embassy 执行器/nightly feature）
+  // ch5xx：nightly + rust-src（[unstable] build-std=core，三档一致）
+  if (isCh5xx.value) return 'nightly + rust-src（build-std=core）'
+  // legacy ch58x：embassy 档 nightly；blocking/BLE busy-poll 档 stable
   if (isCh58x.value) return bleEnabled.value ? 'stable' : runtime.value === 'embassy' ? 'nightly' : 'stable'
   return chip.value.nightly ? 'nightly + rust-src' : 'stable'
 })
-/** M11：HAL rev 显示后端感知——ch58x 工程生成物用 CH58X_HAL_REV（config.hal.rev 是 ch32 口径，不适用）。 */
-const effectiveHalRev = computed(() => (isCh58x.value ? CH58X_HAL_REV : store.halRev))
+/** HAL rev 显示后端感知：ch5xx/ch58x 工程生成物用各自 HAL 的 rev（config.hal.rev 是 ch32 口径）。 */
+const effectiveHalRev = computed(() =>
+  isCh5xx.value ? CH5XX_HAL_REV : isCh58x.value ? CH58X_HAL_REV : store.halRev,
+)
 const halRevShort = computed(() => effectiveHalRev.value.slice(0, 12))
-const halRevUrl = computed(() => `${(isCh58x.value ? CH58X_HAL_GIT : HAL_GIT).replace(/\.git$/, '')}/commit/${effectiveHalRev.value}`)
+const halRevUrl = computed(() => {
+  const git = isCh5xx.value ? CH5XX_HAL_GIT : isCh58x.value ? CH58X_HAL_GIT : HAL_GIT
+  return `${git.replace(/\.git$/, '')}/commit/${effectiveHalRev.value}`
+})
+/** ch5xx 的芯片 feature 是 family 小写（ch582）；legacy 用 chip.json 的 halFeature。 */
+const halFeatureLabel = computed(() => (isCh5xx.value ? chip.value.family.toLowerCase() : chip.value.halFeature))
 const storage = computed(() => storagePreview(wizardIsDesktop(), store.projectName))
 
 // ---- Runtime（M6：运行时一等公民） ----
@@ -42,8 +58,8 @@ const storage = computed(() => storagePreview(wizardIsDesktop(), store.projectNa
 type RuntimeKind = 'blocking' | 'embassy' | 'rtic'
 const runtime = computed<RuntimeKind>(() => (store.features.embassy ? 'embassy' : 'blocking'))
 const embassySupported = computed(() => !(chip.value.unsupportedFeatures ?? []).includes('embassy'))
-/** M11：ch58x-hal 后端能力边界（数据驱动，仅该后端显示额外标注）。 */
-const isCh58x = computed(() => (chip.value.halBackend ?? 'ch32-hal') === 'ch58x-hal')
+/** ch5xx/ch58x 都属于 CH58x 家族后端：Runtime 面板显示额外能力边界标注。 */
+const isCh58xFamily = computed(() => isCh5xx.value || isCh58x.value)
 
 // ---- BLE（M12，仅 ch58x-hal 后端显示；数据驱动写 store.ble） ----
 const BLE_GAP_NAME_MAX = 248
@@ -79,7 +95,7 @@ const bleRoleOptions: { value: BleConfig['role']; label: string; desc: string }[
 ]
 
 const bleMacSourceOptions: { value: BleConfig['macSource']; label: string; desc: string }[] = [
-  { value: 'factory', label: '出厂 MAC（推荐）', desc: 'use_factory_mac_address()，读取 ISP ROM 中的唯一地址' },
+  { value: 'factory', label: '出厂 MAC（推荐）', desc: '读取 ISP ROM 中的唯一地址（ch5xx 经 libISP583 ROM 命令）' },
   { value: 'default', label: 'HAL 固定值', desc: '11:22:33:44:55:66（Config::default，仅调试用，多设备会撞址）' },
   { value: 'custom', label: '自定义', desc: '按人读序生成 MacAddress::from_msb' },
 ]
@@ -90,14 +106,21 @@ const bleMacSourceDesc = computed(
 )
 
 function setBleEnabled(v: boolean) {
-  // 开启自动打开 embassy（setFeatures 内互锁兜底）
+  // 开启自动打开 embassy（setFeatures 内互锁兜底）；BLE 生成按 busy-poll 处理
   store.setFeatures({ ble: v, ...(v ? { embassy: true } : {}) })
   store.notify(
     v
-      ? 'BLE 已启用：使用 busy-poll 运行时（stable）；32K 低频域走 LSI 缺省（无 LSE 晶振也能跑，库内部回退）'
+      ? `BLE 已启用：使用 busy-poll 运行时${isCh5xx.value ? '（ch5xx-ble shim）' : '（legacy ch58x-hal）'}；32K 低频域缺省 LSE（外部 32.768kHz 晶振）`
       : 'BLE 已停用（运行时设置保持不变）',
     v ? 'warning' : 'info',
   )
+}
+
+/** M17：切换 HAL 后端（CH582 等有 legacy 的芯片）。 */
+function setHalBackend(value: string) {
+  store.setHalBackend(value)
+  const label = value === chip.value.legacyHalBackend ? 'legacy' : '默认'
+  store.notify(`HAL 后端已切换为 ${value}（${label}）`, 'info')
 }
 
 function setBleRole(role: BleConfig['role']) {
@@ -177,8 +200,16 @@ const {
   finishReport,
 } = useGenerationFlow()
 
-// 子项文案随芯片 HAL 后端变化（M11：vendor/<hal> 目录名）
-const generationItems = computed(() => generationItemsFor(chip.value.halBackend))
+// 子项文案随生效 HAL 后端变化（M11/M17：vendor/<hal> 目录名）
+const generationItems = computed(() => generationItemsFor(backend.value))
+
+/** HAL 后端下拉项（仅声明 legacyHalBackend 的芯片显示）：默认后端 + legacy。 */
+const halBackendOptions = computed(() => {
+  const out: { value: string; label: string }[] = []
+  if (chip.value.halBackend) out.push({ value: chip.value.halBackend, label: `${chip.value.halBackend}（默认）` })
+  if (chip.value.legacyHalBackend) out.push({ value: chip.value.legacyHalBackend, label: `${chip.value.legacyHalBackend}（legacy）` })
+  return out
+})
 
 // ---- Advanced ----
 const groupPolicies: { group: string; paths: string; policy: string }[] = [
@@ -301,7 +332,7 @@ function onGenerate() {
             <el-dropdown-menu>
               <el-dropdown-item command="general">General</el-dropdown-item>
               <el-dropdown-item command="runtime">Runtime</el-dropdown-item>
-              <el-dropdown-item v-if="isCh58x" command="ble">BLE</el-dropdown-item>
+              <el-dropdown-item v-if="supportsBle" command="ble">BLE</el-dropdown-item>
               <el-dropdown-item command="generation">Code Generation</el-dropdown-item>
               <el-dropdown-item v-if="pendingFolder" command="preview">导出预览</el-dropdown-item>
               <el-dropdown-item v-if="report" command="result">生成结果</el-dropdown-item>
@@ -350,7 +381,7 @@ function onGenerate() {
               <div class="ps-label">Rust toolchain</div>
               <div class="ps-value">
                 {{ toolchain }}
-                <span class="ps-note">{{ isCh58x ? (bleEnabled ? 'BLE 档固定 stable（busy-poll，无 nightly feature）' : runtime === 'embassy' ? 'embassy 档需 nightly（impl_trait_in_assoc_type）' : '标准 rustup target') : (chip.nightly ? 'build-std=core（自定义 target）' : '稳定版 target') }}</span>
+                <span class="ps-note">{{ isCh5xx ? 'nightly + rust-src：[unstable] build-std=["core"]（三档一致）' : isCh58x ? (bleEnabled ? 'BLE 档固定 stable（busy-poll，无 nightly feature）' : runtime === 'embassy' ? 'embassy 档需 nightly（impl_trait_in_assoc_type）' : '标准 rustup target') : (chip.nightly ? 'build-std=core（自定义 target）' : '稳定版 target') }}</span>
               </div>
             </div>
             <div class="ps-row">
@@ -362,7 +393,7 @@ function onGenerate() {
             </div>
             <div class="ps-row">
               <div class="ps-label">HAL feature</div>
-              <div class="ps-value"><code>{{ chip.halFeature }}</code></div>
+              <div class="ps-value"><code>{{ halFeatureLabel }}</code></div>
             </div>
           </div>
         </CollapsiblePanel>
@@ -372,6 +403,30 @@ function onGenerate() {
       <div id="ps-runtime" class="ps-section">
         <CollapsiblePanel v-model:open="open.runtime" title="Runtime">
           <div class="ps-rows">
+            <!-- M17：仅当芯片声明 legacyHalBackend 时显示（CH582：ch5xx-hal 默认 / ch58x-hal legacy） -->
+            <div v-if="chip.legacyHalBackend" class="ps-row">
+              <div class="ps-label">HAL 后端</div>
+              <div class="ps-value ps-runtime-value">
+                <el-select
+                  :model-value="backend"
+                  size="small"
+                  style="width: 220px"
+                  @change="setHalBackend(String($event))"
+                >
+                  <el-option
+                    v-for="opt in halBackendOptions"
+                    :key="opt.value"
+                    :label="opt.label"
+                    :value="opt.value"
+                  />
+                </el-select>
+                <span class="ps-note">
+                  {{ isCh5xx
+                    ? 'ch5xx-hal：上游重写版，nightly + build-std；BLE 走 ch5xx-ble shim'
+                    : 'ch58x-hal：legacy 后端（stable），保留旧工程生成结果' }}
+                </span>
+              </div>
+            </div>
             <div class="ps-row">
               <div class="ps-label">运行时</div>
               <div class="ps-value ps-runtime-value">
@@ -387,24 +442,30 @@ function onGenerate() {
                 </el-radio-group>
                 <span class="ps-note">
                   {{
-                    isCh58x && bleEnabled
-                      ? 'BLE 档：busy-poll 运行时（stable），main.rs 为 #[qingke_rt::entry] + csrs mstatus,8；不初始化 embassy 执行器/Timer'
+                    bleEnabled
+                      ? `BLE 档：busy-poll 运行时（${isCh5xx ? 'ch5xx-ble shim，nightly' : 'legacy，stable'}），不初始化 embassy 执行器/Timer`
                       : runtime === 'embassy'
-                        ? isCh58x
-                          ? '生成 embassy 异步工程：GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 按阻塞 API 初始化'
-                          : '生成 embassy 异步工程：main.rs 使用 #[embassy_executor::main]，外设按 async API 初始化'
-                        : isCh58x
-                          ? '生成阻塞式工程：main.rs 使用 #[qingke_rt::entry]，外设按 blocking API 初始化'
-                          : '生成阻塞式工程：main.rs 使用 #[entry]，外设按 blocking API 初始化'
+                        ? isCh5xx
+                          ? 'embassy 档：time-driver-tmr0；hal::init 内部初始化时间驱动（无 hal::embassy::init）'
+                          : isCh58x
+                            ? '生成 embassy 异步工程：GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 按阻塞 API 初始化'
+                            : '生成 embassy 异步工程：main.rs 使用 #[embassy_executor::main]，外设按 async API 初始化'
+                        : isCh5xx
+                          ? '生成阻塞式工程：nightly + build-std；main.rs 使用 #[qingke_rt::entry]，外设按 blocking API 初始化'
+                          : isCh58x
+                            ? '生成阻塞式工程：main.rs 使用 #[qingke_rt::entry]，外设按 blocking API 初始化'
+                            : '生成阻塞式工程：main.rs 使用 #[entry]，外设按 blocking API 初始化'
                   }}
                 </span>
               </div>
             </div>
-            <div v-if="isCh58x" class="ps-row">
+            <div v-if="isCh58xFamily" class="ps-row">
               <div class="ps-label"></div>
               <div class="ps-value">
                 <span class="ps-note">
-                  ch58x-hal 后端：embassy 档提供 GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 仍为阻塞驱动（HAL 无异步外设实现）。BLE 协议栈见下方 BLE 节。
+                  {{ isCh5xx
+                    ? 'ch5xx-hal 后端：embassy 档提供 GPIO 异步等待与 Timer（time-driver-tmr0）；SPI/I2C/UART 的 async 驱动上游已实现，本期生成器仍生成阻塞初始化。BLE 见下方 BLE 节（shim）。'
+                    : 'ch58x-hal（legacy）后端：embassy 档提供 GPIO 异步等待与 Timer；UART/SPI/I2C/ADC 仍为阻塞驱动（HAL 无异步外设实现）。BLE 协议栈见下方 BLE 节。' }}
                 </span>
               </div>
             </div>
@@ -412,7 +473,7 @@ function onGenerate() {
               <div class="ps-label"></div>
               <div class="ps-value">
                 <span class="ps-note ps-runtime-warn">
-                  BLE 档使用 busy-poll 运行时（stable）：绕开上游 ch58x-hal embassy 时间驱动与 qingke-rt 启动缺陷；GPIO 异步等待本期 BLE 档不提供。
+                  BLE 档使用 busy-poll 运行时：不初始化 embassy 执行器/Timer（ch5xx 档不启用 HAL 的 embassy/time-driver feature）；GPIO 异步等待本期 BLE 档不提供。
                 </span>
               </div>
             </div>
@@ -425,7 +486,7 @@ function onGenerate() {
             <div class="ps-row">
               <div class="ps-label">rtic</div>
               <div class="ps-value">
-                <span class="ps-note">{{ isCh58x ? 'ch58x-hal' : 'ch32-hal' }} 尚未提供 RTIC 支持，待 HAL 上游核实后再开放（不臆造生成路径）。</span>
+                <span class="ps-note">{{ isCh5xx ? 'ch5xx-hal' : isCh58x ? 'ch58x-hal' : 'ch32-hal' }} 尚未提供 RTIC 支持，待 HAL 上游核实后再开放（不臆造生成路径）。</span>
               </div>
             </div>
             <div class="ps-row">
@@ -434,9 +495,11 @@ function onGenerate() {
                 <el-switch :model-value="store.features.debugPrint" size="small" @change="setDebugPrint($event === true)" />
                 <span class="ps-note">
                   {{
-                    isCh58x
-                      ? 'ch58x-hal 后端暂未提供调试打印：生成时按警告忽略，不阻塞生成'
-                      : 'main.rs 内生成 println!（经 ch32-hal 的调试串口输出）'
+                    isCh5xx
+                      ? 'ch5xx-hal 后端暂未提供调试打印：生成时按警告忽略，不阻塞生成'
+                      : isCh58x
+                        ? 'ch58x-hal 后端暂未提供调试打印：生成时按警告忽略，不阻塞生成'
+                        : 'main.rs 内生成 println!（经 ch32-hal 的调试串口输出）'
                   }}
                 </span>
               </div>
@@ -445,23 +508,25 @@ function onGenerate() {
         </CollapsiblePanel>
       </div>
 
-      <!-- BLE（M12，仅 ch58x-hal 后端；契约 D2/D3/D5/D7/D11） -->
-      <div v-if="isCh58x" id="ps-ble" class="ps-section">
+      <!-- BLE（M12/M17：CH58x 家族芯片；ch5xx → shim，legacy → 旧路径） -->
+      <div v-if="supportsBle" id="ps-ble" class="ps-section">
         <CollapsiblePanel v-model:open="open.ble" title="BLE">
           <div class="ps-rows">
             <div class="ps-row">
               <div class="ps-label">启用 BLE</div>
               <div class="ps-value">
                 <el-switch :model-value="bleEnabled" size="small" @change="setBleEnabled($event === true)" />
-                <span class="ps-note">开启后使用 busy-poll 运行时（stable）；生成 src/generated/ble.rs 与启动代码</span>
+                <span class="ps-note">开启后使用 busy-poll 运行时；生成 src/generated/ble.rs 与启动代码（{{ isCh5xx ? 'ch5xx-ble shim' : 'legacy ch58x-hal' }}）</span>
               </div>
             </div>
           </div>
           <p class="ps-note ps-ble-note">
-            BLE 档使用 busy-poll 运行时（stable，连续轮询无 delay）：绕开上游 ch58x-hal embassy 时间驱动（SysTick 空闲停计）与 qingke-rt 启动缺陷（mstatus.MIE=0）。
+            BLE 档使用 busy-poll 运行时（连续轮询无 delay）：{{ isCh5xx
+              ? 'ch5xx-hal 上游未实现 BLE，协议栈由自建 ch5xx-ble shim 包装（ble::init + ch5xx-metapac 平台胶水），不启用 HAL 的 embassy/time-driver feature。'
+              : '绕开上游 ch58x-hal embassy 时间驱动（SysTick 空闲停计）与 qingke-rt 启动缺陷（mstatus.MIE=0）。' }}
             32K 低频域缺省 LSE（外部 32.768kHz 晶振，官方模组标配；M14 实机连接建立已验证）；无晶振板可选 LSI 回退（未移植 LSI 校准，连接稳定性未保证）。
             PA10/PA11（X32KI/X32KO）仍按 M12 契约保留不可分配。
-            固定 ATT MTU 23、TX 6dBm、无绑定存储（SNV）；GPIO 异步等待本期 BLE 档不提供。详见 README「BLE 协议栈」与契约文档。
+            固定 ATT MTU 23、TX 6dBm、无绑定存储（SNV）；GPIO 异步等待本期 BLE 档不提供。详见 README 与契约文档。
           </p>
           <div class="ps-rows">
             <div class="ps-row">
@@ -513,8 +578,8 @@ function onGenerate() {
                 </el-radio-group>
                 <span class="ps-note" :class="{ 'ps-runtime-warn': (store.ble.clock32k ?? 'lse') === 'lsi' }">
                   {{ (store.ble.clock32k ?? 'lse') === 'lse'
-                    ? '缺省：32.768kHz 晶振（官方模组标配），生成 enable_lse + SelRTCClock=0；连接建立实机已验证'
-                    : '无晶振板回退：SelRTCClock=1；LSI 校准未移植，连接稳定性未保证（广播可用）' }}
+                    ? `缺省：32.768kHz 晶振（官方模组标配），生成 ${isCh5xx ? 'ch5xx_ble::enable_lse()' : 'enable_lse()'} + SelRTCClock=0；连接建立实机已验证`
+                    : `无晶振板回退：SelRTCClock=1${isCh5xx ? ' + ch5xx_ble::set_clock32k_lsi()' : ''}；LSI 校准未移植，连接稳定性未保证（广播可用）` }}
                 </span>
               </div>
             </div>
@@ -538,7 +603,7 @@ function onGenerate() {
                     placeholder="AA:BB:CC:DD:EE:FF"
                     @change="setCustomMac($event)"
                   />
-                  <span class="ps-note">6 段十六进制（人读序，生成 MacAddress::from_msb）</span>
+                  <span class="ps-note">6 段十六进制（人读序，生成 MacAddress::from_msb / ble::Config.mac_lsb）</span>
                 </template>
               </div>
             </div>

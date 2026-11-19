@@ -58,6 +58,12 @@ export interface DmaConfig {
 export interface ProjectConfig {
   version: 1
   chip: string // 'CH32V003F4P6'
+  /**
+   * 工程级 HAL 后端覆盖（M17，cube.json 往返）。缺省 = chip.halBackend；但对声明了
+   * chip.legacyHalBackend 的芯片，**缺省视为 legacy**（历史 cube.json 无该字段的兼容路径，
+   * 见 codegen resolveHalBackend）。新建工程由 store 显式写入 chip.halBackend。
+   */
+  halBackend?: string
   projectName: string
   pins: PinAssignment[]
   groups?: PinGroup[]

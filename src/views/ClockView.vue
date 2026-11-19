@@ -42,6 +42,7 @@ const periCtx = computed<PeripheralClockContext>(() => ({
     freqs.value,
     store.deviceData.peripherals,
     store.peripherals,
+    store.effectiveHalBackend,
   ),
 }))
 const issues = computed(() => [
@@ -52,6 +53,7 @@ const issues = computed(() => [
     freqs.value,
     store.deviceData.peripherals,
     store.peripherals,
+    store.effectiveHalBackend,
   ),
 ])
 

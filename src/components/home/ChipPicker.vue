@@ -4,8 +4,8 @@
 // 随组件导出，供 tests/chipPicker.test.ts 直接验证；数据全部来自已注册芯片的 chip.json，不引入任何外部数据。
 import type { ChipData } from '@/model/types'
 
-/** 生成器当前支持的 HAL 后端（M11 起 ch58x-hal 已接入）；其余后端诚实标注但不禁止选择。 */
-export const SUPPORTED_HAL_BACKENDS: readonly string[] = ['ch32-hal', 'ch58x-hal']
+/** 生成器当前支持的 HAL 后端（M11 ch58x-hal、M17 ch5xx-hal）；其余后端诚实标注但不禁止选择。 */
+export const SUPPORTED_HAL_BACKENDS: readonly string[] = ['ch32-hal', 'ch58x-hal', 'ch5xx-hal']
 
 /** halBackend 缺省时的后端（与 ChipData 注释一致）。 */
 const DEFAULT_HAL_BACKEND = 'ch32-hal'
@@ -69,18 +69,23 @@ export function chipGenerationSupported(chip: ChipData): boolean {
 /** 构建对比行，并按芯片名做确定性排序（码点序，与输入顺序无关）。 */
 export function buildChipRows(devices: readonly ChipData[]): ChipRow[] {
   return devices
-    .map((d) => ({
-      chip: d.chip,
-      package: d.package,
-      pinCount: d.pins.length,
-      flash: d.flash,
-      sram: d.sram,
-      core: d.core,
-      target: d.target,
-      toolchain: d.nightly ? ('nightly' as const) : ('stable' as const),
-      halBackend: d.halBackend ?? DEFAULT_HAL_BACKEND,
-      supported: chipGenerationSupported(d),
-    }))
+    .map((d) => {
+      const halBackend = d.halBackend ?? DEFAULT_HAL_BACKEND
+      // M17：工具链以默认后端的 nightlyByBackend 为准（CH582 默认 ch5xx → nightly）
+      const nightly = d.nightlyByBackend?.[halBackend] ?? d.nightly
+      return {
+        chip: d.chip,
+        package: d.package,
+        pinCount: d.pins.length,
+        flash: d.flash,
+        sram: d.sram,
+        core: d.core,
+        target: d.target,
+        toolchain: nightly ? ('nightly' as const) : ('stable' as const),
+        halBackend,
+        supported: chipGenerationSupported(d),
+      }
+    })
     .sort((a, b) => (a.chip < b.chip ? -1 : a.chip > b.chip ? 1 : 0))
 }
 

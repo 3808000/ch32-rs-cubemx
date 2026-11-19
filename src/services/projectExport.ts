@@ -14,6 +14,7 @@ import {
   classifyFileGroup,
   generateProject,
   parseManifest,
+  resolveHalBackend,
   serializeManifest,
 } from '@/model/codegen'
 import type {
@@ -69,14 +70,26 @@ export function backendVendorZip(backend?: string): string {
       return 'ch32-hal.zip'
     case 'ch58x-hal':
       return 'ch58x-hal.zip'
+    case 'ch5xx-hal':
+      return 'ch5xx-hal.zip'
     default:
-      throw new Error(`未知 HAL 后端：${backend}（仅支持 ch32-hal / ch58x-hal）`)
+      throw new Error(`未知 HAL 后端：${backend}（仅支持 ch32-hal / ch58x-hal / ch5xx-hal）`)
   }
+}
+
+/** BLE shim 的 vendor zip（仅 ch5xx 后端 + BLE 档；shim 无 git 上游，始终 path 依赖）。 */
+export function bleVendorZip(backend?: string): string {
+  if ((backend ?? 'ch32-hal') !== 'ch5xx-hal') {
+    throw new Error(`BLE shim 仅随 ch5xx-hal 后端导出（当前：${backend}）`)
+  }
+  return 'ch5xx-ble.zip'
 }
 
 /** zip 对应的 vendor 生成脚本（npm run …），用于加载失败提示。 */
 function vendorScriptFor(zipName: string): string {
-  return zipName === 'ch58x-hal.zip' ? 'vendor:hal58x' : 'vendor:hal'
+  if (zipName === 'ch58x-hal.zip') return 'vendor:hal58x'
+  if (zipName === 'ch5xx-hal.zip' || zipName === 'ch5xx-ble.zip') return 'vendor:hal5xx'
+  return 'vendor:hal'
 }
 
 /** 生成工程内容并解包 vendor HAL 源码（ZIP 与目录导出共用）。 */
@@ -96,20 +109,30 @@ export async function prepareExport(
   for (const f of files) snapshot[f.path] = f.content
 
   const vendorEntries: { path: string; data: Uint8Array }[] = []
-  if (selection.vendorHal) {
-    // M11：按芯片 HAL 后端选 zip（ch32-hal / ch58x-hal），失败提示对应 npm script
-    const zipName = backendVendorZip(data.chip.halBackend)
+  // M17：实际后端由 config.halBackend / 历史 legacy 规则决定，不能只看 chip 默认值
+  const backend = resolveHalBackend(config, data)
+
+  const extractZip = async (zipName: string): Promise<void> => {
     const resp = await fetch(`${import.meta.env.BASE_URL}vendor/${zipName}`)
     if (!resp.ok) {
       throw new Error(
         `HAL 源码包加载失败：${resp.status}（先运行 npm run ${vendorScriptFor(zipName)}）`,
       )
     }
-    const halZip = await JSZip.loadAsync(await resp.arrayBuffer())
-    // zip 内路径已含 ch32-hal/ 或 ch58x-hal/ 前缀 → 统一写为 vendor/<hal 目录>/...
-    for (const e of Object.values(halZip.files).filter((x) => !x.dir)) {
+    const zip = await JSZip.loadAsync(await resp.arrayBuffer())
+    // zip 内路径已含 <crate>/ 前缀 → 统一写为 vendor/<crate>/...
+    for (const e of Object.values(zip.files).filter((x) => !x.dir)) {
       vendorEntries.push({ path: `vendor/${e.name}`, data: await e.async('uint8array') })
     }
+  }
+
+  if (selection.vendorHal) {
+    // M11/M17：按 HAL 后端选 zip（ch32-hal / ch58x-hal / ch5xx-hal）
+    await extractZip(backendVendorZip(backend))
+  }
+  // D1/D3：ch5xx BLE 档必须内嵌 shim（Cargo 始终 path 依赖；vendorHal 关闭也要带）
+  if (backend === 'ch5xx-hal' && (config.features?.ble ?? false)) {
+    await extractZip(bleVendorZip(backend))
   }
   return { files, vendorEntries, snapshot, config }
 }

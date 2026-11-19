@@ -20,11 +20,15 @@ function argOf(name: string, fallback: string): string {
 const chip = argOf('--chip', 'CH32V003F4P6')
 const out = argOf('--out', '')
 const embassy = process.argv.includes('--embassy')
-// --ble：ch58x 专属（BLE ⇒ embassy，契约 D2），非 ch58x 后端直接报错退出（诚实失败而非静默忽略）
+// --ble：ch58x / ch5xx 后端（各自 BLE 路径），其它后端直接报错退出（诚实失败而非静默忽略）
 const ble = process.argv.includes('--ble')
 const halDir = process.env.CH32_HAL_DIR ?? ''
-// ch58x-hal 后端用 CH58X_HAL_REV 常量（config.hal.rev 不适用），本地路径默认 ../reference/ch58x-hal
+// ch58x-hal / ch5xx-hal 后端用各自 rev 常量（config.hal.rev 不适用）
 const ch58xHalDir = process.env.CH58X_HAL_DIR ?? path.resolve(root, '../reference/ch58x-hal')
+const ch5xxHalDir = process.env.CH5XX_HAL_DIR ?? path.resolve(root, '../reference/ch5xx-hal')
+// ch5xx-hal 的 build.rs 读取 ../ch5xx-data/data（兄弟目录）；vendor 树需一并复制
+const ch5xxDataDir = process.env.CH5XX_DATA_DIR ?? path.resolve(path.dirname(ch5xxHalDir), 'ch5xx-data')
+const ch5xxBleDir = process.env.CH5XX_BLE_DIR ?? path.resolve(root, 'vendor-src/ch5xx-ble')
 const halRev = process.env.CH32_HAL_REV ?? HAL_REV
 
 if (!out) {
@@ -33,10 +37,13 @@ if (!out) {
 }
 
 const data = getDeviceData(chip)
-const isCh58x = data.chip.halBackend === 'ch58x-hal'
+// M17：显式后端（verify-build.mjs 总会传；缺省按芯片数据，CH582 缺省 ch5xx-hal）
+const backend = argOf('--hal-backend', data.chip.halBackend ?? 'ch32-hal')
+const isCh58x = backend === 'ch58x-hal'
+const isCh5xx = backend === 'ch5xx-hal'
 
-if (ble && !isCh58x) {
-  console.error(`--ble 仅对 ch58x-hal 后端有效（${chip} 的 halBackend=${data.chip.halBackend ?? 'ch32-hal（缺省）'}）`)
+if (ble && !isCh58x && !isCh5xx) {
+  console.error(`--ble 仅对 ch58x-hal / ch5xx-hal 后端有效（${chip} 选择的是 ${backend}）`)
   process.exit(2)
 }
 
@@ -126,8 +133,18 @@ if (i2c && i2cDmaReady(i2c.id)) {
   }
 }
 
-// 时钟：优先第一预设
-const firstPreset = data.clock.presets[0]
+// 时钟：优先第一预设；ch5xx 的 I2C 要求 Fsys 2..36MHz（第一预设常为 60MHz），
+// 启用 I2C 时改选 15..36MHz 的预设（32MHz = 480÷15），保证 I2C 模板进入编译验证。
+const i2cSafePreset =
+  isCh5xx && i2c
+    ? data.clock.presets.find((p) => {
+        const div = p.match.div
+        if (typeof div !== 'number') return false
+        const mhz = 480 / div
+        return mhz >= 15 && mhz <= 36
+      })
+    : undefined
+const firstPreset = i2cSafePreset ?? data.clock.presets[0]
 const pll: Record<string, number> = {}
 if (firstPreset) {
   // 无 PLL 芯片（M14，如 X035）clock.pll 缺省：不补 PLL 参数
@@ -149,6 +166,8 @@ const clock = mergeClockConfig(data.clock, {
 const config: ProjectConfig = {
   version: 1,
   chip,
+  // 显式写入后端（仅非 ch32）：确保不会落入「历史工程 → legacy」的缺省分支
+  ...(backend !== 'ch32-hal' ? { halBackend: backend } : {}),
   projectName: 'verify-build',
   pins,
   naming: { prefix: '' },
@@ -178,6 +197,11 @@ for (const f of result.files) {
     if (f.path === 'Cargo.toml' && fs.existsSync(path.join(ch58xHalDir, 'Cargo.toml')) && content.includes('ch58x-hal = { git = ')) {
       content = content.replace(/ch58x-hal = \{ git = "[^"]+", (?:rev = "[^"]+", )?/, `ch58x-hal = { path = "${ch58xHalDir}", `)
     }
+  } else if (isCh5xx) {
+    // ch5xx-hal：git 行 → 本地 path（缺省 ../reference/ch5xx-hal）
+    if (f.path === 'Cargo.toml' && fs.existsSync(path.join(ch5xxHalDir, 'Cargo.toml')) && content.includes('ch5xx-hal = { git = ')) {
+      content = content.replace(/ch5xx-hal = \{ git = "[^"]+", (?:rev = "[^"]+", )?/, `ch5xx-hal = { path = "${ch5xxHalDir}", `)
+    }
   } else if (halDir && f.path === 'Cargo.toml' && content.includes('git = ')) {
     content = content.replace(/ch32-hal = \{ git = "[^"]+", (?:rev = "[^"]+", )?/, `ch32-hal = { path = "${halDir}", `)
   }
@@ -193,6 +217,37 @@ if (isCh58x) {
       filter: (src) => !src.includes('/.git') && !src.includes('/target'),
     })
     console.log(`[verify] vendor/ch58x-hal ← ${ch58xHalDir}`)
+  }
+} else if (isCh5xx) {
+  const cargoText = fs.existsSync(cargoPath) ? fs.readFileSync(cargoPath, 'utf8') : ''
+  if (cargoText.includes('path = "vendor/ch5xx-hal"') && fs.existsSync(path.join(ch5xxHalDir, 'Cargo.toml'))) {
+    fs.cpSync(ch5xxHalDir, path.join(out, 'vendor/ch5xx-hal'), {
+      recursive: true,
+      filter: (src) => !src.includes('/.git') && !src.includes('/target'),
+    })
+    console.log(`[verify] vendor/ch5xx-hal ← ${ch5xxHalDir}`)
+    // 兄弟数据目录：HAL build.rs 的硬依赖（../ch5xx-data/data）
+    if (fs.existsSync(path.join(ch5xxDataDir, 'data'))) {
+      fs.cpSync(ch5xxDataDir, path.join(out, 'vendor/ch5xx-data'), {
+        recursive: true,
+        filter: (src) => !src.includes('/.git') && !src.includes('/target'),
+      })
+      console.log(`[verify] vendor/ch5xx-data ← ${ch5xxDataDir}`)
+    } else {
+      console.error(`[verify] 缺少 ch5xx-data：${ch5xxDataDir}（ch5xx-hal build.rs 会失败）`)
+    }
+  }
+  // BLE shim：Cargo 始终 path 依赖，必须复制（与浏览器导出的 ch5xx-ble.zip 对应）
+  if (cargoText.includes('path = "vendor/ch5xx-ble"')) {
+    if (fs.existsSync(path.join(ch5xxBleDir, 'Cargo.toml'))) {
+      fs.cpSync(ch5xxBleDir, path.join(out, 'vendor/ch5xx-ble'), {
+        recursive: true,
+        filter: (src) => !src.includes('/.git') && !src.includes('/target'),
+      })
+      console.log(`[verify] vendor/ch5xx-ble ← ${ch5xxBleDir}`)
+    } else {
+      console.error(`[verify] 缺少 ch5xx-ble shim：${ch5xxBleDir}（BLE 构建会失败）`)
+    }
   }
 } else if (halDir && fs.existsSync(cargoPath) && fs.readFileSync(cargoPath, 'utf8').includes('path = "vendor/ch32-hal"')) {
   fs.cpSync(halDir, path.join(out, 'vendor/ch32-hal'), {

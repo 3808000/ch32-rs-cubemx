@@ -17,7 +17,8 @@
     "vendor:hal": "node scripts/build-hal-vendor.mjs",
     "vendor:hal58x": "node scripts/build-hal58x-vendor.mjs",
     "desktop:dev": "tauri dev",
-    "desktop:build": "tauri build"
+    "desktop:build": "tauri build",
+    "vendor:hal5xx": "node scripts/build-hal5xx-vendor.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

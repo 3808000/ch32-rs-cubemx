@@ -16,6 +16,7 @@ import { renderReadme } from './readme'
 import { renderHtmlReport } from './htmlReport'
 import { generateDualCoreProject } from './workspace'
 import { generateCh58xProject } from './ch58x'
+import { generateCh5xxProject } from './ch5xx'
 import { render } from './render'
 import { withFileGroups } from './fileGroup'
 import * as T from './templates'
@@ -32,6 +33,19 @@ export {
 } from './manifest'
 export type { CodegenResult, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
 
+/**
+ * 生效的 HAL 后端（M17，契约 D1）：
+ * - `ProjectConfig.halBackend` 显式值优先（新建工程由 store 写入 chip.halBackend）；
+ * - 缺省且芯片声明了 `legacyHalBackend` → 视为历史工程（cube.json 无 halBackend）走 legacy ch58x-hal，
+ *   保护旧 main.rs 手写代码；该规则同时让历史 cube.json 与本仓库 ch58x 旧套件保持零 regress；
+ * - 其余 → chip.halBackend，再退 ch32-hal。
+ */
+export function resolveHalBackend(config: ProjectConfig, data: DeviceData): string {
+  if (typeof config.halBackend === 'string' && config.halBackend !== '') return config.halBackend
+  if (data.chip.legacyHalBackend) return data.chip.legacyHalBackend
+  return data.chip.halBackend ?? 'ch32-hal'
+}
+
 export function generateProject(
   config: ProjectConfig,
   data: DeviceData,
@@ -39,11 +53,14 @@ export function generateProject(
 ): CodegenResult {
   const sel: CodegenSelection = { ...DEFAULT_SELECTION, ...(selection ?? {}) }
 
-  // 数据驱动后端分流（M11）：ch32-hal（缺省）走下方原管线；ch58x-hal 走独立后端；
-  // 其它未知后端诚实阻止导出。
-  const backend = data.chip.halBackend ?? 'ch32-hal'
+  // 数据驱动后端分流（M11/M17）：ch32-hal（缺省）走下方原管线；ch58x-hal（legacy）与
+  // ch5xx-hal（CH582 新默认）走各自独立后端；其它未知后端诚实阻止导出。
+  const backend = resolveHalBackend(config, data)
   if (backend === 'ch58x-hal') {
     return generateCh58xProject(config, data, sel)
+  }
+  if (backend === 'ch5xx-hal') {
+    return generateCh5xxProject(config, data, sel)
   }
   if (backend !== 'ch32-hal') {
     return {
@@ -52,7 +69,7 @@ export function generateProject(
         {
           code: 'TARGET_FEATURE_UNSUPPORTED',
           level: 'error',
-          message: `该芯片使用 ${backend} 后端，当前代码生成仅支持 ch32-hal / ch58x-hal`,
+          message: `该芯片使用 ${backend} 后端，当前代码生成仅支持 ch32-hal / ch58x-hal / ch5xx-hal`,
         },
       ],
     }

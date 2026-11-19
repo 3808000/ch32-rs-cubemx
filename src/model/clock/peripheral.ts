@@ -23,9 +23,17 @@ import type {
 /** 外设类别（peripherals.json 的四个实例数组）。 */
 const INSTANCE_KEYS = ['usart', 'spi', 'i2c', 'adc'] as const
 
-/** ch58x 时钟模型特征：SPI 线性 BRG 或 ADC 枚举旋钮（禁止按芯片名分流）。 */
+/** ch58x/ch5xx 时钟模型特征：SPI 线性 BRG 或 ADC 枚举旋钮（禁止按芯片名分流）。 */
 function isCh58xClockModel(pc: PeripheralClocksData): boolean {
   return !!(pc.spi?.brg.linear || pc.adc?.knob)
+}
+
+/** 外设时钟语义分档（M17）：同一份 CH582 数据被 ch5xx-hal 与 legacy ch58x-hal 共用。 */
+export type PeripheralClockBackend = 'ch58x-hal' | 'ch5xx-hal'
+
+/** 后端 → 计算模型；缺省 ch58x（保持 M15 既有行为与旧调用）。 */
+function clockModelOf(backend?: string): 'ch58x' | 'ch5xx' {
+  return backend === 'ch5xx-hal' ? 'ch5xx' : 'ch58x'
 }
 
 /** 总线频率（MHz）。CK32M 为 CH58x 固定 32MHz 域（fixedInMhz 优先）。 */
@@ -153,7 +161,51 @@ function usartCh58x(clockHz: number, baud: number): RateResult {
   }
 }
 
-/** I2C 实际 SCL（ch32 timing() 向上取整；ch58x 向下取整；standard ÷2 / Duty2 ÷3 / Duty16 ÷25）。 */
+/**
+ * ch5xx UART（src/uart.rs:1154-1176）：DIV=1、DL=round(Fsys/(8*baud))，actual=Fsys/(8*DL)；
+ * HAL 对 DL==0、DL>65535 与误差 >2% 直接返回 ConfigError（不是警告）。
+ */
+function usartCh5xx(clockHz: number, baud: number): RateResult {
+  if (!(baud > 0)) {
+    return { actualMhz: null, dividerLabel: null, issue: { level: 'warning', message: '波特率必须大于 0（HAL ConfigError::BaudrateTooHigh）' } }
+  }
+  const denom = 8 * baud
+  const dl = Math.floor((clockHz + denom / 2) / denom)
+  if (dl === 0) {
+    return {
+      actualMhz: null,
+      dividerLabel: `DIV 1 DL ${dl}`,
+      issue: { level: 'warning', message: `波特率 ${baud} 过高：DL=0（HAL ConfigError::BaudrateTooHigh）` },
+    }
+  }
+  if (dl > 0xffff) {
+    return {
+      actualMhz: null,
+      dividerLabel: `DIV 1 DL ${dl}`,
+      issue: { level: 'warning', message: `波特率 ${baud} 过低：DL=${dl} 超过 16 位上限 65535（HAL ConfigError::BaudrateTooLow）` },
+    }
+  }
+  const actualHz = clockHz / (8 * dl)
+  const errorPct = ((actualHz - baud) / baud) * 100
+  if (Math.abs(errorPct) > 2) {
+    return {
+      actualMhz: actualHz / 1e6,
+      dividerLabel: `DIV 1 DL ${dl}`,
+      errorPct,
+      issue: {
+        level: 'warning',
+        message: `波特率 ${baud} 误差 ${Math.abs(errorPct).toFixed(2)}% 超过 ch5xx-hal 的 2% 上限（实际 ${Math.round(actualHz)}，ConfigError::Baudrate）`,
+      },
+    }
+  }
+  return {
+    actualMhz: actualHz / 1e6,
+    dividerLabel: `DIV 1 DL ${dl}`,
+    errorPct,
+  }
+}
+
+/** I2C 实际 SCL（ch32 timing() 向上取整；ch58x/ch5xx 向下取整；standard ÷2 / Duty2 ÷3 / Duty16 ÷25）。 */
 function i2cTiming(busHz: number, freqHz: number, duty: string, ch58x: boolean): RateResult {
   if (!(freqHz > 0)) {
     return { actualMhz: null, dividerLabel: null, issue: { level: 'error', message: 'SCL 请求必须大于 0（HAL timing() assert）' } }
@@ -180,11 +232,13 @@ export function computePeripheralClocks(
   freqs: ClockFrequencies,
   periData: PeripheralsData,
   periState: Record<string, PeripheralState> = {},
+  backend?: string,
 ): PeripheralClockFreq[] {
   const pc = spec.peripheralClocks
   const out: PeripheralClockFreq[] = []
   if (!pc) return out
   const ch58x = isCh58xClockModel(pc)
+  const model = clockModelOf(backend)
   const state = periState ?? {}
 
   const push = (node: PeripheralClockFreq): void => {
@@ -203,7 +257,12 @@ export function computePeripheralClocks(
       const issues: ClockIssue[] = []
       let result: RateResult = { actualMhz: null, dividerLabel: null }
       if (requested !== null) {
-        result = ch58x ? usartCh58x(inMhz * 1e6, requested) : usartCh32(inMhz * 1e6, requested)
+        result =
+          model === 'ch5xx'
+            ? usartCh5xx(inMhz * 1e6, requested)
+            : ch58x
+              ? usartCh58x(inMhz * 1e6, requested)
+              : usartCh32(inMhz * 1e6, requested)
       }
       if (result.issue && enabled(inst.id)) {
         issues.push({ node: `P-${inst.id}`, level: result.issue.level, message: result.issue.message })
@@ -239,14 +298,32 @@ export function computePeripheralClocks(
       const issues: ClockIssue[] = []
       let actualMhz: number | null = null
       let dividerLabel: string | null = null
-      if (requested !== null && requested > 0) {
+      if (requested !== null) {
         const { div, linear } = spiDivider(inMhz * 1e6, requested, spi.brg)
         actualMhz = (inMhz * 1e6) / div / 1e6
         dividerLabel = linear ? `÷${div} (线性 BRG)` : `÷${div} (BRG)`
         if (enabled(inst.id)) {
-          // ch32：requested > bus/2 → HAL 落 DIV_2；requested < bus/256 → calculate_baud_rate 返回 None → DIV_256
-          // ch58x：线性分频 HAL 静默 clamp 2..255（同向回退，消息用 ÷N 表达）
-          if (requested > (inMhz * 1e6) / 2) {
+          const busHz = inMhz * 1e6
+          const rawDiv = requested > 0 ? Math.floor(busHz / requested) : 0
+          if (model === 'ch5xx') {
+            // ch5xx timing()（src/spi.rs:132-146）：freq==0、freq>Fsys/2、div>255 都返回 ConfigError::Frequency
+            if (!(requested > 0)) {
+              issues.push({ node: `P-${inst.id}`, level: 'warning', message: 'SPI 频率必须大于 0（ch5xx-hal ConfigError::Frequency）' })
+            } else if (requested > busHz / 2) {
+              issues.push({
+                node: `P-${inst.id}`,
+                level: 'warning',
+                message: `请求 ${fmt(requested / 1e6)}MHz 超过 Fsys/2（${fmt(busHz / 2e6)}MHz）：ch5xx-hal timing() 返回 ConfigError::Frequency`,
+              })
+            } else if (rawDiv > 255) {
+              issues.push({
+                node: `P-${inst.id}`,
+                level: 'warning',
+                message: `请求 ${fmt(requested)}Hz 需要分频 ${rawDiv}，超过 8 位上限 255：ch5xx-hal ConfigError::Frequency`,
+              })
+            }
+          } else if (requested > 0 && requested > busHz / 2) {
+            // ch32：requested > bus/2 → HAL 落 DIV_2；ch58x：线性分频静默 clamp 2..255
             issues.push({
               node: `P-${inst.id}`,
               level: 'warning',
@@ -254,7 +331,7 @@ export function computePeripheralClocks(
                 ? `请求超 bus/2，HAL 将 clamp 到 ÷2，实际 ${fmt(actualMhz)}MHz`
                 : `请求超 bus/2，HAL 将用 DIV_2，实际 ${fmt(actualMhz)}MHz`,
             })
-          } else if (requested < (inMhz * 1e6) / (linear ? (spi.brg.linear?.max ?? 255) : 256)) {
+          } else if (requested > 0 && requested < busHz / (linear ? (spi.brg.linear?.max ?? 255) : 256)) {
             issues.push({
               node: `P-${inst.id}`,
               level: 'warning',
@@ -291,14 +368,24 @@ export function computePeripheralClocks(
       let actualMhz: number | null = null
       let dividerLabel: string | null = null
       if (requested !== null) {
+        const mhz = Math.floor(inMhz)
+        if (model === 'ch5xx' && enabled(inst.id) && (mhz < 2 || mhz > 36)) {
+          // ch5xx CTRL2.FREQ 是整 MHz 字段，文档范围 2..=36（src/i2c.rs:145-150）
+          issues.push({
+            node: `P-${inst.id}`,
+            level: 'warning',
+            message: `I2C 的 Fsys=${mhz}MHz 超出 ch5xx-hal 的 2..=36MHz 范围（HAL ConfigError::Clock；生成期会阻止导出）`,
+          })
+        }
         if (enabled(inst.id) && requested > i2c.maxKhz * 1000) {
-          // HAL timing() assert!(frequency <= 400_000)
+          // HAL timing() 拒绝 >400kHz
           issues.push({
             node: `P-${inst.id}`,
             level: 'error',
-            message: `SCL 请求 ${requested / 1000}kHz 超过上限 ${i2c.maxKhz}kHz（HAL timing() assert）`,
+            message: `SCL 请求 ${requested / 1000}kHz 超过上限 ${i2c.maxKhz}kHz（HAL timing() 返回 Err）`,
           })
         } else {
+          // 舍入语义由数据模型决定（ch58x/ch5xx 数据同源：floor；ch32：ceil），与后端分档无关
           const r = i2cTiming(inMhz * 1e6, requested, duty, ch58x)
           actualMhz = r.actualMhz
           dividerLabel = r.dividerLabel
@@ -434,8 +521,9 @@ export function validatePeripheralClocks(
   freqs: ClockFrequencies,
   periData: PeripheralsData,
   periState: Record<string, PeripheralState> = {},
+  backend?: string,
 ): ClockIssue[] {
-  return computePeripheralClocks(spec, cfg, freqs, periData, periState).flatMap((p) => p.issues)
+  return computePeripheralClocks(spec, cfg, freqs, periData, periState, backend).flatMap((p) => p.issues)
 }
 
 /** 供测试/数据校验复用：peripheralClocks 块声明了哪些实例类别。 */

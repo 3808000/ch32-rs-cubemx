@@ -543,7 +543,7 @@ describe('generateProject 双核（CH32H417QEU6）', () => {
 })
 
 describe('generateProject 后端守卫', () => {
-  it('未知 halBackend → 阻止导出（数据驱动，不按芯片名分支；M11 起 ch58x-hal 已接入）', () => {
+  it('未知 halBackend → 阻止导出（数据驱动，不按芯片名分支；M11/M17 起 ch58x-hal/ch5xx-hal 已接入）', () => {
     const unknownData: DeviceData = {
       ...data,
       chip: { ...data.chip, chip: 'FOO123', halBackend: 'foo-hal' },
@@ -554,7 +554,7 @@ describe('generateProject 后端守卫', () => {
       {
         code: 'TARGET_FEATURE_UNSUPPORTED',
         level: 'error',
-        message: '该芯片使用 foo-hal 后端，当前代码生成仅支持 ch32-hal / ch58x-hal',
+        message: '该芯片使用 foo-hal 后端，当前代码生成仅支持 ch32-hal / ch58x-hal / ch5xx-hal',
       },
     ])
   })
