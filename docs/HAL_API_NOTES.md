@@ -842,7 +842,7 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 ### 18.3 测试矩阵与实机诊断（诚实分级）
 
 - `ble-evt-tests/` 22 bin 全编译绿（nightly+build-std，riscv32imac）；宿主 harness `/tmp/m18-ble-host/`（test_peripheral/peer_peripheral/peer_advertiser/throughput/run_case）。
-- **实机受阻待电源循环**：反复 OpenOCD halt/resume 后，已知良好的 M17 固件与 evt_peripheral/evt_speedtest_peripheral 均不广播；读证：PFIC IENR0=0（两固件同）、RAM 向量表 BLEB/BLEL 已接线（0x20000050/54 → 0x200000c0/d0）、mtvec=0x20000003、mstatus=0x1888（MIE=1）、SysTick CTLR=0x5 自由跑 CNT 递增、PC 在 TMOS 泵内移动（非死锁）。假设：软复位不复位 RF/32K 模拟域，halt/resume 累积致模拟态 stale；**需板级电源循环验证**，未证实前不宣称任何 bin 实机通过。
+- **实机部分通过/部分受阻（诚实）**：broadcaster PASS（btmgmt find；bluez StartDiscovery 过滤 flags 0x04）；peripheral 角色+完整 GATT 服务广播 PASS（dbg15）；M17 完整 GATT 读/写/notify 上午 ×2 PASS。**evt_peripheral 族广播静默根因未决**：AdvEnabled=1/向量接线/MIE=1/泵运行；bisect 见 M18 契约 D5（name-only rsp+no-op hooks 可广播；真实 hooks/CTX 或 rsp 额外 TLV 静默；blob V1.90/V2.13 同）。电源循环恢复过一次模拟态（软复位不复位 RF/32K），但非该缺陷根因。central/observer 无观测通道（UART1 PA9 无串口适配器；宿主 RegisterApplication 超时）。解锁需 UART 适配器/第二块板/lib 反汇编授权。
 - 探针事故：被停后台任务遗留 root openocd 占 USB（`claim interface failed`/libusb IO）→ `pkexec kill <pid>` 清理；`pkill -f openocd` 匹配自身命令行自杀 → 用 `pkill -x openocd`；pkexec 改 cwd → OpenOCD program 必须绝对路径。
 - 安全边界：OTA bin 擦/写/校验/结束命令 stub 为 ATT 错误（不写 flash）；SNV off；无 HAL_SLEEP。
 

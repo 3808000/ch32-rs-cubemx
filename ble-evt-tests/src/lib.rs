@@ -161,6 +161,23 @@ unsafe extern "C" fn app_task(task_id: u8, events: u16) -> u16 {
 /// Order (spec §0.2/§0.3): `hal::init` at 60 MHz, 32 kHz source, UART1 log,
 /// `BLE_LibInit`, application task, BLE interrupt vectors.
 pub fn boot(cfg: BootCfg) -> Boot {
+    // M18 实机根因修复：qingke-rt link.x 的 `_ebss` 落在 .bss 输出段中部——lib 的
+    // orphan .bss 输入段（gapRole_* 等全局）排在 `_ebss` 之后，启动清零不覆盖；
+    // 软复位保留 RAM 旧态 → peripheral 角色读脏状态不上空口（broadcaster 偶容忍）。
+    // 在 hal::init 前把 `_ebss` 到当前栈帧下方 2KiB 的安全区清零（不碰栈/ .data/.highcode）。
+    unsafe {
+        extern "C" {
+            static _ebss: u8;
+        }
+        let sp: usize;
+        core::arch::asm!("mv {}, sp", out(reg) sp, options(nomem, nostack));
+        let start = core::ptr::addr_of!(_ebss) as usize;
+        let end = (sp.saturating_sub(2048)) & !0x3ff;
+        if end > start {
+            core::ptr::write_bytes(start as *mut u8, 0, end - start);
+        }
+    }
+
     let p = hal::init(hal::Config {
         rcc: hal::rcc::Config::PLL_60MHZ,
     });

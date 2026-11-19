@@ -151,8 +151,7 @@ fn main() -> ! {
     set_adv_data(adv.as_slice());
     let mut rsp = AdvBuilder::new();
     rsp.name_complete(b"ch583_ble_uart")
-        .conn_interval_range(8, 20)
-        .tx_power(0);
+        ;
     set_scan_rsp(rsp.as_slice());
     set_adv_interval(160); // 100 ms
 

@@ -128,9 +128,8 @@ fn main() -> ! {
     set_adv_data(adv.as_slice());
 
     let mut rsp = AdvBuilder::new();
-    rsp.conn_interval_range(8, 8);
     rsp.uuids16_more(&[0x1812, 0x180F]);
-    rsp.tx_power(0);
+    rsp;
     set_scan_rsp(rsp.as_slice());
 
     start_peripheral(task);

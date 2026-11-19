@@ -149,7 +149,7 @@ fn main() -> ! {
     adv.name_complete(b"CSC Sensor");
     set_adv_data(adv.as_slice());
     let mut rsp = AdvBuilder::new();
-    rsp.tx_power(0);
+    rsp;
     set_scan_rsp(rsp.as_slice());
     set_adv_interval(32);
 

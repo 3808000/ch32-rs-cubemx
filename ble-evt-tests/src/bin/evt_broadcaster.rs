@@ -64,7 +64,7 @@ fn main() -> ! {
     set_adv_data(adv.as_slice());
 
     let mut rsp = AdvBuilder::new();
-    rsp.name_complete(b"Broadcaster").tx_power(0);
+    rsp.name_complete(b"Broadcaster");
     set_scan_rsp(rsp.as_slice());
 
     unsafe {

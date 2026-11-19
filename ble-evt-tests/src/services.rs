@@ -203,10 +203,8 @@ pub mod simple {
             note_value(U3.as_ptr(), 5, 0);
             note_value(U4.as_ptr(), 5, 0);
             note_value(U5.as_ptr(), 5, 0);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD4) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -306,10 +304,8 @@ pub mod simple8 {
             note_value(U3.as_ptr(), 5, 0);
             note_value(U4.as_ptr(), 5, 0);
             note_value(U5.as_ptr(), 5, 0);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD4) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -363,10 +359,8 @@ pub mod battery {
         unsafe {
             note_value(addr_of!(D) as *const u8, 5, 0);
             note_value(addr_of!(V) as *const u8, 1, 0);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -458,10 +452,8 @@ pub mod heart_rate {
             note_value(addr_of!(V37) as *const u8, 2, 0);
             note_value(addr_of!(V38) as *const u8, 1, 0);
             note_value(addr_of!(V39) as *const u8, 1, 1);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD37) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -528,14 +520,10 @@ pub mod csc {
             note_value(addr_of!(V5C) as *const u8, 2, 0);
             note_value(addr_of!(V5D) as *const u8, 1, 0);
             note_value(addr_of!(V55) as *const u8, 1, 1);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD5B) as *mut gattCharCfg_t,
-            );
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD55) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -613,14 +601,10 @@ pub mod rsc {
             note_value(addr_of!(V54) as *const u8, 2, 0);
             note_value(addr_of!(V5D) as *const u8, 1, 0);
             note_value(addr_of!(V55) as *const u8, 1, 1);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD53) as *mut gattCharCfg_t,
-            );
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD55) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -680,10 +664,8 @@ pub mod scan_params {
             note_value(addr_of!(D31) as *const u8, 5, 0);
             note_value(addr_of!(V4F) as *const u8, 4, 4);
             note_value(addr_of!(V31) as *const u8, 1, 0);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD31) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -730,10 +712,8 @@ pub mod uart {
             note_value(addr_of!(D2) as *const u8, 5, 0);
             note_value(addr_of!(V1) as *const u8, 1, 0);
             note_value(addr_of!(V2) as *const u8, 1, 1);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD1) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -784,10 +764,8 @@ pub mod iochub {
             note_value(addr_of!(D2) as *const u8, 5, 0);
             note_value(addr_of!(V1) as *const u8, 1, 0);
             note_value(addr_of!(V2) as *const u8, 1, 1);
-            GATTServApp::init_char_cfg(
-                INVALID_CONNHANDLE,
-                addr_of_mut!(CCCD1) as *mut gattCharCfg_t,
-            );
+            // M18 实机：GATTServApp_InitCharCfg(0xFFFF,…) 会使广播停发（lib 行为，
+            // 根因未明）；CCCD 表已由 CCCD_INIT 静态初始化，断连时按连接重置。
             register_attrs(&mut *addr_of_mut!(ATTRS))
         }
     }
@@ -901,7 +879,7 @@ mod hid_common {
     }
 
     pub fn init_cccd(tbl: *mut gattCharCfg_t) {
-        unsafe { GATTServApp::init_char_cfg(INVALID_CONNHANDLE, tbl) };
+        // M18 实机：全局 InitCharCfg(0xFFFF) 停广播，跳过；CCCD_INIT 静态初始化。
     }
 }
 
