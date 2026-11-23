@@ -177,16 +177,24 @@ unsafe extern "C" fn app_task(task_id: u8, events: u16) -> u16 {
     events & !SYS_EVENT_MSG
 }
 
-/// BLEB/BLEL ISR wrappers saving **all callee-saved registers** (ra+s0–s11).
+/// BLEB/BLEL ISR wrappers saving **every integer register**.
 ///
-/// qingke-rt's stock `#[interrupt]` wrapper saves only `ra`, relying on the
-/// handler's C ABI to preserve s0–s11. The WCH blob clobbers s1 (observed:
-/// s1=0xffffff82 while the main loop holds the SysTick base there →
-/// misaligned-load exception 4 → DefaultHandler hang, non-deterministic
-/// ~18–84 s after boot, earlier under connection/scan load). Saving every
-/// s register in the wrapper makes the main loop immune regardless of the
-/// blob's internal register usage. Invoke once per binary instead of the
-/// two `#[qingke_rt::interrupt]` handlers.
+/// An asynchronous handler must preserve the interrupted context completely:
+/// the blob's `*_IRQLibHandler` is ordinary C code and is free to clobber all
+/// caller-saved registers (ra, t0–t6, a0–a7). Saving only the callee-saved
+/// set (the previous version of this macro) leaves a hole: an interrupt
+/// landing between a value's computation and its first use corrupts it.
+///
+/// Observed twice with this signature: `lw a4,...` computes a global address,
+/// BLEB/BLEL fires, the handler clobbers a4, and the interrupted code stores
+/// the garbage into a callee-saved register (`s1 = 0xffffff82`) and faults
+/// (illegal-instruction/`Load address misaligned`, mcause 2/4) at whatever
+/// pointer it touches next. Under GATT-client load the interrupt rate makes
+/// it deterministic within seconds; provider/peripheral-only tests mostly got
+/// away with it.
+///
+/// The frame is 128 bytes (16-byte aligned) and also parks gp/tp so the
+/// handler's ABI assumptions cannot leak state either way.
 #[macro_export]
 macro_rules! ble_isr {
     () => {
@@ -195,69 +203,137 @@ macro_rules! ble_isr {
             ".align 2",
             ".global BLEB",
             "BLEB:",
-            "addi sp, sp, -52",
+            "addi sp, sp, -128",
             "sw ra, 0(sp)",
-            "sw s0, 4(sp)",
-            "sw s1, 8(sp)",
-            "sw s2, 12(sp)",
-            "sw s3, 16(sp)",
-            "sw s4, 20(sp)",
-            "sw s5, 24(sp)",
-            "sw s6, 28(sp)",
-            "sw s7, 32(sp)",
-            "sw s8, 36(sp)",
-            "sw s9, 40(sp)",
-            "sw s10, 44(sp)",
-            "sw s11, 48(sp)",
+            "sw gp, 4(sp)",
+            "sw tp, 8(sp)",
+            "sw t0, 12(sp)",
+            "sw t1, 16(sp)",
+            "sw t2, 20(sp)",
+            "sw t3, 24(sp)",
+            "sw t4, 28(sp)",
+            "sw t5, 32(sp)",
+            "sw t6, 36(sp)",
+            "sw a0, 40(sp)",
+            "sw a1, 44(sp)",
+            "sw a2, 48(sp)",
+            "sw a3, 52(sp)",
+            "sw a4, 56(sp)",
+            "sw a5, 60(sp)",
+            "sw a6, 64(sp)",
+            "sw a7, 68(sp)",
+            "sw s0, 72(sp)",
+            "sw s1, 76(sp)",
+            "sw s2, 80(sp)",
+            "sw s3, 84(sp)",
+            "sw s4, 88(sp)",
+            "sw s5, 92(sp)",
+            "sw s6, 96(sp)",
+            "sw s7, 100(sp)",
+            "sw s8, 104(sp)",
+            "sw s9, 108(sp)",
+            "sw s10, 112(sp)",
+            "sw s11, 116(sp)",
             "1: auipc t1, %pcrel_hi(BB_IRQLibHandler)",
             "jalr t1, %pcrel_lo(1b)(t1)",
             "lw ra, 0(sp)",
-            "lw s0, 4(sp)",
-            "lw s1, 8(sp)",
-            "lw s2, 12(sp)",
-            "lw s3, 16(sp)",
-            "lw s4, 20(sp)",
-            "lw s5, 24(sp)",
-            "lw s6, 28(sp)",
-            "lw s7, 32(sp)",
-            "lw s8, 36(sp)",
-            "lw s9, 40(sp)",
-            "lw s10, 44(sp)",
-            "lw s11, 48(sp)",
-            "addi sp, sp, 52",
+            "lw gp, 4(sp)",
+            "lw tp, 8(sp)",
+            "lw t0, 12(sp)",
+            "lw t1, 16(sp)",
+            "lw t2, 20(sp)",
+            "lw t3, 24(sp)",
+            "lw t4, 28(sp)",
+            "lw t5, 32(sp)",
+            "lw t6, 36(sp)",
+            "lw a0, 40(sp)",
+            "lw a1, 44(sp)",
+            "lw a2, 48(sp)",
+            "lw a3, 52(sp)",
+            "lw a4, 56(sp)",
+            "lw a5, 60(sp)",
+            "lw a6, 64(sp)",
+            "lw a7, 68(sp)",
+            "lw s0, 72(sp)",
+            "lw s1, 76(sp)",
+            "lw s2, 80(sp)",
+            "lw s3, 84(sp)",
+            "lw s4, 88(sp)",
+            "lw s5, 92(sp)",
+            "lw s6, 96(sp)",
+            "lw s7, 100(sp)",
+            "lw s8, 104(sp)",
+            "lw s9, 108(sp)",
+            "lw s10, 112(sp)",
+            "lw s11, 116(sp)",
+            "addi sp, sp, 128",
             "mret",
             ".global BLEL",
             "BLEL:",
-            "addi sp, sp, -52",
+            "addi sp, sp, -128",
             "sw ra, 0(sp)",
-            "sw s0, 4(sp)",
-            "sw s1, 8(sp)",
-            "sw s2, 12(sp)",
-            "sw s3, 16(sp)",
-            "sw s4, 20(sp)",
-            "sw s5, 24(sp)",
-            "sw s6, 28(sp)",
-            "sw s7, 32(sp)",
-            "sw s8, 36(sp)",
-            "sw s9, 40(sp)",
-            "sw s10, 44(sp)",
-            "sw s11, 48(sp)",
+            "sw gp, 4(sp)",
+            "sw tp, 8(sp)",
+            "sw t0, 12(sp)",
+            "sw t1, 16(sp)",
+            "sw t2, 20(sp)",
+            "sw t3, 24(sp)",
+            "sw t4, 28(sp)",
+            "sw t5, 32(sp)",
+            "sw t6, 36(sp)",
+            "sw a0, 40(sp)",
+            "sw a1, 44(sp)",
+            "sw a2, 48(sp)",
+            "sw a3, 52(sp)",
+            "sw a4, 56(sp)",
+            "sw a5, 60(sp)",
+            "sw a6, 64(sp)",
+            "sw a7, 68(sp)",
+            "sw s0, 72(sp)",
+            "sw s1, 76(sp)",
+            "sw s2, 80(sp)",
+            "sw s3, 84(sp)",
+            "sw s4, 88(sp)",
+            "sw s5, 92(sp)",
+            "sw s6, 96(sp)",
+            "sw s7, 100(sp)",
+            "sw s8, 104(sp)",
+            "sw s9, 108(sp)",
+            "sw s10, 112(sp)",
+            "sw s11, 116(sp)",
             "1: auipc t1, %pcrel_hi(LLE_IRQLibHandler)",
             "jalr t1, %pcrel_lo(1b)(t1)",
             "lw ra, 0(sp)",
-            "lw s0, 4(sp)",
-            "lw s1, 8(sp)",
-            "lw s2, 12(sp)",
-            "lw s3, 16(sp)",
-            "lw s4, 20(sp)",
-            "lw s5, 24(sp)",
-            "lw s6, 28(sp)",
-            "lw s7, 32(sp)",
-            "lw s8, 36(sp)",
-            "lw s9, 40(sp)",
-            "lw s10, 44(sp)",
-            "lw s11, 48(sp)",
-            "addi sp, sp, 52",
+            "lw gp, 4(sp)",
+            "lw tp, 8(sp)",
+            "lw t0, 12(sp)",
+            "lw t1, 16(sp)",
+            "lw t2, 20(sp)",
+            "lw t3, 24(sp)",
+            "lw t4, 28(sp)",
+            "lw t5, 32(sp)",
+            "lw t6, 36(sp)",
+            "lw a0, 40(sp)",
+            "lw a1, 44(sp)",
+            "lw a2, 48(sp)",
+            "lw a3, 52(sp)",
+            "lw a4, 56(sp)",
+            "lw a5, 60(sp)",
+            "lw a6, 64(sp)",
+            "lw a7, 68(sp)",
+            "lw s0, 72(sp)",
+            "lw s1, 76(sp)",
+            "lw s2, 80(sp)",
+            "lw s3, 84(sp)",
+            "lw s4, 88(sp)",
+            "lw s5, 92(sp)",
+            "lw s6, 96(sp)",
+            "lw s7, 100(sp)",
+            "lw s8, 104(sp)",
+            "lw s9, 108(sp)",
+            "lw s10, 112(sp)",
+            "lw s11, 116(sp)",
+            "addi sp, sp, 128",
             "mret",
         );
     };
@@ -589,13 +665,21 @@ pub fn peripheral_role_init() {
 /// redundant Init here keeps standalone callers safe (second call returns
 /// bleAlreadyInRequestedMode, ignored).
 pub fn start_peripheral(task: u8) {
+    peripheral_role_init();
+    let _ = start_peripheral_device(task);
+}
+
+/// Start the peripheral role device **without** re-running `PeripheralInit`.
+///
+/// Multi-role binaries (CentPeri, MultiCentPeri) must keep the combined role
+/// mask produced by the two role inits: re-running `PeripheralInit` after the
+/// central init drops the central bit, and the subsequent
+/// `GAPRole_CentralStartDiscovery` fails with bleIncorrectMode (0x12).
+pub fn start_peripheral_device(task: u8) -> bStatus_t {
     // M17 order: advertising enabled BEFORE StartDevice (A/B-verified —
     // enabling only afterwards leaves the GATT server silent in discovery).
     adv_enable(true);
-    unsafe {
-        let _ = GAPRole_PeripheralInit();
-        let _ = GAPRole_PeripheralStartDevice(task, &GAP_BOND_CBS, &GAP_ROLE_CBS);
-    }
+    unsafe { GAPRole_PeripheralStartDevice(task, &GAP_BOND_CBS, &GAP_ROLE_CBS) }
 }
 
 /// Add the mandatory GAP/GATT server services before custom services.
@@ -608,26 +692,52 @@ pub fn add_gatt_services() {
 
 /// Initialise the central role and its GATT client.
 pub fn start_central_role(task: u8) {
+    central_role_init();
+    let _ = start_central_device(task);
+}
+
+/// Central-role Init only (no StartDevice).
+///
+/// Multi-role binaries (CentPeri, MultiCentPeri) must initialise **both**
+/// roles before configuring parameters or starting either device: each role
+/// init calls `GAP_Init`, which resets shared GAP state, so
+/// `PeripheralStartDevice` followed by `CentralInit` leaves the peripheral
+/// face dead (observed: no advertising, no scan results until power cycle).
+pub fn central_role_init() {
     unsafe {
         let _ = GAPRole_CentralInit();
+    }
+}
+
+/// Start the central role's GATT client and device task (Init already done).
+///
+/// Returns the `GAPRole_CentralStartDevice` status so multi-role binaries can
+/// surface it (a second role's StartDevice resets the link layer; the status
+/// tells whether this face actually came up).
+pub fn start_central_device(task: u8) -> bStatus_t {
+    unsafe {
         let _ = GATT_InitClient();
         GATT_RegisterForInd(task);
         GATT_RegisterForReq(task);
         let bond = &GAP_BOND_CBS as *const gapBondCBs_t as *mut gapBondCBs_t;
         let cbs = &GAP_CENTRAL_CBS as *const gapCentralRoleCB_t as *mut gapCentralRoleCB_t;
-        let _ = GAPRole_CentralStartDevice(task, bond, cbs);
+        GAPRole_CentralStartDevice(task, bond, cbs)
     }
 }
 
 /// Start an active/passive central scan.
 ///
-/// `scan_units` is in 0.625 ms Tick units (`TGAP_DISC_SCAN`).
-pub fn start_scan(scan_units: u16, max_results: u8, active: bool) {
+/// `scan_units` is in 0.625 ms Tick units (`TGAP_DISC_SCAN`). Returns the
+/// discovery status (multi-role bring-up needs to see it).
+pub fn start_scan_status(scan_units: u16, max_results: u8, active: bool) -> bStatus_t {
     set_gap_param(TGAP_DISC_SCAN, scan_units);
     set_role_u8(GAPROLE_MAX_SCAN_RES, max_results);
-    unsafe {
-        let _ = GAPRole_CentralStartDiscovery(DEVDISC_MODE_ALL, active as u8, 0);
-    }
+    unsafe { GAPRole_CentralStartDiscovery(DEVDISC_MODE_ALL, active as u8, 0) }
+}
+
+/// [`start_scan_status`] without the status.
+pub fn start_scan(scan_units: u16, max_results: u8, active: bool) {
+    let _ = start_scan_status(scan_units, max_results, active);
 }
 
 /// Establish a link to a peer address (LSB-first, stack order).
@@ -1004,7 +1114,11 @@ static mut EVENT_SUB: Option<ble::EventSubscriber> = None;
 
 /// Busy-poll TMOS pump, one callback per millisecond.
 ///
-/// This mirrors the EVT main loops (`HAL_SLEEP=FALSE`, no WFI).
+/// This mirrors the EVT main loops (`HAL_SLEEP=FALSE`, no WFI). Stack messages
+/// delivered to the shim task (GATT client indications/responses registered
+/// with `GATT_RegisterForInd`/`GATT_RegisterForReq`) are dispatched to the
+/// per-binary app handler before the message is deallocated — without this the
+/// central-role GATT client never observes MTU/discovery responses.
 pub fn run<F: FnMut(u32)>(mut on_tick: F) -> ! {
     let mut last = now_ms();
     loop {
@@ -1012,7 +1126,16 @@ pub fn run<F: FnMut(u32)>(mut on_tick: F) -> ! {
         unsafe {
             if let Some(sub) = (*core::ptr::addr_of_mut!(EVENT_SUB)).as_mut() {
                 while let Some(event) = sub.try_next_message_pure() {
-                    let _ = event.message_id();
+                    let id = event.message_id();
+                    // GAP events use the role callbacks (pfnStateChange /
+                    // eventCB); only stack messages (GATT client traffic) are
+                    // handed to the per-binary handler to avoid double
+                    // dispatch.
+                    if id != ble::TmosEvent::GAP_MSG_EVENT {
+                        if let Some(handler) = APP_HANDLER {
+                            handler(id, event.0 as *mut u8);
+                        }
+                    }
                 }
             }
         }

@@ -100,9 +100,9 @@ impl Default for Options {
 /// `bleConfig_t::MEMLen` was rejected before `BLE_LibInit` (INVALID_MEM_SIZE).
 const INVALID_MEM_SIZE: u8 = 0x0B;
 
-static CHANNEL: PubSubChannel<CriticalSectionRawMutex, TmosEvent, 4, 2, 2> = PubSubChannel::new();
+static CHANNEL: PubSubChannel<CriticalSectionRawMutex, TmosEvent, 16, 2, 2> = PubSubChannel::new();
 
-pub type EventSubscriber = Subscriber<'static, CriticalSectionRawMutex, TmosEvent, 4, 2, 2>;
+pub type EventSubscriber = Subscriber<'static, CriticalSectionRawMutex, TmosEvent, 16, 2, 2>;
 
 #[derive(Clone, Debug)]
 pub struct TmosEvent(pub *mut tmos_event_hdr_t);
@@ -127,6 +127,21 @@ impl TmosEvent {
 impl Drop for TmosEvent {
     fn drop(&mut self) {
         unsafe {
+            if (*self.0).event == Self::GATT_MSG_EVENT {
+                let hdr = self.0 as *mut u8;
+                // gattMsgEvent_t: {event,status}, connHandle u16, method u8,
+                // then the gattMsg_t copy at +8.
+                let method = *hdr.add(4);
+                if method == gatt::ATT_HANDLE_VALUE_NOTI {
+                    // The stack hands ownership of the ACL value buffer to the
+                    // application: gattNotifyEvent copies only the 24-byte
+                    // header into this message. Without this free each received
+                    // notification leaks one 251-byte RX buffer; at MTU 247 the
+                    // pool (BufNumber=20) is exhausted after ~15 notifications
+                    // and reception stops for good.
+                    gatt::GATT_bm_free(hdr.add(8) as *mut gatt::gattMsg_t, method);
+                }
+            }
             let _ = tmos_msg_deallocate(self.0 as *mut u8);
         }
     }
@@ -150,8 +165,15 @@ const HAL_TMOS_TASK_INTERVAL: u32 = (120000) * 1000 / 625;
 
 unsafe extern "C" fn hal_tmos_task(task_id: u8, events: u16) -> u16 {
     if events & SYS_EVENT_MSG != 0 {
-        let msg = tmos_msg_receive(task_id);
-        if !msg.is_null() {
+        // Drain every queued message: TMOS sets SYS_EVENT_MSG per enqueue but
+        // the bit is level-held, so handling one message and clearing the bit
+        // strands messages queued while the bit was already set (observed with
+        // GATT client responses during discovery).
+        loop {
+            let msg = tmos_msg_receive(task_id);
+            if msg.is_null() {
+                break;
+            }
             let event = TmosEvent(msg as _);
             CHANNEL.publish_immediate(event);
             // Dealloc in Drop

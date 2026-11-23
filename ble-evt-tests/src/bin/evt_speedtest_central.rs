@@ -34,25 +34,34 @@ const OPTS: ble::Options = ble::Options {
 static mut LINK: Option<SingleLink> = None;
 static mut CYCLE: Option<Ticker> = None;
 static mut STATS: Option<Ticker> = None;
+static mut PEER_ADDR: [u8; 6] = [0; 6];
+static mut PEER_TYPE: u8 = 0;
+static mut CONNECTING: bool = false;
 
 unsafe fn on_gap(event: *mut gapRoleEvent_t) {
     match (*event).gap.opcode {
         GAP_DEVICE_INFO_EVENT => {
             let info = (*event).deviceInfo;
             let data = core::slice::from_raw_parts(info.pEvtData, info.dataLen as usize);
-            let idle = (*addr_of!(LINK)).as_ref().map(|l| l.conn == INVALID_CONNHANDLE).unwrap_or(true);
+            let idle = (*addr_of!(LINK)).is_none() && !*addr_of!(CONNECTING);
             if adv_name_is(data, PEER_NAME.as_bytes()) && idle {
-                ble::println!("peer found, establishing link");
-                let _ = establish_link(info.addrType, &info.addr);
+                // bleNotReady while discovery is pending: cancel, connect on
+                // the discovery-complete event.
+                *addr_of_mut!(PEER_ADDR) = info.addr;
+                *addr_of_mut!(PEER_TYPE) = info.addrType;
+                *addr_of_mut!(CONNECTING) = true;
+                let _ = GAPRole_CentralCancelDiscovery();
             }
         }
         GAP_LINK_ESTABLISHED_EVENT => {
             let link = (*event).linkCmpl;
+            *addr_of_mut!(CONNECTING) = false;
             *addr_of_mut!(LINK) = Some(SingleLink::new(link.connectionHandle, task_id()));
             *addr_of_mut!(CYCLE) = Some(Ticker::new(1600));
             *addr_of_mut!(STATS) = Some(Ticker::new(5000));
         }
         GAP_LINK_TERMINATED_EVENT => {
+            *addr_of_mut!(CONNECTING) = false;
             if let Some(l) = &mut *addr_of_mut!(LINK) {
                 ble::println!(
                     "link lost: {} notifications, {} bytes, {} writes",
@@ -65,8 +74,13 @@ unsafe fn on_gap(event: *mut gapRoleEvent_t) {
             start_scan(2400, 50, true);
         }
         GAP_DEVICE_DISCOVERY_EVENT => {
-            let idle = (*addr_of!(LINK)).is_none();
-            if idle {
+            if *addr_of!(CONNECTING) {
+                let status = establish_link(*addr_of!(PEER_TYPE), &*addr_of!(PEER_ADDR));
+                if status.is_err() {
+                    *addr_of_mut!(CONNECTING) = false;
+                    start_scan(2400, 50, true);
+                }
+            } else if (*addr_of!(LINK)).is_none() {
                 start_scan(2400, 50, true);
             }
         }
@@ -90,6 +104,7 @@ unsafe fn on_event(event: u8, msg: *mut u8) {
 
 fn on_tick(now: u32) {
     if let Some(link) = (unsafe { &mut *addr_of_mut!(LINK) }).as_mut() {
+        link.poll(now, task_id());
         if let Some(cycle) = (unsafe { &mut *addr_of_mut!(CYCLE) }).as_mut() {
             if cycle.due(now) {
                 link.tick(task_id());

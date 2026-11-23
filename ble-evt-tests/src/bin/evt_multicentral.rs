@@ -29,6 +29,11 @@ const SLOTS: usize = 3;
 
 static mut LINKS: [Option<SingleLink>; SLOTS] = [None; SLOTS];
 static mut CYCLE: Option<Ticker> = None;
+/// Address of the peer to connect to once the scan finishes (establishing
+/// while a discovery request is pending fails with bleNotReady).
+static mut PENDING_ADDR: [u8; 6] = [0; 6];
+static mut PENDING_TYPE: u8 = 0;
+static mut INITIATING: bool = false;
 
 unsafe fn free_slot() -> Option<usize> {
     let links = &*addr_of!(LINKS);
@@ -45,12 +50,22 @@ unsafe fn on_gap(event: *mut gapRoleEvent_t) {
                 .iter()
                 .flatten()
                 .any(|l| l.conn != INVALID_CONNHANDLE);
-            if adv_name_is(data, PEER_NAME.as_bytes()) && free_slot().is_some() && !known {
-                let _ = establish_link(info.addrType, &info.addr);
+            if adv_name_is(data, PEER_NAME.as_bytes())
+                && free_slot().is_some()
+                && !known
+                && !*addr_of!(INITIATING)
+            {
+                // GAP_EstablishLinkReq returns bleNotReady while discovery is
+                // pending: cancel and connect on the discovery-complete event.
+                *addr_of_mut!(PENDING_ADDR) = info.addr;
+                *addr_of_mut!(PENDING_TYPE) = info.addrType;
+                *addr_of_mut!(INITIATING) = true;
+                let _ = GAPRole_CentralCancelDiscovery();
             }
         }
         GAP_LINK_ESTABLISHED_EVENT => {
             let link = (*event).linkCmpl;
+            *addr_of_mut!(INITIATING) = false;
             if let Some(i) = free_slot() {
                 (&mut *addr_of_mut!(LINKS))[i] = Some(SingleLink::new(link.connectionHandle, task_id()));
                 *addr_of_mut!(CYCLE) = Some(Ticker::new(1600));
@@ -70,7 +85,13 @@ unsafe fn on_gap(event: *mut gapRoleEvent_t) {
             start_scan(2400, 50, true);
         }
         GAP_DEVICE_DISCOVERY_EVENT => {
-            if free_slot().is_some() {
+            if *addr_of!(INITIATING) {
+                let status = establish_link(*addr_of!(PENDING_TYPE), &*addr_of!(PENDING_ADDR));
+                if status.is_err() {
+                    *addr_of_mut!(INITIATING) = false;
+                    start_scan(2400, 50, true);
+                }
+            } else if free_slot().is_some() {
                 start_scan(2400, 50, true);
             }
         }
@@ -93,6 +114,11 @@ unsafe fn on_event(event: u8, msg: *mut u8) {
 }
 
 fn on_tick(now: u32) {
+    // Deferred/retried discovery steps run every millisecond; the periodic
+    // write/read cycle keeps the 1600 ms cadence.
+    for slot in (unsafe { &mut *addr_of_mut!(LINKS) }).iter_mut().flatten() {
+        slot.poll(now, task_id());
+    }
     let due = (unsafe { &mut *addr_of_mut!(CYCLE) })
         .as_mut()
         .map(|c| c.due(now))
@@ -107,7 +133,11 @@ fn on_tick(now: u32) {
 
 #[entry]
 fn main() -> ! {
-    let boot = ble_evt_tests::boot(BootCfg::central());
+    let mut cfg = BootCfg::central();
+    cfg.options.buf_max_len = 251; // MTU 247 on the central side
+    // See evt_centperi: 5 buffers starve the RX path at 251-byte buffers.
+    cfg.options.buf_number = 20;
+    let boot = ble_evt_tests::boot(cfg);
     let task = boot.task_id;
 
     set_gap_handler(on_gap);

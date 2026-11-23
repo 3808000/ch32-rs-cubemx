@@ -29,16 +29,20 @@ ble_evt_tests::ble_isr!();
 const SLOTS: usize = 3;
 
 const OPTS: ble::Options = ble::Options {
-    buf_max_len: 27,
+    buf_max_len: 251, // MTU 247 on the central side
     mem_len: 10240,
     connect_number: 0x33, // 3 peripheral + 3 central
-    buf_number: 8,
+    buf_number: 20, // 251-byte buffers: 5/8 starve the RX path at MTU 247
     tx_power: ffi::LL_TX_POWEER_6_DBM,
 };
 
 static mut LINKS: [Option<SingleLink>; SLOTS] = [None; SLOTS];
 static mut PCONNS: [u16; SLOTS] = [INVALID_CONNHANDLE; SLOTS];
 static mut INITIATING: bool = false;
+/// Peer address saved until the scan completes (establishing while discovery
+/// is pending fails with bleNotReady 0x10).
+static mut PENDING_ADDR: [u8; 6] = [0; 6];
+static mut PENDING_TYPE: u8 = 0;
 static mut PNOTIFY: Option<Ticker> = None;
 static mut CYCLE: Option<Ticker> = None;
 
@@ -56,8 +60,10 @@ unsafe fn on_gap(event: *mut gapRoleEvent_t) {
             let info = (*event).deviceInfo;
             let data = core::slice::from_raw_parts(info.pEvtData, info.dataLen as usize);
             if adv_name_is(data, PEER_NAME.as_bytes()) && free_central().is_some() && !*addr_of!(INITIATING) {
+                *addr_of_mut!(PENDING_ADDR) = info.addr;
+                *addr_of_mut!(PENDING_TYPE) = info.addrType;
                 *addr_of_mut!(INITIATING) = true;
-                let _ = establish_link(info.addrType, &info.addr);
+                let _ = GAPRole_CentralCancelDiscovery();
             }
         }
         GAP_LINK_ESTABLISHED_EVENT => {
@@ -96,7 +102,13 @@ unsafe fn on_gap(event: *mut gapRoleEvent_t) {
             }
         }
         GAP_DEVICE_DISCOVERY_EVENT => {
-            if free_central().is_some() {
+            if *addr_of!(INITIATING) {
+                let status = establish_link(*addr_of!(PENDING_TYPE), &*addr_of!(PENDING_ADDR));
+                if status.is_err() {
+                    *addr_of_mut!(INITIATING) = false;
+                    start_scan(2400, 50, true);
+                }
+            } else if free_central().is_some() {
                 start_scan(2400, 50, true);
             }
         }
@@ -119,6 +131,10 @@ unsafe fn on_event(event: u8, msg: *mut u8) {
 }
 
 fn on_tick(now: u32) {
+    // Deferred/retried discovery steps run every millisecond.
+    for slot in (unsafe { &mut *addr_of_mut!(LINKS) }).iter_mut().flatten() {
+        slot.poll(now, task_id());
+    }
     let pdue = (unsafe { &mut *addr_of_mut!(PNOTIFY) })
         .as_mut()
         .map(|t| t.due(now))
@@ -151,6 +167,12 @@ fn main() -> ! {
     set_gap_handler(on_gap);
     set_app_handler(on_event);
     set_gap_handler(on_gap);
+    // Multi-role bring-up (same order as evt_centperi): both role inits first
+    // (each calls GAP_Init), then parameters, then the central device, then
+    // the peripheral device without re-running PeripheralInit (it would drop
+    // the central role bit and the scan would fail with 0x12).
+    peripheral_role_init();
+    central_role_init();
     bond_peripheral(true, GAPBOND_IO_CAP_DISPLAY_ONLY);
     bond_central(false, GAPBOND_IO_CAP_NO_INPUT_NO_OUTPUT);
     set_peripheral_conn(6, 100, 0, 100);
@@ -167,9 +189,10 @@ fn main() -> ! {
     set_scan_rsp(rsp.as_slice());
     set_adv_interval(80);
 
-    start_peripheral(task);
-    start_central_role(task);
-    start_scan(2400, 50, true);
+    let _ = start_central_device(task);
+    let _ = start_peripheral_device(task);
+    adv_enable(true);
+    let _ = start_scan_status(2400, 50, true);
 
     ble::println!("multicentperi: 3P+3C, scanning for {}", PEER_NAME);
     ble_evt_tests::run(on_tick)
