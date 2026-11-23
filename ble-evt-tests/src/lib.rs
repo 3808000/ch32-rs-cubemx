@@ -83,12 +83,23 @@ pub struct BootCfg {
     pub mac_lsb: [u8; 6],
     /// Optional LSI calibration callback (`rcCB`).
     pub rc_cb: Option<unsafe extern "C" fn()>,
+    /// UART1 log baud rate. Default 115200; use 9600 for lossless
+    /// diagnostics (the CH-Link serial bridge drops bytes on bursts).
+    pub uart_baud: u32,
 }
 
-/// Shim defaults (M17/M18): 27-byte HCI payload, 6 KiB heap, 1P+3C, 5 bufs.
+/// Shim defaults (M17/M18): 27-byte HCI payload, 9 KiB heap, 1P+3C, 5 bufs.
+///
+/// The heap is raised from the M17 6 KiB to 9 KiB for the M18 EVT matrix: the
+/// blob's TMOS heap is split into a fixed 512-byte small-object partition
+/// (message events) and a large partition, and the HID Touch image left only
+/// ~1.2 KiB of the large partition free at advertising time with 6 KiB —
+/// the GATT server then failed service discovery with ATT 0x13
+/// (= bStatus `bleMemAllocError`, `tmos_msg_allocate` failure). 9 KiB passes
+/// (the 10 KiB backing array is statically reserved either way).
 pub const OPTIONS_DEFAULT: ble::Options = ble::Options {
     buf_max_len: 27,
-    mem_len: 6144,
+    mem_len: 9216,
     connect_number: 0x0D,
     buf_number: 5,
     tx_power: ch5xx_ble::ffi::LL_TX_POWEER_6_DBM,
@@ -110,6 +121,7 @@ impl BootCfg {
             sel_rtc_clock: 0,
             mac_lsb: MAC_DEFAULT_LSB,
             rc_cb: None,
+            uart_baud: 115200,
         }
     }
 
@@ -120,6 +132,7 @@ impl BootCfg {
             sel_rtc_clock: 0,
             mac_lsb: MAC_DEFAULT_LSB,
             rc_cb: None,
+            uart_baud: 115200,
         }
     }
 }
@@ -274,7 +287,7 @@ pub fn boot(cfg: BootCfg) -> Boot {
         let serial = hal::uart::UartTx::new_blocking::<0>(
             hal::peripherals::UART1::steal(),
             hal::peripherals::PA9::steal(),
-            hal::uart::Config::new(115200),
+            hal::uart::Config::new(cfg.uart_baud),
         )
         .unwrap();
         ble::set_default_serial(serial);
