@@ -134,7 +134,7 @@ fn main() -> ! {
     set_gap_handler(on_gap);
     set_write_hook(on_write);
     bond_peripheral(true, GAPBOND_IO_CAP_DISPLAY_ONLY);
-    set_peripheral_conn(8, 20, 0, 100);
+    set_peripheral_conn(6, 100, 0, 100);
 
     // M17 hardware-passing order: role init → adv params + advert enabled
     // → GGS/GATTServApp → services → name → StartDevice.

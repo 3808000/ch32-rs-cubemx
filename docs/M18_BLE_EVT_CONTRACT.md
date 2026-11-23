@@ -45,13 +45,15 @@ test_peripheral.py（扫名→连接→服务/特征集+flags 核对→读/写/�
 - **实机矩阵（诚实分级，CH582M + CH-Link + bluez）**：
   - **完整判据 PASS ×7**：evt_peripheral（FFE0/FFE1–5 全特征+flags、初值读、写回读、FFE4 notify 0x88 中位 1560ms/标称 1600ms）、evt_heart_rate（180D/2A37 notify 中位 1950ms/2000ms + 2A38 读 + 2A39 写 + 180F/180A）、evt_cycling（1816/2A5B notify 1000ms）、evt_running（1814/2A53 notify 2000ms）、evt_speedtest_peripheral（满包 notify 流）、evt_onlyupdate_peripheral（FFE3 写=OTA-jump stub 主动断连，设计行为，判据排除该项）、evt_ota_peripheral（FEE0 发现 + FEE1 read/write + INFO 0x84 写；FEE1 实现无 notify CCCD——INFO 应答仅 UART，偏离 EVT notify 路径，注记）。
   - **HID 族（keyboard/mouse/consumer/touch）部分 PASS**：发现+全特征集+读 PASS；**CCCD 写被 blob 内部拒绝（ATT 0x0e），服务写回调不被调用**（9600 无丢字节 UART 证实无 `wr` 打印）——blob 对 HID 服务 CCCD 的内部处理路径未明，待解（simple/csc 的 CCCD 同路径却成功）。
-  - **待干净复跑（宿主侧）**：evt_ble_uart / evt_iochub_16bit——固件身份已验证（广播名正确）、广播正常，但 bluez 连接 `le-connection-abort-by-local`（多次复现；疑似宿主适配器多会话后状态退化，待 bluetoothd 重启后复跑）。
+  - **OPEN（连接建立）**：evt_ble_uart / evt_iochub_16bit——固件身份已验证（广播名正确）、广播正常、bluez 可发现，但连接 `le-connection-abort-by-local` 反复复现（换 bluetoothd 新实例、换连接参数 6,100,0,100、加 StopDiscovery 冷却 1.5s 均无效）；btmon 抓包显示该次尝试**未发出 HCI Create Connection**（bluez 上层取消）。**失败后板子进入 LL 卡死态**（主循环正常跑、TMOS 在泵、但停止广播；halt 探针 pc 在 run()/LL 区，非 panic/DefaultHandler）——`halt; reg pc 0; resume` 软重启可恢复广播（多次证实），全断电亦可。根因未决：疑与 HID/uart/iochub 服务注册规模或 adv/conn 组合下 LL 调度卡住相关，需第二块板/btmon 全量 HCI 轨迹进一步定位。
+  - **HID CCCD 补充证据（反汇编只读）**：`GATTServApp_ProcessCCCWriteReq` 的返回码只有 0x0d（len≠2）/0x80（cfg 位非法）/ReadWriteCharCfg 结果，**不产生 0x0e**；`GATTServApp_InitCharCfg` 只初始化传入表、不维护全局链表。故 0x0e 来自 ATT 分发层在调用服务回调前的拒绝——需继续定位 att_server/gatt 分发对 HID 表的句柄/服务归属校验路径。
   - **BLOCKED（无对端）**：central 族（宿主 GattManager1.RegisterApplication 超时待修）、observer（peer_advertiser 待重建）。
   - **build-only**：sync_adv/sync_scan（需第二块板；BlueZ 无周期同步 API）。
 - **探针/宿主教训（本轮新增）**：
   - wch_riscv 目标 **`reset halt`/`reset run` 是空操作**（无 reset handler）——`program verify`+`reset halt`+`resume` 不会重启固件（RAM 名字符串取证证实旧固件继续跑）！可靠复位：`program <elf> verify reset exit`（多数有效）或 `halt; reg pc 0; resume`（软跳转复位，亦偶发失效）；**每次烧录后必须用 UART boot banner 或广播名验证固件身份**。
   - CH-Link 串口桥接 115200 突发丢字节（boot banner 残缺）；**诊断期降 9600 可全量捕获**；稳态逐行 115200 可用。
   - bluez 设备缓存跨固件切换残留（旧名/旧服务集）→ 换 bin 前 `Adapter1.RemoveDevice`（必要时先 StartDiscovery 使设备对象存在再删）。
+  - **`SetDiscoveryFilter(Transport=le)` 会让本机 bluez 漏报该设备**（同刻无 filter 的裸 StartDiscovery 必命中，A/B 复现）→ harness 已移除该调用。
   - 旧事故：root openocd 占 USB → pkexec kill；`pkill -f openocd` 自杀 → `pkill -x`；pkexec 改 cwd → 绝对路径；休眠恢复 WCH-Link 掉线 → 重插/端口断电（`3-2-port2/disable`）；autosuspend 已关。
 
 ## D6 文件域
