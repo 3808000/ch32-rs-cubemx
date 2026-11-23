@@ -91,6 +91,15 @@ cd ble-evt-tests && cargo build --release --bins   # nightly + rust-src（build-
 
 上游 BLE PR 暂缓至 clean-room Rust 重写完成（裁决与可行性见 `docs/m18-cleanroom-spike.md`）。
 
+## 原生 BLE 协议栈（M19 Phase A，无 WCH blob）
+
+`ble-native/` 是从零实现的 CH582/583 BLE 链路层起步件：直接操作 BB/LLE/RF 寄存器，**不依赖 `ch5xx-ble`、不链接 `LIBCH58xBLE.a`**。当前覆盖 legacy 广播（ADV_NONCONN_IND）与被动扫描，实机通过 BlueZ 双向验证（宿主见 `M18-NATIVE`；板端见 `M18-ADV`）。寄存器事实与调谐序列来自 MIT 许可的 [ch32fun iSLER](https://github.com/cnlohr/ch32fun/tree/master/examples_ch5xx/iSLER)，来源/许可见 `ble-native/NOTICE`、`ble-native/LICENSE-ch32fun`；设计与边界见 `docs/M19_NATIVE_BLE_CONTRACT.md`。
+
+```bash
+cd ble-native && cargo build --release --bins   # nightly + rust-src（build-std=core）
+# 烧录：openocd -f wch-riscv.cfg -c "program <abs elf> verify reset exit"
+```
+
 ## 验证命令
 
 | 命令 | 内容 | 当前基线 |

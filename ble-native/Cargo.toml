@@ -1,0 +1,23 @@
+[package]
+name = "ble-native"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "Rust-native CH582/583 BLE link layer (no WCH BLE blob)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# No `ch5xx-ble` dependency: this crate must link without LIBCH58xBLE.a.
+# The RF/LLE register driver is an independent Rust implementation derived
+# from the MIT-licensed ch32fun iSLER register facts (see NOTICE).
+[dependencies]
+ch5xx-hal = { path = "../../reference/ch5xx-hal", default-features = false, features = ["ch582", "rt", "memory-x"] }
+qingke-rt = { version = "0.8.4", features = ["highcode"] }
+panic-halt = "1.0"
+critical-section = "1.0"
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = "thin"
+codegen-units = 1

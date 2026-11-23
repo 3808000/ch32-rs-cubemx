@@ -1,0 +1,20 @@
+ble-native — Rust-native CH582/583 BLE link layer
+================================================
+
+This crate contains an independent Rust implementation of the CH582/583
+baseband / link-layer-engine / RF initialisation, calibration and TX/RX
+primitives. The register addresses, bit-field layouts and the three-point
+TX/RX calibration procedure are factual data taken from the MIT-licensed
+ch32fun project:
+
+    ch32fun — examples_ch5xx/iSLER, extralibs/iSLER.h
+    Copyright (c) 2023-2024 CNLohr <lohr85@gmail.com>, et al.
+    MIT License
+    https://github.com/cnlohr/ch32fun
+
+The full ch32fun license text, including the WCH copyright line that covers
+its WCH-derived hardware definitions, is reproduced in LICENSE-ch32fun.
+
+No WCH LIBCH58xBLE.a object, EVT application source, or decompiled output is
+linked, copied or translated by this crate. The protocol logic (PDU layout,
+scanning, parsing) is written against the Bluetooth Core Specification.

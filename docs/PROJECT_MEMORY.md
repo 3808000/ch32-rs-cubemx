@@ -157,3 +157,14 @@
 - **交付**：ble-evt-tests 22 bin 全编译绿；shim +25 符号（central/GATT client/MTU/多连接/CreateSync）+ Options/init_with 向后兼容；宿主 harness /tmp/m18-ble-host/；OTA bin 不写 flash、SNV off。
 - **实机受阻**：反复 halt/resume 后已知良好 M17 固件亦不广播（PFIC IENR0=0、向量已接线、TMOS 泵运行、SysTick 自由跑）→ 假设软复位不复位 RF/32K 模拟域；待板级电源循环逐 bin 复跑。探针事故：遗留 root openocd 占 USB→pkexec kill；pkill -f 自杀→pkill -x；pkexec 改 cwd→ELF 绝对路径。
 - **门禁**：1621/63 绿、tsc/eslint/validate 0/0、22/22 cargo 绿。
+
+## 14. M19 Phase A 原生 BLE（Rust、无 blob）广播/扫描（2026-11-23）
+
+- **立项**：用户裁决「接下来该用 RUST 重构蓝牙协议栈」。M18 spike 的 G1/G5 阻塞被公开 **MIT** 的 [ch32fun iSLER](https://github.com/cnlohr/ch32fun/tree/master/examples_ch5xx/iSLER) 解除：CH582/583 BB/LLE/RF 寄存器映射 + 三频点 TX/RX 调谐 + 实测收发；不涉及 WCH 反编译/NDA。来源/许可留痕 `ble-native/NOTICE` + `LICENSE-ch32fun`。
+- **交付**：`ble-native/` crate（不依赖 `ch5xx-ble`、不链接 `LIBCH58xBLE.a`）：`rf.rs`（寄存器/init/tune/link_config/TX/RX/BLEL ISR，TX/RX/stop 放 `.highcode`）、`adv.rs`（ADV_NONCONN_IND + legacy PDU/AD 解析）、`clock/log/board`；bins `native_adv`/`native_scan`/`diag_rx37`；nightly+build-std 同 M18。
+- **CH582 寄存器坑（实机定位）**：初版把 CH570/572 分支的 `DEVMODE_TX=0x258`、`CTRL_MOD_RFSTOP=0xfffff8ff`、`CTRL_CFG_START_TX=0x1000000`、PHY 掩码 `0xfffffcff` 误用于 CH582；正确值为 `0xDA/0xD9/0xDD`、`0xfffffff8`、`0x800000`、`0xffff0fff`（`0x1000`=1M）。修正后广播上空口。
+- **实机 PASS**：原生广播被 BlueZ 扫到 `0C:3D:5E:A6:62:94 / M18-NATIVE / −50 / Connectable no`；原生被动扫描收到受控 BlueZ 对端 `E0:3A:AA:B5:AD:73` 的 ADV_IND（厂商数据 `FF FF "M18-ADV"`）与 SCAN_RSP（name `M18-ADV`），15 s 3184 帧；同刻 blob `evt_observer` A/B 证明对端在空口；三 bin `nm` 中 WCH blob 符号 0 命中。
+- **扫描器缺陷**：首版收到首帧即跳信道 → 密集环境每信道驻留 <1 ms，系统性漏收稀疏广播（host 对端一次未中）；锁信道 `diag_rx37` 证明 RX 解调正常（含 marker）后，改为整窗 100 ms 驻留 + 每帧原地重臂，立刻全中。
+- **边界**：仅被动扫描（无 SCAN_REQ/T_IFS）、无连接/L2CAP/ATT/GATT/SM、固定 0 dBm + 静态调谐、仅 CH582/583 1M、MAC 常量、窗口无硬件时基。Phase B 起需 625 µs 调度（LLE TMR）。
+- **门禁**：`ble-native` 三 bin cargo 绿；前端/生成器未改，仓库门禁不回归。
+

@@ -7,3 +7,4 @@ src-tauri/target/
 src-tauri/gen/
 release/
 ble-evt-tests/target/
+ble-native/target/
