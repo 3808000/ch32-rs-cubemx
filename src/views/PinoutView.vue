@@ -24,7 +24,7 @@ import PinoutToolbar, {
 } from '@/components/pinout/PinoutToolbar.vue'
 import PinoutViewBar from '@/components/pinout/PinoutViewBar.vue'
 import PinLegend from '@/components/pinout/PinLegend.vue'
-import { usePinOverwrite, clearUndo } from '@/model/pins/pinOverwrite'
+import { usePinOverwrite } from '@/components/pinout/usePinOverwrite'
 import { derivePeripheralUsage } from '@/model/peripherals'
 import {
   DEFAULT_PIN_FILTER,
@@ -150,8 +150,6 @@ const docUrl = computed(() => store.deviceData.chip.docUrl || 'https://www.wch.c
 
 function resetPinout() {
   store.resetPinout()
-  // Reset 是破坏性批量操作：清空撤回栈，避免撤回恢复出与 unlocked 不一致的旧配置
-  clearUndo()
   store.notify('配置已重置', 'info')
 }
 

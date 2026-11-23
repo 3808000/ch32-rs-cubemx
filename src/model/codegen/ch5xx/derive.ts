@@ -10,7 +10,6 @@
 // - I2C：Fsys 必须 2..=36MHz（CTRL2.FREQ 整 MHz）、freq≤400kHz，否则 HAL 返回 Err → 生成期 error。
 // - ADC：SamplingClock/Gain 与旧枚举判别值同序（_3_2MHz→Divide1 … GAIN1_2→Div2）。
 import type {
-  ClockPreset,
   Conflict,
   DeviceData,
   GeneratedFile,
@@ -18,9 +17,10 @@ import type {
   ProjectConfig,
 } from '@/model/types'
 import { labelToIdent } from '@/model/conflicts'
-import { computeClock, matchPreset, mergeClockConfig } from '@/model/clock'
+import { clockExportIssue, computeClock, matchPreset, mergeClockConfig, sysclkSourceDivider } from '@/model/clock'
 import { enabledUsage, type PeripheralUsage } from '@/model/peripherals'
 import { identWithPrefix, pinIdent } from '../util'
+import { peripheralClockErrors } from '../clockValidation'
 import {
   BLE_ADV_PAYLOAD_MAX,
   BLE_NAME_MAX_BYTES,
@@ -43,7 +43,7 @@ export interface PeriModule {
   fields: ModField[]
 }
 
-/** ch5xx-hal 时钟配方：预设关联常量 / 显式 PLL(div) / HSE 直连（32MHz）。 */
+/** ch5xx-hal 时钟配方：预设关联常量、PLL 分频或 HSE 分频。 */
 export interface ClockPlan {
   error?: Conflict
   /** 命中预设时数据层 backends['ch5xx-hal'].presetConstMap 的原样语句（不含结尾分号） */
@@ -51,25 +51,11 @@ export interface ClockPlan {
   presetLabel?: string
   /** 非预设 PLL 的 480MHz VCO 分频（6..=32） */
   div?: number
-  /** HSE 直连 32MHz（Sys::Direct；CH582 允许 15..80MHz） */
-  hseDirect?: boolean
+  /** HSE 32MHz 分频（Sys::Divided）。 */
+  hseDiv?: number
   sysclkMhz: number
   /** BLE 32K 时钟源：lse → enable_lse()（hal::init 后、ble::init 前） */
   clock32k?: 'lse' | 'lsi'
-}
-
-/** 数据层 clock.json codegen.backends 的单后端条目（D6）。 */
-export interface ClockBackendCodegen {
-  presetConstMap?: Record<string, string>
-  pllDivRange?: [number, number]
-}
-
-/** 读取 ch5xx-hal 的时钟生成数据；缺省时回退 legacy 顶层 presetConstMap（仅作兼容，不推荐）。 */
-export function clockBackendCodegen(data: DeviceData): ClockBackendCodegen | undefined {
-  const codegen = data.clock.codegen as unknown as {
-    backends?: Record<string, ClockBackendCodegen>
-  }
-  return codegen.backends?.['ch5xx-hal']
 }
 
 /** 引脚类型（仅用于类型别名/Generated 字段以外的具名位置）。 */
@@ -218,118 +204,24 @@ export function adcGainVariant(v: string | number | boolean | undefined): string
 
 // ---------- 时钟决策（D4/D5） ----------
 
-const DEFAULT_PLL_DIV: [number, number] = [6, 32]
-const FSYSTEM_MIN_MHZ = 15
-const FSYSTEM_MAX_MHZ = 80
-
-function presetConstOf(data: DeviceData, preset: ClockPreset): string | undefined {
-  const raw = clockBackendCodegen(data)?.presetConstMap?.[preset.id]
-  if (!raw) return undefined
-  return raw.trim().replace(/;\s*$/, '')
-}
-
-function pllDivRange(data: DeviceData): [number, number] {
-  const r = clockBackendCodegen(data)?.pllDivRange
-  return Array.isArray(r) && r.length === 2 && r[0] <= r[1] ? [r[0], r[1]] : DEFAULT_PLL_DIV
-}
-
-function fsysError(fsysMhz: number): Conflict | undefined {
-  if (!(fsysMhz >= FSYSTEM_MIN_MHZ && fsysMhz <= FSYSTEM_MAX_MHZ)) {
-    return {
-      code: 'CLOCK_PRESET_UNAVAILABLE',
-      level: 'error',
-      message:
-        `ch5xx-hal 的 Fsys 必须落在 ${FSYSTEM_MIN_MHZ}..=${FSYSTEM_MAX_MHZ}MHz（数据手册 6.3）：` +
-        `当前为 ${fsysMhz}MHz，无法生成时钟初始化`,
-    }
-  }
-  return undefined
-}
-
-/**
- * 时钟 → 生成配方（ch5xx D4）：
- * 1) 命中预设且 backends['ch5xx-hal'].presetConstMap 有常量 → `hal::rcc::Config::PLL_xxMHZ`；
- * 2) 预设无常量（CH582 无 20MHz 预设）→ 用预设的 div 走显式 `Config::new(Osc::Hse32, Sys::Pll(div))`；
- * 3) source=PLL 且 div 在 6..=32、Fsys 15..=80 → 显式 PLL(div)；
- * 4) source=HSE（32MHz 直连）→ `Sys::Direct`（Fsys 15..=80 允许）；
- * 5) 其余（CK32K 仅显示源等）→ CLOCK_PRESET_UNAVAILABLE。
- */
 export function resolveClock(config: ProjectConfig, data: DeviceData): ClockPlan {
   const spec = data.clock
   const cfg = mergeClockConfig(spec, config.clock)
-  const f = computeClock(spec, cfg)
+  const { sysclkMhz } = computeClock(spec, cfg)
+  const issue = clockExportIssue(spec, cfg, 'ch5xx-hal')
+  if (issue) {
+    return { error: { code: 'CLOCK_PRESET_UNAVAILABLE', level: issue.level, message: issue.message }, sysclkMhz }
+  }
+
+  if (cfg.source === 'HSE') return { hseDiv: sysclkSourceDivider(spec, cfg.source, cfg), sysclkMhz }
+
   const preset = matchPreset(spec, cfg)
-
-  if (preset) {
-    const presetConst = presetConstOf(data, preset)
-    if (presetConst) {
-      const err = fsysError(f.sysclkMhz)
-      if (err) return { error: err, sysclkMhz: f.sysclkMhz }
-      return { presetConst, presetLabel: preset.label, sysclkMhz: f.sysclkMhz }
-    }
-    // 无常量但有 match.div：20MHz（480÷24）等走显式路径
-    if (cfg.source === 'PLL' && typeof preset.match.div === 'number') {
-      const [lo, hi] = pllDivRange(data)
-      const div = preset.match.div
-      if (div < lo || div > hi) {
-        return {
-          error: {
-            code: 'CLOCK_PRESET_UNAVAILABLE',
-            level: 'error',
-            message: `预设 ${preset.label} 的 PLL 分频 ${div} 超出 ch5xx-hal 合法范围 ${lo}..=${hi}（480MHz ÷ div）`,
-          },
-          sysclkMhz: f.sysclkMhz,
-        }
-      }
-      const err = fsysError(f.sysclkMhz)
-      if (err) return { error: err, sysclkMhz: f.sysclkMhz }
-      return { div, presetLabel: preset.label, sysclkMhz: f.sysclkMhz }
-    }
-  }
-
-  if (cfg.source === 'PLL') {
-    const [lo, hi] = pllDivRange(data)
-    const div = cfg.pll?.div
-    if (typeof div !== 'number' || !Number.isFinite(div) || div < lo || div > hi) {
-      return {
-        error: {
-          code: 'CLOCK_PRESET_UNAVAILABLE',
-          level: 'error',
-          message:
-            `ch5xx-hal 的 PLL 分频必须为 ${lo}..=${hi}（480MHz VCO ÷ div → Fsys ${480 / hi}..=${480 / lo}MHz）：` +
-            `当前 div=${String(div ?? '未配置')}，无法生成时钟初始化`,
-        },
-        sysclkMhz: f.sysclkMhz,
-      }
-    }
-    const err = fsysError(f.sysclkMhz)
-    if (err) return { error: err, sysclkMhz: f.sysclkMhz }
-    return { div, sysclkMhz: f.sysclkMhz }
-  }
-
-  if (cfg.source === 'HSE') {
-    const err = fsysError(f.sysclkMhz)
-    if (err) return { error: err, sysclkMhz: f.sysclkMhz }
-    return { hseDirect: true, sysclkMhz: f.sysclkMhz }
-  }
-
+  const presetConst = preset && spec.codegen.backends?.['ch5xx-hal']?.presetConstMap?.[preset.id]
   return {
-    error: {
-      code: 'CLOCK_PRESET_UNAVAILABLE',
-      level: 'error',
-      message:
-        'ch5xx-hal 后端仅生成 PLL（480MHz ÷ 6..32）或 HSE 32MHz 直连：' +
-        `当前时钟源为 ${cfg.source}（CK32K 仅为显示源，HAL 无 SYSCLK 预设）。请在时钟页选择 PLL 预设/分频或 HSE`,
-    },
-    sysclkMhz: f.sysclkMhz,
+    sysclkMhz,
+    presetLabel: preset?.label,
+    ...(presetConst ? { presetConst: presetConst.trim().replace(/;\s*$/, '') } : { div: cfg.pll?.div }),
   }
-}
-
-/** 当前配置的 Fsys（Hz）；时钟非法时返回 0，调用方应跳过外设派生。 */
-export function systemClockHz(config: ProjectConfig, data: DeviceData): number {
-  const cfg = mergeClockConfig(data.clock, config.clock)
-  const f = computeClock(data.clock, cfg)
-  return Number.isFinite(f.sysclkMhz) && f.sysclkMhz > 0 ? Math.round(f.sysclkMhz * 1e6) : 0
 }
 
 // ---------- 生成期错误（D5） ----------
@@ -345,7 +237,6 @@ export function systemClockHz(config: ProjectConfig, data: DeviceData): number {
 export function generationErrors(config: ProjectConfig, data: DeviceData, usages: PeripheralUsage[]): Conflict[] {
   const out: Conflict[] = []
   const valid = validPinFilter(data)
-  const fsys = systemClockHz(config, data)
 
   // 开漏：ch5xx gpio Output 只有推挽（Speed 是驱动电流，不是开漏）
   for (const a of config.pins ?? []) {
@@ -367,36 +258,6 @@ export function generationErrors(config: ProjectConfig, data: DeviceData, usages
     }
     if (!u.pins.some((p) => p.role === 'rx')) {
       out.push({ code: 'USART_RX_MISSING', level: 'error', message: `${u.id} 已启用但未分配 RX 引脚，无法生成初始化代码`, peripheral: u.id })
-    }
-    const baud = Number(u.params.baudrate ?? 115200)
-    if (fsys > 0) {
-      if (!(baud > 0) || !Number.isFinite(baud)) {
-        out.push({
-          code: 'BAUDRATE_UNREPRESENTABLE',
-          level: 'error',
-          peripheral: u.id,
-          message: `${u.id} 的波特率必须大于 0（当前 ${String(u.params.baudrate)}）；ch5xx-hal 的 Uart 配置会返回 ConfigError`,
-        })
-      } else {
-        const denom = 8 * baud
-        const dl = Math.floor((fsys + denom / 2) / denom)
-        const actual = dl > 0 ? fsys / (8 * dl) : 0
-        const errorPct = Math.abs(actual - baud) / baud * 100
-        if (dl === 0 || dl > 0xffff || errorPct > 2) {
-          const reason =
-            dl === 0
-              ? `DL=${dl}（波特率过高）`
-              : dl > 0xffff
-                ? `DL=${dl} 超过 16 位上限 65535（波特率过低）`
-                : `误差 ${errorPct.toFixed(2)}% 超过 HAL 的 2% 上限（实际 ${Math.round(actual)}）`
-          out.push({
-            code: 'BAUDRATE_UNREPRESENTABLE',
-            level: 'error',
-            peripheral: u.id,
-            message: `${u.id} 在 Fsys=${Math.round(fsys / 1e6)}MHz 下无法表示波特率 ${baud}：${reason}；HAL configure() 会返回 ConfigError`,
-          })
-        }
-      }
     }
   }
 
@@ -427,24 +288,6 @@ export function generationErrors(config: ProjectConfig, data: DeviceData, usages
         message: `${u.id} 请求 SPI mode ${mode}；ch5xx-hal 控制器只实现 MODE_0/MODE_3（clock_mode() 对其它组合返回 ConfigError::Mode）`,
       })
     }
-    const freq = Number(u.params.frequency ?? 1_000_000)
-    if (fsys > 0) {
-      const divisor = freq > 0 ? Math.floor(fsys / freq) : 0
-      if (!(freq > 0) || freq > fsys / 2 || divisor > 255) {
-        const why =
-          !(freq > 0)
-            ? '频率必须大于 0'
-            : freq > fsys / 2
-              ? `超过 Fsys/2（${Math.round(fsys / 2 / 1e3)}kHz）`
-              : `分频 ${divisor} 超过 8 位上限 255（请求过低）`
-        out.push({
-          code: 'SPI_FREQUENCY_UNREPRESENTABLE',
-          level: 'error',
-          peripheral: u.id,
-          message: `${u.id} 无法产生 ${String(u.params.frequency)}Hz：${why}；ch5xx-hal timing() 会返回 ConfigError::Frequency`,
-        })
-      }
-    }
   }
 
   // I2C：SCL+SDA 必需；Fsys 2..36MHz、SCL≤400kHz（与 HAL timing() 一致）
@@ -454,39 +297,9 @@ export function generationErrors(config: ProjectConfig, data: DeviceData, usages
         out.push({ code: 'REMAP_UNDEFINED', level: 'error', message: `${u.id} 已启用但缺 ${role.toUpperCase()} 引脚，无法生成初始化代码`, peripheral: u.id })
       }
     }
-    if (fsys > 0) {
-      const mhz = Math.floor(fsys / 1e6)
-      const freq = Number(u.params.frequency ?? 100_000)
-      if (mhz < 2 || mhz > 36) {
-        out.push({
-          code: 'I2C_CLOCK_OUT_OF_RANGE',
-          level: 'error',
-          peripheral: u.id,
-          message: `${u.id} 的内核时钟 Fsys=${mhz}MHz 超出 ch5xx-hal 的 I2C CTRL2.FREQ 范围（2..=36MHz）`,
-        })
-      }
-      if (!(freq > 0) || freq > 400_000) {
-        out.push({
-          code: 'I2C_CLOCK_OUT_OF_RANGE',
-          level: 'error',
-          peripheral: u.id,
-          message: `${u.id} 的 SCL 请求 ${String(freq)}Hz 非法：ch5xx-hal 只接受 1..=400kHz（ConfigError::Frequency）`,
-        })
-      } else if (mhz >= 2 && mhz <= 36) {
-        const fast = freq > 100_000
-        const factor = !fast ? 2 : i2cDutyVariant(u.params.duty) === 'Ratio16to9' ? 25 : 3
-        const ccr = Math.max(Math.floor(fsys / (freq * factor)), fast ? 1 : 4)
-        if (ccr > 0x0fff) {
-          out.push({
-            code: 'I2C_CLOCK_OUT_OF_RANGE',
-            level: 'error',
-            peripheral: u.id,
-            message: `${u.id} 的 SCL 请求 ${String(freq)}Hz 需要 CCR=${ccr}，超过 12 位上限 0xFFF（HAL ConfigError::Frequency）`,
-          })
-        }
-      }
-    }
   }
+
+  out.push(...peripheralClockErrors(config, data, usages, 'ch5xx-hal'))
 
   return out
 }

@@ -24,6 +24,8 @@ export interface ClockSource {
   freqMhz?: number
   hxtal?: { min: number; max: number; default: number }
   pll?: boolean
+  /** 直入 SYSCLK 时使用的分频参数键，用于振荡器和 PLL 共用分频寄存器的芯片。 */
+  sysclkDividerParam?: string
   /** M16：仅显示源（LSI/LSE/CK32K 等低频域）：灰 osc 块，不进 control options、不可选 */
   displayOnly?: boolean
   /** M16：该 displayOnly 源是 RM 框图中 SYSCLK mux 的真实输入（如 CH582 CK32K 属 ClockSrc 三路）→ 画灰置灰输入行；
@@ -40,6 +42,8 @@ export interface ClockDiagramNode {
   y: number
   /** 覆盖模型默认 kind（如固定分频总线用 readout 而非 div） */
   kind?: ClockNodeKind
+  /** 覆盖画布上的所属分组。 */
+  group?: string
 }
 
 export interface ClockDiagramGroup {
@@ -68,6 +72,7 @@ export interface AuxClockInput {
 }
 
 export interface AuxClockDomain {
+  /** 同 ID 的仅显示源由本节点展开其真实上游，配置能力仍以 sources 为准。 */
   id: string
   kind: ClockNodeKind
   label: string
@@ -82,6 +87,8 @@ export interface AuxClockDomain {
   note?: string
   /** D12：readout 单输入派生分频（fixedMhz=null 时 outMhz=输入 outMhz÷deriveDiv，缺省 1）；如 SYSTICK ÷8 */
   deriveDiv?: number
+  /** 由 HAL 后端设置时，覆盖默认派生分频。 */
+  deriveDivByBackend?: Record<string, number>
   /** D12：分组框归属覆盖（缺省 g-aux）；CORE/SYSTICK/V5F/V3F 入 g-out 输出竖列 */
   group?: string
 }
@@ -106,6 +113,8 @@ export interface ClockDividerSpec {
 export interface ClockPreset {
   id: string
   label: string
+  /** 应用预设时设定的 ADC 分频档。HAL 主时钟配方可独立于 ADC 分频选择。 */
+  adc?: string
   match: {
     source: string
     pllSource?: string
@@ -137,13 +146,21 @@ export interface ClockData {
   ahb: ClockDividerSpec
   apb1: ClockDividerSpec
   apb2: ClockDividerSpec
+  /** 为 false 时，APB 字段仅用于兼容工程配置，时钟树不创建独立 PCLK1/PCLK2。 */
+  apbClockDomains?: boolean
   adc: {
     options: { id: string; label: string; source: string; div: number }[]
     default: string
     maxMhz?: number
+    /** ADC 域分频级的寄存器名与说明。 */
+    prescaler?: { label: string; note?: string }
+    /** CK32M 等固定域在图上对应的振荡器节点。 */
+    fixedSource?: string
   }
-  /** 定时器时钟域：'sysclk'=直接 SYSCLK（V003）；'apb_x2'=APB 分频>1 时 ×2（V1/V3） */
-  timerClock?: 'sysclk' | 'apb_x2'
+  /** 定时器时钟取自 SYSCLK、HCLK，或在 APB 分频后由硬件自动 ×2。 */
+  timerClock?: 'sysclk' | 'hclk' | 'apb_x2'
+  /** 定时器输出的硬件名称。只有一个输出组时省略第二项。 */
+  timerLabels?: [string, string?]
   /** 外设时钟域（M15，可选）：每类外设的固定源总线 + 真实旋钮 + 分频链描述。
    *  实例清单来自 peripherals.json；WCH 芯片 I2C/SPI/USART 无内核 mux，源为固定总线（诚实徽标）。 */
   peripheralClocks?: PeripheralClocksData
@@ -154,8 +171,15 @@ export interface ClockData {
   presets: ClockPreset[]
   codegen: {
     presetConstMap: Record<string, string>
+    backends?: Record<string, { presetConstMap?: Record<string, string>; pllDivRange?: [number, number] }>
     /** explicit：无匹配预设时逐字段拼 Config；preset_only：HAL 只提供配方（如 H4），无匹配预设时阻止导出 */
     fallback: 'explicit' | 'preset_only'
+    /** 显式 RCC 配置使用的 HAL API 形状，固定倍频的旧器件可省略。 */
+    rccLayout?: 'v1' | 'v3' | 'ahb_only'
+    /** ADCPRE 通过预设配方的公开总线配置写入。 */
+    recipeAdcPrescaler?: boolean
+    /** HAL 未暴露 ADCPRE 字段时，由生成代码通过公开 PAC 写 RCC_CFGR0。 */
+    pacAdcPrescaler?: boolean
   }
 }
 
@@ -229,6 +253,7 @@ export interface UsbClockSpec {
   validPllMhz: number[]
   /** 固定 48M 域（X035 HSI 直连，无分频） */
   fixedMhz?: number
+  fixedSource?: string
   note?: string
 }
 

@@ -6,7 +6,9 @@
 import type { CodegenResult, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
 import { DEFAULT_SELECTION } from '@/model/types'
 import { checkConflicts } from '@/model/conflicts'
-import { computeClock, matchPreset, mergeClockConfig } from '@/model/clock'
+import { resolveHalBackend } from '@/model/halBackend'
+import { peripheralClockErrors } from './clockValidation'
+import { clockExportIssue, mergeClockConfig } from '@/model/clock'
 import { derivePeripheralUsage } from '@/model/peripherals'
 import { generationErrors } from './derive'
 import { renderSkeletonFiles } from './cargo'
@@ -32,19 +34,7 @@ export {
   parseManifest,
 } from './manifest'
 export type { CodegenResult, CodegenSelection, DeviceData, GeneratedFile, ProjectConfig } from '@/model/types'
-
-/**
- * 生效的 HAL 后端（M17，契约 D1）：
- * - `ProjectConfig.halBackend` 显式值优先（新建工程由 store 写入 chip.halBackend）；
- * - 缺省且芯片声明了 `legacyHalBackend` → 视为历史工程（cube.json 无 halBackend）走 legacy ch58x-hal，
- *   保护旧 main.rs 手写代码；该规则同时让历史 cube.json 与本仓库 ch58x 旧套件保持零 regress；
- * - 其余 → chip.halBackend，再退 ch32-hal。
- */
-export function resolveHalBackend(config: ProjectConfig, data: DeviceData): string {
-  if (typeof config.halBackend === 'string' && config.halBackend !== '') return config.halBackend
-  if (data.chip.legacyHalBackend) return data.chip.legacyHalBackend
-  return data.chip.halBackend ?? 'ch32-hal'
-}
+export { resolveHalBackend } from '@/model/halBackend'
 
 export function generateProject(
   config: ProjectConfig,
@@ -82,11 +72,11 @@ export function generateProject(
   // 2. 生成期错误：缺引脚/DMA 映射 → error 级 Conflict，阻止导出
   const usages = derivePeripheralUsage(config, data)
   errors.push(...generationErrors(usages, config.features?.embassy ?? false, data))
-
   // 3a. M16：仅显示时钟源（RM 低频域 LSI/LSE/CK32K）不可生成——Sw 枚举无对应值，阻止导出
   if (sel.clock) {
-    const clockCfg0 = mergeClockConfig(data.clock, config.clock)
-    const dispSrc = data.clock.sources.find((s) => s.id === clockCfg0.source && s.displayOnly)
+    errors.push(...peripheralClockErrors(config, data, usages, backend))
+    const clock = mergeClockConfig(data.clock, config.clock)
+    const dispSrc = data.clock.sources.find((s) => s.id === clock.source && s.displayOnly)
     if (dispSrc) {
       errors.push({
         code: 'CLOCK_DISPLAY_ONLY_SOURCE',
@@ -94,21 +84,8 @@ export function generateProject(
         message: `${dispSrc.label} 为仅显示时钟源（RM 低频域，不生成），请改选 HSI/HSE/PLL`,
       })
     }
-  }
-
-  // 3. 时钟预设守卫：HAL 只提供时钟配方时（H4），无匹配预设不能用显式字段拼装
-  if (sel.clock && data.clock.codegen?.fallback === 'preset_only') {
-    const clockCfg = mergeClockConfig(data.clock, config.clock)
-    const preset = matchPreset(data.clock, clockCfg)
-    const presetConst = preset ? data.clock.codegen.presetConstMap[preset.id] : undefined
-    if (!preset || !presetConst) {
-      const f = computeClock(data.clock, clockCfg)
-      errors.push({
-        code: 'CLOCK_PRESET_UNAVAILABLE',
-        level: 'error',
-        message: `${data.chip.chip} 的 HAL 只提供预置时钟方案（clock.codegen.fallback=preset_only）：当前配置 SYSCLK ${f.sysclkMhz}MHz、AHB÷${clockCfg.ahb} 无匹配预设，请选择预设时钟或调整分频`,
-      })
-    }
+    const issue = clockExportIssue(data.clock, clock, backend)
+    if (issue) errors.push({ code: 'CLOCK_PRESET_UNAVAILABLE', level: issue.level, message: issue.message })
   }
   if (errors.length > 0) return { files: [], errors }
 

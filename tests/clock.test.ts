@@ -125,11 +125,12 @@ describe('computeClock 频率链', () => {
     expect(f.adcMhz).toBe(12)
   })
 
-  it('定时器域 = SYSCLK（V003 timerClock=sysclk）：apb2=4 时 pclk2Tim 仍为 48', () => {
-    const f = computeClock(spec, cfg({ source: 'PLL', pllSource: 'HSI', apb2: 4 }))
-    expect(f.pclk2Mhz).toBe(12)
-    expect(f.pclk2TimMhz).toBe(48)
-    expect(f.pclk1TimMhz).toBe(48)
+  it('V003 的两个定时器取 AHB 分频后的 HCLK，独立于 HAL 的 APB2 参数', () => {
+    const f = computeClock(spec, cfg({ source: 'PLL', pllSource: 'HSI', ahb: 2, apb2: 4 }))
+    expect(f.sysclkMhz).toBe(48)
+    expect(f.pclk2Mhz).toBe(6)
+    expect(f.pclk2TimMhz).toBe(24)
+    expect(f.pclk1TimMhz).toBe(24)
   })
 
   it('HSI 24 + ahb=2：hclk=12、pclk1=12、adc=HCLK÷2=6', () => {

@@ -1,79 +1,103 @@
 <script setup lang="ts">
-// 单条正交连线：折线 + 两端连接点（连通实心蓝 / 未连通空心灰）+ 可选标签。
-// M15：按目标节点的 issueLevel 着色（error 红 / warning 橙 / active 蓝 / inactive 灰）；
-// 路径高亮时非高亮边由父级传入 dimmed 降透明度。
-import type { ClockTreeEdge } from '@/model/clock/tree'
+import { computed, useId } from 'vue'
+import type { ClockPt, ClockTreeEdge } from '@/model/clock/tree'
 
-withDefaults(
-  defineProps<{
-    edge: ClockTreeEdge
-    /** 目标节点问题级别（null=正常） */
-    targetLevel?: 'error' | 'warning' | null
-    /** 路径高亮期间的非高亮边 */
-    dimmed?: boolean
-  }>(),
-  { targetLevel: null, dimmed: false },
-)
+const props = defineProps<{
+  edge: ClockTreeEdge
+  strokePath?: string
+  crossingGaps?: readonly ClockPt[]
+  drawSource: boolean
+  targetLevel?: 'error' | 'warning' | null
+  primary?: boolean
+  lowSpeed?: boolean
+  selection?: boolean
+  dimmed?: boolean
+  highlighted?: boolean
+}>()
+
+const maskId = `clock-crossings-${useId()}`
+const source = computed(() => props.edge.points[0]!)
+const target = computed(() => props.edge.points.at(-1)!)
+const showLabel = computed(() => props.edge.label && !['÷1', '×1'].includes(props.edge.label))
+const arrow = computed(() => {
+  const tip = target.value
+  const prev = props.edge.points.at(-2)
+  if (!prev || tip.y !== prev.y || tip.x === prev.x) return undefined
+  const base = tip.x - Math.sign(tip.x - prev.x) * 6
+  return `${tip.x},${tip.y} ${base},${tip.y - 3} ${base},${tip.y + 3}`
+})
 </script>
 
 <template>
-  <g :class="{ 'edge-off': !edge.active, dimmed, 'level-error': targetLevel === 'error', 'level-warning': targetLevel === 'warning' }">
-    <polyline :points="edge.points.map((p) => `${p.x},${p.y}`).join(' ')" class="edge" />
-    <!-- 连接点：连通实心蓝 / 未连通空心灰 -->
-    <circle :cx="edge.points[0].x" :cy="edge.points[0].y" r="4" :class="edge.active ? 'dot-on' : 'dot-off'" />
-    <circle
-      :cx="edge.points[edge.points.length - 1].x"
-      :cy="edge.points[edge.points.length - 1].y"
-      r="4"
-      :class="edge.active ? 'dot-on' : 'dot-off'"
-    />
-    <text v-if="edge.label" :x="edge.labelAt.x" :y="edge.labelAt.y" class="edge-label">{{ edge.label }}</text>
+  <g
+    class="wire"
+    :class="{
+      active: edge.active,
+      primary,
+      'low-speed': lowSpeed,
+      selection,
+      dimmed,
+      highlighted,
+      'level-error': edge.active && targetLevel === 'error',
+      'level-warning': edge.active && targetLevel === 'warning',
+    }"
+    :data-from="edge.from"
+    :data-to="edge.to"
+  >
+    <mask v-if="crossingGaps?.length" :id="maskId" maskUnits="userSpaceOnUse" x="0" y="0" width="100%" height="100%">
+      <rect width="100%" height="100%" fill="white" />
+      <circle v-for="gap in crossingGaps" :key="`${gap.x}/${gap.y}`" :cx="gap.x" :cy="gap.y" r="4.5" fill="black" />
+    </mask>
+    <path v-if="strokePath" :d="strokePath" :mask="crossingGaps?.length ? `url(#${maskId})` : undefined" class="edge" />
+    <polygon v-if="arrow && (edge.active || highlighted || lowSpeed || selection)" :points="arrow" class="edge-arrow" />
+    <circle v-if="drawSource" :cx="source.x" :cy="source.y" r="2.6" class="edge-port" />
+    <text v-if="showLabel" :x="edge.labelAt.x" :y="edge.labelAt.y" class="edge-label">{{ edge.label }}</text>
   </g>
 </template>
 
 <style scoped>
+.wire {
+  --wire-color: var(--clock-wire);
+  color: var(--wire-color);
+  pointer-events: none;
+}
+.wire:is(.active, .primary) { --wire-color: var(--clock-active-wire); }
+.wire.highlighted { --wire-color: var(--mx-accent); }
+.wire.level-error { --wire-color: var(--mx-error); }
+.wire.level-warning { --wire-color: var(--mx-warning); }
+.wire.dimmed { opacity: 0.24; }
 .edge {
   fill: none;
-  stroke: var(--mx-accent);
-  stroke-width: 1.5;
-  transition: stroke var(--mx-dur-node) linear;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
-/* 未启用链路：灰 */
-.edge-off .edge {
-  stroke: #d5dbe5;
+.wire:not(.active) .edge { stroke-dasharray: 4 4; }
+.wire:not(.active):not(.highlighted) { opacity: 0.65; }
+.wire.low-speed:not(.active, .highlighted) {
+  --wire-color: var(--clock-muted);
+  opacity: 1;
 }
-/* 目标节点越界：整条链路按级别着色 */
-.level-error .edge {
-  stroke: var(--mx-error);
+.wire.selection:not(.active, .highlighted) {
+  --wire-color: var(--clock-muted);
+  opacity: 0.85;
 }
-.level-warning .edge {
-  stroke: var(--mx-warning);
-}
-.dimmed {
-  opacity: 0.18;
+.wire.dimmed:not(.active) { opacity: 0.24; }
+.primary .edge { stroke-width: 2.2; }
+.highlighted .edge { stroke-width: 2.5; }
+.edge-arrow { fill: currentColor; }
+.edge-port {
+  fill: var(--mx-surface);
+  stroke: currentColor;
+  stroke-width: 1.15;
 }
 .edge-label {
-  font-size: 11px;
-  fill: var(--mx-text-secondary);
+  font-size: 10px;
+  fill: var(--clock-muted);
+  stroke: var(--mx-surface);
+  stroke-width: 3px;
+  paint-order: stroke;
   text-anchor: middle;
-}
-.dot-on {
-  fill: var(--mx-accent);
-  stroke: none;
-  transition: fill var(--mx-dur-node) linear;
-}
-.dot-off {
-  fill: var(--mx-surface);
-  stroke: #98a2b3;
-  stroke-width: 1.5;
-  transition:
-    fill var(--mx-dur-node) linear,
-    stroke var(--mx-dur-node) linear;
-}
-.level-error .dot-on {
-  fill: var(--mx-error);
-}
-.level-warning .dot-on {
-  fill: var(--mx-warning);
 }
 </style>

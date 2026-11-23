@@ -9,14 +9,14 @@ import {
   applyClockPreset,
   isClockNodeLocked,
   matchPreset,
-  mergeClockConfig,
+  pllCandidateConfig,
   solvePll,
   validateClock,
 } from '@/model/clock'
 import { formatMhz } from '@/model/clock/tree'
 import { resolveSelectValue } from '@/components/clock/inlineEdit'
 import type { ClockNodeControl, ClockTreeNode } from '@/model/clock/tree'
-import type { ClockConfig, ClockIssue, ClockPreset, PeripheralClockFreq } from '@/model/types'
+import type { ClockIssue, ClockPreset, PeripheralClockFreq } from '@/model/types'
 import { requestPeripheralFocus } from '@/components/peripherals/peripheralFocus'
 
 const props = withDefaults(
@@ -38,10 +38,6 @@ const store = useProjectStore()
 const spec = computed(() => store.deviceData.clock)
 const cfg = computed(() => store.clockConfig)
 
-function update(patch: Partial<ClockConfig>) {
-  store.setClock(mergeClockConfig(spec.value, { ...cfg.value, ...patch }))
-}
-
 // ---------- 节点元数据 ----------
 const control = computed(() => props.node?.control ?? null)
 const field = computed(() => control.value?.field ?? null)
@@ -51,11 +47,7 @@ const lockable = computed(() => !!props.node?.lockable)
 const locked = computed(() => (nodeId.value ? isClockNodeLocked(cfg.value, nodeId.value) : false))
 
 function toggleLock() {
-  if (!nodeId.value) return
-  const next = new Set(cfg.value.locked ?? [])
-  if (next.has(nodeId.value)) next.delete(nodeId.value)
-  else next.add(nodeId.value)
-  store.setClock({ ...cfg.value, locked: [...next] })
+  if (nodeId.value) store.toggleClockLock(nodeId.value)
 }
 
 // 能力全部由节点元数据推导（不按节点 ID 硬编码）
@@ -65,7 +57,6 @@ const showSysSource = computed(() => field.value === 'source')
 const showAdcSource = computed(() => field.value === 'adc')
 const showAdcDiv = computed(() => field.value === 'adcClkDiv')
 const showPeriParam = computed(() => field.value === 'periParam')
-const showTim = computed(() => props.node?.group === 'g-tim' && !control.value)
 const busKey = computed<'ahb' | 'apb1' | 'apb2' | null>(() => {
   const f = field.value
   return f === 'ahb' || f === 'apb1' || f === 'apb2' ? f : null
@@ -83,14 +74,14 @@ const hasConfigControl = computed(
 )
 
 const hse = computed(() => spec.value.sources.find((s) => s.id === 'HSE'))
-const sourceOptions = computed(() => spec.value.sources.map((s) => ({ value: s.id, label: s.label })))
+const sourceOptions = computed(() => control.value?.options ?? [])
 const pllSourceOptions = computed(() =>
   (spec.value.pll?.sourceOptions ?? []).map((id) => {
     const s = spec.value.sources.find((x) => x.id === id)
     return { value: id, label: s?.label ?? id }
   }),
 )
-const adcOptions = computed(() => spec.value.adc.options.map((o) => ({ value: o.id, label: o.label })))
+const adcOptions = computed(() => control.value?.options ?? [])
 
 /** 外设参数 ParamSpec（number 控件的 min/max/unit 回退来源） */
 const periSpec = computed(() => {
@@ -103,27 +94,14 @@ const periSpec = computed(() => {
   return inst?.params[key] ?? null
 })
 
-function setHxtal(v: number | undefined) {
-  if (v !== undefined) update({ hxtalMhz: v })
+function setNumber(value: number | undefined) {
+  if (value !== undefined) emitControl(value)
 }
-function setSource(v: string) {
-  update({ source: v })
+function setPllSource(value: string) {
+  emit('control-change', { kind: 'select', field: 'pllSource', label: 'PLL 源', value: cfg.value.pllSource ?? '', options: pllSourceOptions.value }, value)
 }
-function setPllSource(v: string) {
-  update({ pllSource: v })
-}
-function setAdcSource(v: string) {
-  update({ adc: v })
-}
-function setBusDivider(v: number | undefined) {
-  if (v === undefined) return
-  const k = busKey.value
-  if (k === 'ahb') update({ ahb: v })
-  else if (k === 'apb1') update({ apb1: v })
-  else if (k === 'apb2') update({ apb2: v })
-}
-function setPllParam(key: string, v: number | undefined) {
-  update({ pll: { ...cfg.value.pll, [key]: v ?? 0 } })
+function setPllParam(param: ClockNodeControl, value: number) {
+  emit('control-change', param, value)
 }
 /** 节点 control 通用写回（adcClkDiv / periParam 与画布同一路由） */
 function emitControl(v: string | number) {
@@ -146,10 +124,11 @@ const periId = computed(() => props.node?.periId ?? null)
 const periInfo = computed(() => {
   const f = props.periFreq
   if (!periId.value) return null
+  const hasUsbPrescaler = f?.category === 'usb' && props.node?.inputClockLabel === 'USBPRE'
   return {
     category: f?.category ?? null,
-    sourceBus: f?.sourceBus ?? '—',
-    input: f ? formatMhz(f.inMhz) : '—',
+    sourceBus: hasUsbPrescaler ? 'USBPRE' : (f?.sourceBus ?? '—'),
+    input: formatMhz(hasUsbPrescaler ? props.node?.inMhz : f?.inMhz),
     requested: props.node?.requestedLabel ?? (f?.requested !== null && f?.requested !== undefined ? String(f.requested) : '—'),
     actual: props.node?.actualLabel ?? (f?.actualMhz !== null && f?.actualMhz !== undefined ? formatMhz(f.actualMhz) : '—'),
     divider: f?.dividerLabel ?? '—',
@@ -164,7 +143,7 @@ function openPeripheral() {
 }
 
 // ---------- 问题列表 ----------
-const issues = computed(() => props.issues ?? validateClock(spec.value, cfg.value))
+const issues = computed(() => props.issues ?? validateClock(spec.value, cfg.value, store.effectiveHalBackend))
 
 // ---------- 预设 ----------
 // UI 高亮：锁定字段视为通配；生成代码仍走 matchPreset 的严格模式
@@ -185,17 +164,11 @@ function solve() {
   candidates.value = solvePll(spec.value, targetMhz.value, undefined, {
     locked: cfg.value.locked,
     current: cfg.value,
-  })
+  }).filter((candidate) => pllCandidateConfig(spec.value, cfg.value, candidate, store.effectiveHalBackend) !== null)
 }
 function applyCandidate(c: ReturnType<typeof solvePll>[number]) {
-  const next: ClockConfig = { ...cfg.value, pll: { ...(cfg.value.pll ?? {}) } }
-  if (!isClockNodeLocked(cfg.value, 'SYSCLK')) next.source = 'PLL'
-  if (!isClockNodeLocked(cfg.value, 'PLL')) {
-    next.pllSource = c.source
-    next.pll = { ...(cfg.value.pll ?? {}), ...c.params }
-  }
-  if (!isClockNodeLocked(cfg.value, 'HSE') && c.hxtalMhz !== undefined) next.hxtalMhz = c.hxtalMhz
-  store.setClock(next)
+  const next = pllCandidateConfig(spec.value, cfg.value, c, store.effectiveHalBackend)
+  if (next) store.setClock(next)
 }
 function sourceLabel(id: string): string {
   return spec.value.sources.find((s) => s.id === id)?.label ?? id
@@ -206,7 +179,7 @@ function sourceLabel(id: string): string {
   <div class="clock-detail">
     <!-- 选中节点参数 -->
     <div class="section">
-      <div class="section-title">{{ nodeLabel ?? '未选择节点' }}</div>
+      <div v-if="node" class="section-title node-heading">{{ nodeLabel }}</div>
 
       <div v-if="!node" class="empty-state">
         <div class="empty-title">未选择节点</div>
@@ -214,6 +187,11 @@ function sourceLabel(id: string): string {
       </div>
 
       <template v-else>
+        <template v-if="!node.periId">
+          <div v-if="node.outMhz !== null" class="kv-row"><span class="kv-label">当前频率</span><strong class="kv-value">{{ formatMhz(node.outMhz) }}</strong></div>
+          <div v-if="node.maxMhz !== null" class="kv-row"><span class="kv-label">频率上限</span><span class="kv-value">{{ formatMhz(node.maxMhz) }}</span></div>
+          <p v-if="node.hint" class="node-note">{{ node.hint }}</p>
+        </template>
         <!-- 节点锁定：锁定后预设/解算/自动修复保留该节点值 -->
         <div v-if="lockable" class="form-row lock-row">
           <span class="form-label">节点锁定</span>
@@ -237,7 +215,7 @@ function sourceLabel(id: string): string {
             size="small"
             :step="1"
             :disabled="locked"
-            @update:model-value="setHxtal"
+            @update:model-value="setNumber"
           />
           <div v-if="hse?.hxtal" class="form-hint">范围 {{ hse.hxtal.min }}~{{ hse.hxtal.max }} MHz</div>
         </div>
@@ -256,18 +234,18 @@ function sourceLabel(id: string): string {
               <el-option v-for="o in pllSourceOptions" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
           </div>
-          <div v-for="p in spec.pll?.params ?? []" :key="p.key" class="form-row">
+          <div v-for="p in node.pllControls ?? []" :key="p.pllKey" class="form-row">
             <span class="form-label">{{ p.label }}</span>
             <el-select
-              :model-value="cfg.pll?.[p.key] ?? p.default"
+              :model-value="p.value"
               size="small"
-              :disabled="p.fixed || p.options.length <= 1 || locked"
+              :disabled="p.fixed"
               style="width: 160px"
-              @update:model-value="(v: number) => setPllParam(p.key, v)"
+              @update:model-value="(v: number) => setPllParam(p, v)"
             >
-              <el-option v-for="o in p.options" :key="o" :label="`×${o}`" :value="o" />
+              <el-option v-for="o in p.options" :key="o.value" :label="o.label" :value="o.value" />
             </el-select>
-            <div v-if="p.fixed" class="form-hint">此芯片该参数固定不可调</div>
+            <div v-if="p.fixed && !locked" class="form-hint">此芯片该参数固定不可调</div>
           </div>
         </template>
 
@@ -279,7 +257,7 @@ function sourceLabel(id: string): string {
             size="small"
             :disabled="locked"
             style="width: 160px"
-            @update:model-value="setSource"
+            @update:model-value="emitSelect"
           >
             <el-option v-for="o in sourceOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
@@ -293,22 +271,22 @@ function sourceLabel(id: string): string {
             size="small"
             :disabled="busSpec.options.length <= 1 || locked"
             style="width: 160px"
-            @update:model-value="setBusDivider"
+            @update:model-value="setNumber"
           >
             <el-option v-for="o in busSpec.options" :key="o" :label="`÷${o}`" :value="o" />
           </el-select>
           <div class="form-hint">上限 {{ busSpec.maxMhz }} MHz</div>
         </div>
 
-        <!-- ADC 时钟源（核心 ADC 节点） -->
+        <!-- ADC 时钟域（源或分频档位） -->
         <div v-if="showAdcSource" class="form-row">
-          <span class="form-label">时钟源</span>
+          <span class="form-label">{{ control?.label ?? '时钟源' }}</span>
           <el-select
             :model-value="cfg.adc ?? spec.adc.default"
             size="small"
             :disabled="spec.adc.options.length <= 1 || locked"
             style="width: 160px"
-            @update:model-value="setAdcSource"
+            @update:model-value="emitSelect"
           >
             <el-option v-for="o in adcOptions" :key="o.value" :label="o.label" :value="o.value" />
           </el-select>
@@ -357,12 +335,7 @@ function sourceLabel(id: string): string {
           </div>
         </template>
 
-        <!-- TIM 域说明 -->
-        <div v-if="showTim" class="tim-info">
-          定时器时钟由定时器域模式决定（{{ spec.timerClock === 'sysclk' ? 'SYSCLK 直通' : 'APB 分频 &gt; 1 时 ×2' }}），无需手动配置。
-        </div>
-
-        <div v-if="!hasConfigControl && !showTim" class="tim-info">
+        <div v-if="!hasConfigControl" class="tim-info">
           该节点无可配置参数<template v-if="node.badge">（{{ node.badge }}）</template>。
         </div>
       </template>
@@ -390,7 +363,9 @@ function sourceLabel(id: string): string {
       >
         在外设视图配置
       </el-button>
-      <div v-else class="peri-note">USB 时钟由 HAL 按 PLL 输出自动分频，无独立配置项。</div>
+      <div v-else class="peri-note">
+        {{ periInfo.sourceBus === 'HSI' ? 'USB 时钟直接取自 HSI。' : 'USB 时钟由 HAL 按 PLL 输出自动分频。' }}
+      </div>
     </div>
 
     <!-- 预设 -->
@@ -444,21 +419,32 @@ function sourceLabel(id: string): string {
 .clock-detail {
   width: 100%;
   min-width: 0;
-  flex-shrink: 0;
+  flex: 1;
   background: var(--mx-surface);
-  border-left: 1px solid var(--mx-border);
-  overflow-y: auto;
-  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  container-type: inline-size;
 }
 .section {
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--mx-border);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--clock-border);
 }
 .section-title {
-  font-size: var(--mx-fz-label);
+  font-size: 14px;
   font-weight: 600;
-  color: var(--mx-text-secondary);
+  color: var(--clock-ink);
   margin-bottom: 10px;
+}
+.node-heading {
+  font-size: var(--mx-fz-card-title);
+  overflow-wrap: anywhere;
+}
+.node-note {
+  margin: 7px 0;
+  color: var(--clock-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .form-row {
   display: flex;
@@ -469,14 +455,24 @@ function sourceLabel(id: string): string {
 }
 .form-label {
   font-size: var(--mx-fz-body);
-  color: var(--mx-text-secondary);
+  color: var(--clock-muted);
   min-width: 120px;
 }
 .form-hint {
   width: 100%;
   font-size: 11px;
-  color: var(--mx-text-muted);
-  padding-left: 128px;
+  line-height: 1.5;
+  color: var(--clock-muted);
+  overflow-wrap: anywhere;
+}
+.form-row :deep(.el-select),
+.form-row :deep(.el-input-number) {
+  max-width: 100%;
+}
+@container (min-width: 288px) {
+  .form-hint {
+    padding-inline-start: 128px;
+  }
 }
 .lock-row {
   padding-bottom: 8px;
@@ -485,26 +481,28 @@ function sourceLabel(id: string): string {
 }
 .lock-na {
   font-size: 12px;
-  color: var(--mx-text-muted);
+  color: var(--clock-muted);
 }
 .tim-info {
   font-size: 12px;
-  color: var(--mx-text-secondary);
+  color: var(--clock-muted);
   line-height: 1.7;
 }
 .empty-state {
-  padding: 18px 8px 22px;
-  text-align: center;
+  padding: 13px 12px;
+  border: 1px dashed var(--clock-border);
+  border-radius: 7px;
+  background: var(--clock-paper);
 }
 .empty-title {
   font-size: 14px;
   font-weight: 600;
-  color: var(--mx-text-secondary);
+  color: var(--clock-ink);
 }
 .empty-msg {
   margin-top: 6px;
   font-size: 12px;
-  color: var(--mx-text-muted);
+  color: var(--clock-muted);
 }
 /* 外设时钟详情 */
 .kv-row {
@@ -515,13 +513,14 @@ function sourceLabel(id: string): string {
   font-size: 12px;
 }
 .kv-label {
-  color: var(--mx-text-secondary);
+  color: var(--clock-muted);
   flex-shrink: 0;
 }
 .kv-value {
-  color: var(--mx-text);
+  color: var(--clock-ink);
   text-align: right;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .kv-value.warn {
   color: var(--mx-warning);
@@ -533,7 +532,7 @@ function sourceLabel(id: string): string {
 .peri-note {
   margin-top: 8px;
   font-size: 11px;
-  color: var(--mx-text-muted);
+  color: var(--clock-muted);
   line-height: 1.6;
 }
 .preset-list {
@@ -542,12 +541,12 @@ function sourceLabel(id: string): string {
   gap: 8px;
 }
 .preset-btn {
-  border: 1px solid var(--mx-border);
+  border: 1px solid var(--clock-border);
   background: var(--mx-surface);
   border-radius: var(--mx-radius-button);
   padding: 5px 12px;
   font-size: 12px;
-  color: var(--mx-text-secondary);
+  color: var(--clock-muted);
   cursor: pointer;
 }
 .preset-btn:hover {
@@ -563,11 +562,12 @@ function sourceLabel(id: string): string {
 .solve-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .solve-unit {
   font-size: 12px;
-  color: var(--mx-text-muted);
+  color: var(--clock-muted);
 }
 .solve-empty {
   margin-top: 8px;
@@ -580,7 +580,7 @@ function sourceLabel(id: string): string {
   gap: 8px;
   padding: 6px 8px;
   margin-top: 6px;
-  border: 1px solid var(--mx-border);
+  border: 1px solid var(--clock-border);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -595,7 +595,7 @@ function sourceLabel(id: string): string {
 }
 .cand-src {
   font-size: 12px;
-  color: var(--mx-text-secondary);
+  color: var(--clock-muted);
 }
 .issues {
   border-bottom: none;
@@ -636,6 +636,6 @@ function sourceLabel(id: string): string {
   background: #fdf3e3;
 }
 .msg {
-  color: var(--mx-text-secondary);
+  color: var(--clock-muted);
 }
 </style>

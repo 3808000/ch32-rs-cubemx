@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { Histogram } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { adcChannels } from '@/model/pins/allocation'
-import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import { usePinOverwrite } from '@/components/pinout/usePinOverwrite'
 import StatusBadge from './common/StatusBadge.vue'
 import EmptyState from './common/EmptyState.vue'
 

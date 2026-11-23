@@ -206,23 +206,10 @@ function validateDevice(dir) {
 
   // ---- 5. clock.json 预设可复现 ----
   for (const p of clock.presets) {
-    const pll = {}
-    // 无 PLL 芯片（M14，如 X035）：clock.pll 缺省，无 PLL 参数可复现
-    for (const param of clock.pll?.params ?? []) {
-      if (p.match[param.key] !== undefined) pll[param.key] = p.match[param.key]
-    }
-    const cfg = clockLib.mergeClockConfig(clock, {
-      source: p.match.source,
-      pllSource: p.match.pllSource,
-      hxtalMhz: p.match.hxtalMhz,
-      pll: Object.keys(pll).length ? pll : undefined,
-      ahb: p.match.ahb,
-      apb1: p.match.apb1,
-      apb2: p.match.apb2,
-    })
+    const cfg = clockLib.presetToConfig(clock, p, clockLib.defaultClock(clock))
     const f = clockLib.computeClock(clock, cfg)
     const issues = clockLib.validateClock(clock, cfg)
-    const errs = issues.filter((i) => i.level === 'error')
+    const errs = issues.filter((i) => i.level === 'error' || (p.adc !== undefined && i.node === 'ADC'))
     if (errs.length) err('clock.json', `预设 ${p.id} 非法：${errs.map((i) => i.message).join('；')}`)
     const target = parseInt(p.id, 10) // '48MHZ_HSE' → 48
     // 无 PLL 芯片（M14，如 X035）：HAL 的 SYSCLK_FREQ_*MHZ_HSI 常量实际只设 AHB 分频，
@@ -505,6 +492,23 @@ function validateClockDiagram(clock, peripherals) {
   }
 
   const ids = new Set(model.nodes.map((n) => n.id))
+  if (ids.size !== model.nodes.length) err('clock.json', '时钟图节点 ID 重复')
+  for (const { id, from, to } of model.edges) {
+    if (!ids.has(from) || !ids.has(to)) err('clock.json', `时钟连线 ${id} 引用不存在的节点 ${from} → ${to}`)
+  }
+  for (const source of clock.sources) {
+    if (source.sysclkDividerParam !== undefined && !clock.pll?.params.some((param) => param.key === source.sysclkDividerParam && param.options.every((value) => value > 0))) {
+      err('clock.json', `${source.id}.sysclkDividerParam 必须引用合法的分频参数`)
+    }
+  }
+  for (const [name, id] of [
+    ['adc.fixedSource', clock.adc.fixedSource],
+    ['peripheralClocks.usb.fixedSource', clock.peripheralClocks?.usb?.fixedSource],
+  ]) {
+    if (id !== undefined && !clock.sources.some((source) => source.id === id && !source.pll)) {
+      err('clock.json', `${name} 必须引用振荡器节点`)
+    }
+  }
   for (const id of ids) {
     const p = dnodes[id]
     if (!p) {

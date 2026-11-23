@@ -16,46 +16,9 @@ import type {
   PeripheralsData,
   PeripheralState,
 } from '@/model/types'
-import { isClockNodeLockable, isClockNodeLocked, pllOutMhz, sourceFreqMhz } from '@/model/clock'
-
-export interface ClockNodeControlOption {
-  value: string | number
-  label: string
-}
-
-/** 控件可写回的配置字段；periParam 表示外设参数（写回工程 peripherals 状态，由视图层路由）。 */
-export type ClockNodeControlField =
-  | 'source'
-  | 'pllSource'
-  | 'hxtalMhz'
-  | 'adc'
-  | 'ahb'
-  | 'apb1'
-  | 'apb2'
-  | 'pll'
-  | 'adcClkDiv'
-  | 'periParam'
-
-/** 节点内嵌控件描述（画布下拉弹层与详情面板共用） */
-export interface ClockNodeControl {
-  kind: 'select' | 'number'
-  /** 对应 ClockConfig 的字段；pll 参数用 field='pll' + pllKey；外设参数用 field='periParam' + periId/paramKey */
-  field: ClockNodeControlField
-  /** field === 'pll' 时的参数 key */
-  pllKey?: string
-  /** field === 'periParam' 时的外设实例 id（peripherals.json） */
-  periId?: string
-  /** field === 'periParam' 时写回的外设参数 key（ParamSpec key） */
-  paramKey?: string
-  label: string
-  value: string | number
-  options?: ClockNodeControlOption[]
-  /** 固定值（数据层 fixed 或唯一档位）：UI 置灰不可改 */
-  fixed?: boolean
-  min?: number
-  max?: number
-  unit?: string
-}
+import { periParamControl, type ClockNodeControl } from './controls'
+import { isClockNodeLockable, isClockNodeLocked } from '../config'
+import { adcClockOption, adcInputMhz, pllOutMhz, sourceFreqMhz, sysclkSourceDivider } from '../frequency'
 
 /** 节点徽标：fixed=源总线固定 / raw=寄存器原始值 / derived=由 PLL 自动派生 */
 export type ClockNodeBadge = 'fixed' | 'derived' | 'raw'
@@ -81,6 +44,9 @@ export interface ClockNodeModel {
   inMhz: number | null
   /** 输出频率（MHz） */
   outMhz: number | null
+  /** 选择器输出端的信号名，以及自动分频等独立读数卡的显示值。 */
+  outputLabel?: string
+  readoutText?: string
   /** 频率上限（MHz），无上限为 null */
   maxMhz: number | null
   /** 问题级别：error 红 / warning 橙 / null 正常（来自 validateClock 定位到本节点） */
@@ -103,6 +69,8 @@ export interface ClockNodeModel {
   badge?: ClockNodeBadge
   /** 外设节点对应的 peripherals.json 实例 id（USB 域节点='USB'） */
   periId?: string
+  /** 外设实例读数所对应的实际输入时钟名称。 */
+  inputClockLabel?: string
   /** 全量问题消息（hover tooltip） */
   issues?: ClockIssue[]
   /** 外设节点：请求值原生单位（'115200 baud'/'8 MHz'/'raw 3'） */
@@ -118,6 +86,8 @@ export interface ClockEdgeModel {
   to: string
   active: boolean
   label?: string
+  /** 输入行索引，用于同源多档或档位 ID 与来源 ID 不同的选择器。 */
+  inputIndex?: number
 }
 
 /** 分组容器逻辑内容；几何字段由 layout 层补充。 */
@@ -137,6 +107,7 @@ export interface PeripheralClockContext {
   peripherals: PeripheralsData
   state: Record<string, PeripheralState>
   periFreqs: PeripheralClockFreq[]
+  halBackend?: string
 }
 
 /** 频率显示：整数不带小数点，最多 3 位小数（尾零自然截断）。 */
@@ -304,20 +275,6 @@ function busMhz(bus: PeripheralClockBus, freqs: ClockFrequencies, adcSpec: AdcCl
   }
 }
 
-/** ParamSpec → 控件类型（数据层 kind 优先；缺省按有无 options 推断）。 */
-function paramKind(ps: ParamSpec | undefined): 'select' | 'number' {
-  if (ps?.kind === 'select' || ps?.kind === 'number') return ps.kind
-  return ps?.options?.length ? 'select' : 'number'
-}
-
-/** 读取外设参数当前值（工程状态优先，缺省回退 ParamSpec.default）。 */
-function paramValue(state: PeripheralState | undefined, key: string, ps: ParamSpec | undefined): string | number {
-  const v = state?.params?.[key]
-  if (typeof v === 'string' || typeof v === 'number') return v
-  const d = ps?.default
-  return typeof d === 'string' || typeof d === 'number' ? d : 0
-}
-
 /** 数字转短字符串（最多 3 位小数，尾零截断）。 */
 function trimNum(v: number): string {
   return String(Math.round(v * 1000) / 1000)
@@ -367,27 +324,6 @@ function periLabels(
   return { requestedLabel, actualLabel }
 }
 
-/** 外设控件的公共部分（periParam：外设参数旋钮）。 */
-function periParamControl(
-  iid: string,
-  key: string,
-  ps: ParamSpec | undefined,
-  state: PeripheralState | undefined,
-): ClockNodeControl {
-  const kind = paramKind(ps)
-  return {
-    kind,
-    field: 'periParam',
-    periId: iid,
-    paramKey: key,
-    label: ps?.label ?? key,
-    value: paramValue(state, key, ps),
-    ...(kind === 'select'
-      ? { options: (ps?.options ?? []).map((o) => ({ value: o, label: String(o) })) }
-      : { ...(ps?.min !== undefined ? { min: ps.min } : {}), ...(ps?.max !== undefined ? { max: ps.max } : {}) }),
-  }
-}
-
 /**
  * 构建时钟树逻辑模型：左列时钟源 → PLL / SYSCLK 多路复用 → AHB → APB1/APB2 → TIM / 外设时钟列。
  * 只负责节点 / 边的构成与取值，坐标与走线由 layout 层的 buildClockTree 补充。
@@ -423,17 +359,23 @@ export function buildClockModel(
     [PERI_GROUP.adc]: PERI_GROUP_LABEL.adc,
     [PERI_GROUP.usb]: PERI_GROUP_LABEL.usb,
     'g-aux': 'Display-only domains',
+    'g-low': '低速时钟',
   }
   if (pllSpec) groupLabels['g-pll'] = `PLL Max ${pllSpec.outMaxMhz} MHz`
   const timMode = spec.timerClock ?? 'apb_x2'
-  const tim1Max = timMode === 'sysclk' ? spec.sysclkMaxMhz : spec.apb1.maxMhz * 2
-  const tim2Max = timMode === 'sysclk' ? spec.sysclkMaxMhz : spec.apb2.maxMhz * 2
-  // D12：TIM/USB/ADC 域并入 MX2 右列输出竖排（g-out）；TIM 上限读数卡自带 max 行
+  const timerLabels = spec.timerLabels ?? ['APB1 定时器', 'APB2 定时器']
+  const timerOutputs = [
+    { id: 'TIM1', bus: 'APB1', pclk: freqs.pclk1Mhz, outMhz: freqs.pclk1TimMhz, divider: cfg.apb1, busMax: spec.apb1.maxMhz },
+    { id: 'TIM2', bus: 'APB2', pclk: freqs.pclk2Mhz, outMhz: freqs.pclk2TimMhz, divider: cfg.apb2, busMax: spec.apb2.maxMhz },
+  ] as const
   groupLabels['g-out'] = '总线 / 内核输出'
   groupLabels['g-adc'] = spec.adc.maxMhz !== undefined ? `ADC Max ${spec.adc.maxMhz} MHz` : 'ADC'
 
   // ---------- 节点 ----------
+  const auxDomains = spec.aux ?? []
+  const auxIds = new Set(auxDomains.map((domain) => domain.id))
   for (const s of srcSpecs) {
+    if (s.displayOnly && auxIds.has(s.id)) continue
     const out = s.hxtal ? (cfg.hxtalMhz ?? s.hxtal.default) : (s.freqMhz ?? null)
     const srcLevel = issueLevelOf(issues, s.id)
     const locked = isClockNodeLocked(cfg, s.id)
@@ -470,13 +412,23 @@ export function buildClockModel(
 
   // PLL（倍频下拉；数据层 fixed 时置灰）。即使当前未选用 PLL，也显示其潜在输出（置灰态），
   // 便于用户判断切到 PLL 后的频率。
+  const directSrc = spec.sources.find((s) => s.id === cfg.source)
+  const inactivePllHint = directSrc?.sysclkDividerParam ? 'SYSCLK 共用分频' : '未使用'
   if (pllSpec) {
     const pllLabel = spec.sources.find((s) => s.pll)?.label ?? 'PLL'
-    const firstParam = pllSpec.params[0]
     const pllInShown = sourceFreqMhz(spec, pllSourceId, cfg)
     const pllOutShown = pllInShown === null ? null : pllOutMhz(spec, pllInShown, cfg.pll ?? {})
     const pllLevel = issueLevelOf(issues, 'PLL')
     const pllLocked = isClockNodeLocked(cfg, 'PLL')
+    const pllControls: ClockNodeControl[] = pllSpec.params.map((param) => ({
+      kind: 'select',
+      field: 'pll',
+      pllKey: param.key,
+      label: param.label,
+      value: cfg.pll?.[param.key] ?? param.default,
+      options: param.options.map((value) => ({ value, label: `${param.key === 'mul' ? '×' : '÷'}${value}` })),
+      fixed: param.fixed || param.options.length <= 1 || pllLocked,
+    }))
     nodes.push({
       id: 'PLL',
       label: pllLabel,
@@ -492,38 +444,15 @@ export function buildClockModel(
       active: usePll,
       locked: pllLocked,
       lockable: isClockNodeLockable(spec, 'PLL'),
-      control: firstParam
-        ? {
-            kind: 'select',
-            field: 'pll',
-            pllKey: firstParam.key,
-            label: firstParam.label,
-            value: cfg.pll?.[firstParam.key] ?? firstParam.default,
-            options: firstParam.options.map((o) => ({
-              value: o,
-              label: pllSpec.fixedOutMhz !== undefined ? `÷${o}` : `×${o}`,
-            })),
-            fixed: firstParam.fixed || firstParam.options.length <= 1 || pllLocked,
-          }
-        : null,
-      // M16：完整参数链供 pll 簇 stepper 链渲染（布局槽位数=pllSpec.params.length，二者一致）
-      pllControls: pllSpec.params.map((p) => ({
-        kind: 'select' as const,
-        field: 'pll' as const,
-        pllKey: p.key,
-        label: p.label,
-        value: cfg.pll?.[p.key] ?? p.default,
-        options: p.options.map((o) => ({ value: o, label: pllSpec.fixedOutMhz !== undefined ? `÷${o}` : `×${o}` })),
-        fixed: p.fixed || p.options.length <= 1 || pllLocked,
-      })),
-      hint: usePll ? undefined : '未使用',
+      control: pllControls[0] ?? null,
+      pllControls,
+      hint: usePll ? undefined : inactivePllHint,
       column: COL_PLL,
       group: 'g-pll',
     })
   }
 
   // SYSCLK（源选择）
-  const directSrc = spec.sources.find((s) => s.id === cfg.source)
   const sysIn = usePll
     ? freqs.pllOutMhz
     : directSrc
@@ -537,13 +466,26 @@ export function buildClockModel(
   const sysSourceOptions = spec.sources
     .filter((s) => !s.displayOnly)
     .map((s) => ({ value: s.id, label: s.label }))
+  const sysMuxInputs = sysSourceOptions.map((option) => option.value)
+  const hsiRow = sysMuxInputs.indexOf('HSI')
+  const hseRow = sysMuxInputs.indexOf('HSE')
+  if (hsiRow >= 0 && hseRow > hsiRow) {
+    // 把外部晶振放在 HSI 上方，只调整图上接线端口的顺序。
+    sysMuxInputs.splice(hseRow, 1)
+    sysMuxInputs.splice(hsiRow, 0, 'HSE')
+  }
+  const pllRow = sysMuxInputs.indexOf('PLL')
+  if (pllRow > 0) {
+    sysMuxInputs.splice(pllRow, 1)
+    sysMuxInputs.unshift('PLL')
+  }
   nodes.push({
     id: 'SYSCLK',
     label: 'SYSCLK',
     kind: 'mux',
     // RM 保真：仅 sysclkMuxInput 的 displayOnly 源（CH582 CK32K）画灰行；LSI/LSE 非 mux 输入不画
     muxInputs: [
-      ...sysSourceOptions.map((o) => String(o.value)),
+      ...sysMuxInputs,
       ...displayOnlySources.filter((s) => s.sysclkMuxInput).map((s) => s.id),
     ],
     inMhz: sysIn,
@@ -567,74 +509,33 @@ export function buildClockModel(
   })
 
   // 总线
-  nodes.push(
-    busNode('AHB', 'AHB', 'ahb', spec.ahb, freqs.sysclkMhz, freqs.hclkMhz, cfg, issues, COL_SYSTEM, 'g-sys'),
-    busNode('APB1', 'APB1', 'apb1', spec.apb1, freqs.hclkMhz, freqs.pclk1Mhz, cfg, issues, COL_BUS, 'g-out'),
-    busNode('APB2', 'APB2', 'apb2', spec.apb2, freqs.hclkMhz, freqs.pclk2Mhz, cfg, issues, COL_BUS, 'g-out'),
-  )
-
-  // 定时器域（模式由 spec.timerClock 决定：sysclk 直通 / APB 分频>1 时 ×2）
-  const timHint = timMode === 'sysclk' ? 'SYSCLK 直通' : undefined
-  const tim1Level = issueLevelOf(issues, 'TIM1')
-  nodes.push({
-    id: 'TIM1',
-    label: 'TIM1',
-    kind: 'readout',
-    inMhz: freqs.pclk1Mhz,
-    outMhz: freqs.pclk1TimMhz,
-    maxMhz: tim1Max,
-    issueLevel: tim1Level,
-    overLimit: tim1Level === 'error',
-    active: true,
-    locked: isClockNodeLocked(cfg, 'TIM1'),
-    lockable: isClockNodeLockable(spec, 'TIM1'),
-    control: null,
-    hint: timMode === 'sysclk' ? timHint : cfg.apb1 > 1 ? '×2' : '×1',
-    column: COL_TIM,
-    group: 'g-out',
-  })
-  const tim2Level = issueLevelOf(issues, 'TIM2')
-  nodes.push({
-    id: 'TIM2',
-    label: 'TIM2',
-    kind: 'readout',
-    inMhz: freqs.pclk2Mhz,
-    outMhz: freqs.pclk2TimMhz,
-    maxMhz: tim2Max,
-    issueLevel: tim2Level,
-    overLimit: tim2Level === 'error',
-    active: true,
-    locked: isClockNodeLocked(cfg, 'TIM2'),
-    lockable: isClockNodeLockable(spec, 'TIM2'),
-    control: null,
-    hint: timMode === 'sysclk' ? timHint : cfg.apb2 > 1 ? '×2' : '×1',
-    column: COL_TIM,
-    group: 'g-out',
-  })
+  const hasApbDomains = spec.apbClockDomains !== false
+  nodes.push(busNode('AHB', 'AHB', 'ahb', spec.ahb, freqs.sysclkMhz, freqs.hclkMhz, cfg, issues, COL_SYSTEM, 'g-sys'))
+  if (hasApbDomains) {
+    nodes.push(
+      busNode('APB1', 'APB1', 'apb1', spec.apb1, freqs.hclkMhz, freqs.pclk1Mhz, cfg, issues, COL_BUS, 'g-out'),
+      busNode('APB2', 'APB2', 'apb2', spec.apb2, freqs.hclkMhz, freqs.pclk2Mhz, cfg, issues, COL_BUS, 'g-out'),
+    )
+  }
 
   // ADC 域（时钟源来自 spec.adc.options；CK32M 为 CH58x 固定 32MHz 域）
-  const adcOpt = spec.adc.options.find((o) => o.id === (cfg.adc ?? spec.adc.default)) ?? spec.adc.options[0]!
-  const adcBase =
-    adcOpt.source === 'SYSCLK'
-      ? freqs.sysclkMhz
-      : adcOpt.source === 'AHB'
-        ? freqs.hclkMhz
-        : adcOpt.source === 'APB1'
-          ? freqs.pclk1Mhz
-          : adcOpt.source === 'CK32M'
-            ? spec.peripheralClocks?.adc?.fixedInMhz ?? 32
-            : freqs.pclk2Mhz
+  const adcOpt = adcClockOption(spec, cfg)
+  const adcBase = adcInputMhz(spec, adcOpt.source, freqs)
   const adcLevel = issueLevelOf(issues, 'ADC')
   const adcLocked = isClockNodeLocked(cfg, 'ADC')
+  const adcPrescaler = spec.adc.prescaler
+  const systemAdcRawDivider = adcOpt.source === 'SYSCLK' && spec.peripheralClocks?.adc?.clkDiv?.raw
   nodes.push({
     id: 'ADC',
     // CH582 单 ADC 实例 id 即 'ADC'，与域节点同名会混淆 → 域节点改称「ADC 域」（数据驱动，非芯片硬编码）
-    label: peri?.peripherals?.adc?.some((i) => i.id === 'ADC') ? 'ADC 域' : 'ADC',
+    label: adcPrescaler?.label ?? (peri?.peripherals?.adc?.some((i) => i.id === 'ADC') ? 'ADC 域' : 'ADC'),
     kind: 'mux',
     // ADC mux 的输入是数据层 adc 选项 id（分频档位，非时钟源）：仅显示源不追加灰行
     muxInputs: spec.adc.options.map((o) => String(o.id)),
     inMhz: adcBase,
-    outMhz: freqs.adcMhz,
+    outMhz: systemAdcRawDivider ? null : freqs.adcMhz,
+    outputLabel: adcPrescaler ? 'ADCCLK' : undefined,
+    hint: adcPrescaler?.note ?? (systemAdcRawDivider ? spec.peripheralClocks?.adc?.clkDiv?.note : undefined),
     maxMhz: spec.adc.maxMhz ?? null,
     issueLevel: adcLevel,
     overLimit: adcLevel === 'error',
@@ -644,7 +545,7 @@ export function buildClockModel(
     control: {
       kind: 'select',
       field: 'adc',
-      label: '时钟源',
+      label: adcPrescaler ? '分频' : '时钟源',
       value: cfg.adc ?? spec.adc.default,
       options: spec.adc.options.map((o) => ({ value: o.id, label: o.label })),
       fixed: spec.adc.options.length <= 1 || adcLocked,
@@ -654,8 +555,8 @@ export function buildClockModel(
   })
 
   // ---------- 连线（逻辑；正交折线由 layout 生成） ----------
-  const edge = (id: string, from: string, to: string, active: boolean, label?: string) => {
-    edges.push({ id, from, to, active, label })
+  const edge = (id: string, from: string, to: string, active: boolean, label?: string, inputIndex?: number) => {
+    edges.push({ id, from, to, active, label, ...(inputIndex === undefined ? {} : { inputIndex }) })
   }
 
   for (const s of srcSpecs) {
@@ -664,40 +565,59 @@ export function buildClockModel(
     if (s.displayOnly && !s.sysclkMuxInput) continue
     const selectable = !s.displayOnly
     if (pllSpec && !s.displayOnly) edge(`src-${s.id}-pll`, s.id, 'PLL', selectable && usePll && pllSourceId === s.id)
-    edge(`src-${s.id}-sys`, s.id, 'SYSCLK', selectable && cfg.source === s.id)
+    const divider = sysclkSourceDivider(spec, s.id, cfg)
+    edge(`src-${s.id}-sys`, s.id, 'SYSCLK', selectable && cfg.source === s.id, divider === undefined ? undefined : `÷${divider}`)
   }
   if (pllSpec) edge('pll-sys', 'PLL', 'SYSCLK', usePll)
 
   edge('sys-ahb', 'SYSCLK', 'AHB', true, `÷${cfg.ahb}`)
-  edge('ahb-apb1', 'AHB', 'APB1', true, `÷${cfg.apb1}`)
-  edge('ahb-apb2', 'AHB', 'APB2', true, `÷${cfg.apb2}`)
+  if (hasApbDomains) {
+    edge('ahb-apb1', 'AHB', 'APB1', true, `÷${cfg.apb1}`)
+    edge('ahb-apb2', 'AHB', 'APB2', true, `÷${cfg.apb2}`)
+  }
 
-  // 定时器域：APB 出口
-  edge(
-    'apb1-tim1',
-    'APB1',
-    'TIM1',
-    true,
-    timMode === 'sysclk' ? 'SYSCLK' : cfg.apb1 > 1 ? '×2' : '×1',
-  )
-  edge(
-    'apb2-tim2',
-    'APB2',
-    'TIM2',
-    true,
-    timMode === 'sysclk' ? 'SYSCLK' : cfg.apb2 > 1 ? '×2' : '×1',
-  )
+  // 输出编号供布局使用，显示名称来自芯片的实际定时器分组。
+  for (const [index, label] of timerLabels.entries()) {
+    if (!label) continue
+    const timer = timerOutputs[index]!
+    const from = timMode === 'sysclk' ? 'SYSCLK' : timMode === 'hclk' ? 'AHB' : timer.bus
+    const sourceLabel = from === 'AHB' ? 'HCLK' : from.replace('APB', 'PCLK')
+    const factor = timer.divider > 1 ? '×2' : '×1'
+    const level = issueLevelOf(issues, timer.id)
+    nodes.push({
+      id: timer.id,
+      label,
+      kind: 'readout',
+      inMhz: timMode === 'apb_x2' ? timer.pclk : timer.outMhz,
+      inputClockLabel: sourceLabel,
+      outMhz: timer.outMhz,
+      maxMhz: timMode === 'apb_x2' ? timer.busMax * 2 : timMode === 'hclk' ? spec.ahb.maxMhz : spec.sysclkMaxMhz,
+      issueLevel: level,
+      overLimit: level === 'error',
+      active: true,
+      locked: isClockNodeLocked(cfg, timer.id),
+      lockable: isClockNodeLockable(spec, timer.id),
+      control: null,
+      hint: timMode === 'apb_x2' ? factor : `${sourceLabel} 直通`,
+      column: COL_TIM,
+      group: 'g-out',
+    })
+    edge(`${from.toLowerCase()}-${timer.id.toLowerCase()}`, from, timer.id, true, timMode === 'apb_x2' ? factor : undefined)
+  }
 
-  // ADC：按数据里的时钟源选出发节点与走线；CK32M 为独立固定域（不伪造上游）
+  // ADC：按数据里的时钟源选出发节点与走线。
   const adcLabel = `÷${adcOpt.div}`
+  const adcInput = spec.adc.options.indexOf(adcOpt)
   if (adcOpt.source === 'SYSCLK') {
-    edge('sys-adc', 'SYSCLK', 'ADC', true, adcLabel)
+    edge('sys-adc', 'SYSCLK', 'ADC', true, adcLabel, adcInput)
   } else if (adcOpt.source === 'AHB') {
-    edge('ahb-adc', 'AHB', 'ADC', true, adcLabel)
+    edge('ahb-adc', 'AHB', 'ADC', true, adcLabel, adcInput)
   } else if (adcOpt.source === 'APB1') {
-    edge('apb1-adc', 'APB1', 'ADC', true, adcLabel)
-  } else if (adcOpt.source !== 'CK32M') {
-    edge('apb2-adc', 'APB2', 'ADC', true, adcLabel)
+    edge('apb1-adc', 'APB1', 'ADC', true, adcLabel, adcInput)
+  } else if (adcOpt.source === 'CK32M') {
+    if (spec.adc.fixedSource) edge('fixed-adc', spec.adc.fixedSource, 'ADC', true, undefined, adcInput)
+  } else {
+    edge('apb2-adc', 'APB2', 'ADC', true, adcLabel, adcInput)
   }
 
   // ---------- 外设节点（M15；periFreqs 由 A 域 model/clock/peripheral.ts 计算后传入） ----------
@@ -759,7 +679,9 @@ export function buildClockModel(
       id: nodeId,
       label: iid,
       kind: 'peri',
-      inMhz: pf?.inMhz ?? busMhz(bus, freqs, adcClkSpec),
+      inMhz: pf?.inMhz ?? (category === 'adc' && bus !== 'CK32M' && !systemAdcRawDivider
+        ? freqs.adcMhz : busMhz(bus, freqs, adcClkSpec)),
+      inputClockLabel: category === 'adc' && bus !== 'CK32M' && !systemAdcRawDivider ? 'ADC 时钟域' : bus,
       // ADC raw 级不编造频率（periFreqs.actualMhz=null）
       outMhz: pf?.actualMhz ?? null,
       maxMhz,
@@ -799,19 +721,50 @@ export function buildClockModel(
     }
   }
 
-  // USB 时钟域（仅显示 + 警告，无生成）：PLL → USB；无 PLL 芯片（X035 HSI 直连）不画上游边
+  // USB 时钟域：有自动分频级时显示 PLL → USBPRE → USBCLK，直连芯片保留固定频率。
   const usbSpec = pc?.usb
+  const usbPrescaler = pllSpec && usbSpec && usbSpec.fixedMhz === undefined
+    ? auxDomains.find((domain) => domain.id === 'USBPRE')
+    : undefined
   if (usbSpec) {
     const pf = freqById.get('USB')
     const list = nodeIssues('USB', issues, pf?.issues)
     const labels = periLabels('usb', pf, adcClkSpec)
+    const fixedSource = usbSpec.fixedMhz === undefined ? undefined : usbSpec.fixedSource ?? 'HSI'
+    const inputMhz = (pf?.inMhz ?? usbSpec.fixedMhz ?? freqs.pllOutMhz) || null
+    const outputMhz = pf?.actualMhz ?? usbSpec.fixedMhz ?? null
+    if (usbPrescaler) {
+      const divisor = outputMhz !== null && inputMhz !== null ? usbSpec.autoPre[String(inputMhz)] : undefined
+      nodes.push({
+        id: usbPrescaler.id,
+        label: usbPrescaler.label,
+        kind: 'readout',
+        inMhz: inputMhz,
+        outMhz: outputMhz,
+        readoutText: divisor === undefined ? '—' : `÷${divisor}`,
+        maxMhz: null,
+        issueLevel: null,
+        overLimit: false,
+        active: inputMhz !== null,
+        locked: false,
+        lockable: false,
+        control: null,
+        hint: usbPrescaler.note,
+        column: COL_USB,
+        group: usbPrescaler.group ?? 'g-aux',
+        badge: 'derived',
+        displayOnly: true,
+      })
+      edge('pll-usbpre', 'PLL', usbPrescaler.id, inputMhz !== null)
+      edge('usbpre-usb', usbPrescaler.id, 'USB', outputMhz !== null)
+    }
     nodes.push({
       id: 'USB',
-      label: 'USB',
+      label: 'USBCLK',
       kind: 'readout',
-      // 非 PLL 源时 peripheral.ts 以 0 表「无时钟」（类型约束）→ 显示层归一为 null（—），不误导为 0 MHz
-      inMhz: (pf?.inMhz ?? freqs.pllOutMhz) || null,
-      outMhz: pf?.actualMhz ?? null,
+      inMhz: usbPrescaler ? outputMhz : inputMhz,
+      inputClockLabel: usbPrescaler?.id ?? fixedSource,
+      outMhz: outputMhz,
       maxMhz: usbSpec.fixedMhz ?? 48,
       issueLevel: levelOfList(list),
       overLimit: levelOfList(list) === 'error',
@@ -827,13 +780,17 @@ export function buildClockModel(
       ...(labels.requestedLabel !== undefined ? { requestedLabel: labels.requestedLabel } : {}),
       ...(labels.actualLabel !== undefined ? { actualLabel: labels.actualLabel } : {}),
     })
-    if (pllSpec) edge('pll-usb', 'PLL', 'USB', true, pf?.dividerLabel ?? undefined)
+    if (fixedSource) edge('src-usb', fixedSource, 'USB', true)
+    else if (pllSpec && !usbPrescaler) edge('pll-usb', 'PLL', 'USB', true, pf?.dividerLabel ?? undefined)
   }
 
   // ---------- M16 仅显示域（aux：RM 框图有、模型/代码生成不覆盖） ----------
   // badge='derived' + displayOnly=true + control=null + 不可锁 + active=true；边 active=false（灰线）。
-  for (const a of spec.aux ?? []) {
-    const hint = [a.fixedDivLabel, a.note].filter((s) => !!s).join(' · ')
+  for (const a of auxDomains) {
+    if (a === usbPrescaler) continue
+    const div = a.deriveDivByBackend?.[peri?.halBackend ?? ''] ?? a.deriveDiv ?? 1
+    const divLabel = a.deriveDivByBackend ? `÷${div}` : a.fixedDivLabel
+    const hint = [divLabel, a.note].filter((s) => !!s).join(' · ')
     const fixed = a.fixedMhz ?? null
     // D12：readout 单输入派生行（CORE/SYSTICK/V5F/V3F）——fixedMhz 优先；
     // 否则取输入节点 outMhz ÷ deriveDiv（缺省 1），badge=derived 仅显示不生成
@@ -843,7 +800,7 @@ export function buildClockModel(
       const src = nodes.find((n) => n.id === a.inputs![0]!.id)
       if (src && src.outMhz !== null) {
         inMhz = src.outMhz
-        outMhz = src.outMhz / (a.deriveDiv ?? 1)
+        outMhz = src.outMhz / div
       }
     }
     const muxKind = a.kind === 'mux' || a.kind === 'pll'
@@ -874,20 +831,22 @@ export function buildClockModel(
       displayOnly: true,
     })
     const seenInputs = new Map<string, number>()
-    for (const inp of a.inputs ?? []) {
+    for (const [inputIndex, inp] of (a.inputs ?? []).entries()) {
       // 同源多行（如 MCO 的 PLL3 与 PLL3÷2）：重复边 id 加行序后缀，避免 Vue :key 重复
       const n = seenInputs.get(inp.id) ?? 0
       seenInputs.set(inp.id, n + 1)
-      edges.push({ id: `aux-${a.id}-${inp.id}${n > 0 ? `-${n}` : ''}`, from: inp.id, to: a.id, active: false })
+      const label = a.kind === 'readout' && div > 1 ? `÷${div}` : undefined
+      edges.push({ id: `aux-${a.id}-${inp.id}${n > 0 ? `-${n}` : ''}`, from: inp.id, to: a.id, active: false, label, ...(muxKind ? { inputIndex } : {}) })
     }
   }
 
-  // ---------- M16 diagram kind 覆盖（数据坐标优先于默认 kind） ----------
+  // ---------- diagram 图元与分组覆盖 ----------
   const diagramNodes = spec.diagram?.nodes
   if (diagramNodes) {
     for (const n of nodes) {
-      const override = diagramNodes[n.id]?.kind
-      if (override) n.kind = override
+      const override = diagramNodes[n.id]
+      if (override?.kind) n.kind = override.kind
+      if (override?.group) n.group = override.group
     }
   }
   // mux/pll kind 节点必须带 muxInputs（含灰行）；diagram 把其它节点覆盖成 mux/pll 时用入边来源兜底
@@ -904,71 +863,11 @@ export function buildClockModel(
   }
 
   // ---------- 分组容器（仅保留有成员的组，顺序固定） ----------
-  const groupOrder = ['g-sources', 'g-pll', 'g-sys', 'g-out', PERI_GROUP.adc, PERI_GROUP.usart, PERI_GROUP.spi, PERI_GROUP.i2c, 'g-aux']
+  const groupOrder = ['g-sources', 'g-pll', 'g-sys', 'g-out', PERI_GROUP.adc, PERI_GROUP.usart, PERI_GROUP.spi, PERI_GROUP.i2c, 'g-aux', 'g-low']
   for (const gid of groupOrder) {
     if (!nodes.some((n) => n.group === gid)) continue
     groups.push({ id: gid, label: groupLabels[gid] ?? gid })
   }
 
   return { nodes, edges, groups }
-}
-
-/**
- * 外设参数写回（M15）：把 periParam 控件的值合并进实例 params，返回新的 PeripheralState。
- * 非 periParam 控件原样返回（视图层走 applyClockControl 路径）。
- */
-export function applyPeripheralClockControl(
-  state: PeripheralState,
-  control: ClockNodeControl,
-  value: string | number,
-): PeripheralState {
-  if (control.field !== 'periParam' || !control.paramKey) return state
-  return { ...state, params: { ...state.params, [control.paramKey]: value } }
-}
-
-/** 控件字段 → 所属时钟树节点（锁定判断用）。periParam 作用于外设状态，不入此表。 */
-const CONTROL_NODE: Record<Exclude<ClockNodeControlField, 'periParam'>, string> = {
-  source: 'SYSCLK',
-  pllSource: 'PLL',
-  hxtalMhz: 'HSE',
-  adc: 'ADC',
-  ahb: 'AHB',
-  apb1: 'APB1',
-  apb2: 'APB2',
-  pll: 'PLL',
-  adcClkDiv: 'ADC',
-}
-
-/** 应用画布/详情控件修改，返回新的 ClockConfig（纯函数；锁定节点忽略修改）。 */
-export function applyClockControl(cfg: ClockConfig, control: ClockNodeControl, value: string | number): ClockConfig {
-  // 外设参数写回工程 peripherals 状态，与 ClockConfig 无关（视图层路由）
-  if (control.field === 'periParam') return cfg
-  if (isClockNodeLocked(cfg, CONTROL_NODE[control.field])) return cfg
-  switch (control.field) {
-    case 'source':
-      return { ...cfg, source: String(value) }
-    case 'pllSource':
-      return { ...cfg, pllSource: String(value) }
-    case 'adc':
-      return { ...cfg, adc: String(value) }
-    case 'hxtalMhz':
-      return { ...cfg, hxtalMhz: Number(value) }
-    case 'ahb':
-      return { ...cfg, ahb: Number(value) }
-    case 'apb1':
-      return { ...cfg, apb1: Number(value) }
-    case 'apb2':
-      return { ...cfg, apb2: Number(value) }
-    case 'pll':
-      return { ...cfg, pll: { ...(cfg.pll ?? {}), [control.pllKey ?? 'mul']: Number(value) } }
-    case 'adcClkDiv': {
-      const n = Number(value)
-      if (!Number.isFinite(n)) return cfg
-      // Number + min/max clamp（越界夹取，与 stepper/内联编辑语义一致）
-      let v = Math.round(n)
-      if (control.min !== undefined) v = Math.max(control.min, v)
-      if (control.max !== undefined) v = Math.min(control.max, v)
-      return { ...cfg, adcClkDiv: v }
-    }
-  }
 }

@@ -22,7 +22,7 @@ export type { ActivationPin, PeriKind } from '@/components/peripherals/instance'
 // workspace=true 时隐藏卡片头（由 PeripheralWorkspaceView 提供页头），并通过 defineExpose 暴露激活 API。
 import { computed, inject } from 'vue'
 import { useProjectStore } from '@/controllers/project'
-import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import { usePinOverwrite } from '@/components/pinout/usePinOverwrite'
 import { derivePeripheralUsage } from '@/model/peripherals'
 import Card from '@/components/common/Card.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'

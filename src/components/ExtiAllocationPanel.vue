@@ -7,7 +7,7 @@ import type { ExtiEdge } from '@/model/types'
 import { useProjectStore } from '@/controllers/project'
 import { extiLines } from '@/model/pins/allocation'
 import type { ExtiLineOption } from '@/model/pins/allocation'
-import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import { usePinOverwrite } from '@/components/pinout/usePinOverwrite'
 import EmptyState from './common/EmptyState.vue'
 
 const store = useProjectStore()

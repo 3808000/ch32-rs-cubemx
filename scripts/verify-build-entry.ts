@@ -5,10 +5,11 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { generateProject } from '@/model/codegen'
 import { getDeviceData } from '@/model/device'
-import { mergeClockConfig } from '@/model/clock'
+import { defaultClock, presetToConfig } from '@/model/clock'
 import { DEFAULT_BLE_CONFIG } from '@/model/types'
 import type { PinAssignment, ProjectConfig } from '@/model/types'
 import { HAL_REV } from '@/model/codegen/halRev'
+import { clockMatrix } from './clock-matrix'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -22,6 +23,7 @@ const out = argOf('--out', '')
 const embassy = process.argv.includes('--embassy')
 // --ble：ch58x / ch5xx 后端（各自 BLE 路径），其它后端直接报错退出（诚实失败而非静默忽略）
 const ble = process.argv.includes('--ble')
+const clock32k = argOf('--clock32k', 'lse') === 'lsi' ? 'lsi' : 'lse'
 const halDir = process.env.CH32_HAL_DIR ?? ''
 // ch58x-hal / ch5xx-hal 后端用各自 rev 常量（config.hal.rev 不适用）
 const ch58xHalDir = process.env.CH58X_HAL_DIR ?? path.resolve(root, '../reference/ch58x-hal')
@@ -145,23 +147,8 @@ const i2cSafePreset =
       })
     : undefined
 const firstPreset = i2cSafePreset ?? data.clock.presets[0]
-const pll: Record<string, number> = {}
-if (firstPreset) {
-  // 无 PLL 芯片（M14，如 X035）clock.pll 缺省：不补 PLL 参数
-  for (const param of data.clock.pll?.params ?? []) {
-    const v = (firstPreset.match as Record<string, unknown>)[param.key]
-    if (typeof v === 'number') pll[param.key] = v
-  }
-}
-const clock = mergeClockConfig(data.clock, {
-  source: firstPreset?.match.source ?? 'HSI',
-  pllSource: firstPreset?.match.pllSource,
-  hxtalMhz: firstPreset?.match.hxtalMhz,
-  pll: Object.keys(pll).length ? pll : undefined,
-  ahb: firstPreset?.match.ahb ?? data.clock.ahb.default,
-  apb1: firstPreset?.match.apb1 ?? data.clock.apb1.default,
-  apb2: firstPreset?.match.apb2 ?? data.clock.apb2.default,
-})
+const defaults = defaultClock(data.clock)
+const clock = firstPreset ? presetToConfig(data.clock, firstPreset, defaults) : defaults
 
 const config: ProjectConfig = {
   version: 1,
@@ -176,7 +163,7 @@ const config: ProjectConfig = {
   features: { embassy: embassy || ble, debugPrint: true, ...(ble ? { ble: true } : {}) },
   hal: { rev: halRev },
   // --ble：features.ble=true + 缺省 BLE 配置（peripheral / 出厂 MAC / 100ms / FFE0-2）
-  ...(ble ? { ble: DEFAULT_BLE_CONFIG } : {}),
+  ...(ble ? { ble: { ...DEFAULT_BLE_CONFIG, clock32k } } : {}),
 }
 
 const result = generateProject(config, data)
@@ -206,6 +193,67 @@ for (const f of result.files) {
     content = content.replace(/ch32-hal = \{ git = "[^"]+", (?:rev = "[^"]+", )?/, `ch32-hal = { path = "${halDir}", `)
   }
   fs.writeFileSync(dest, content)
+}
+
+if (process.argv.includes('--clock-matrix')) {
+  const clockFile = result.files.find((file) => file.path.endsWith('src/generated/clock.rs'))
+  if (!clockFile) throw new Error('时钟矩阵缺少 clock.rs 入口')
+
+  const recipes = new Map<string, string>()
+  let rejected = 0
+  const cases = clockMatrix(data.clock)
+  for (const [index, clock] of cases.entries()) {
+    const candidate = generateProject({
+      ...config, clock, pins: [], peripherals: {}, features: { embassy: false, debugPrint: false },
+    }, data)
+    if (candidate.errors.length) {
+      if (candidate.errors.some((e) => !e.code.includes('CLOCK'))) {
+        throw new Error(`时钟用例 ${index} 遇到非时钟错误：${JSON.stringify(candidate.errors)}`)
+      }
+      rejected++
+      continue
+    }
+    const rust = candidate.files.find((file) => file.path === clockFile.path)?.content
+    if (!rust) throw new Error(`时钟用例 ${index} 未生成 Clock 模块`)
+    // 注释中的频率不影响 API 编译，只去重实际配方。
+    recipes.set(rust.replace(/^\s*\/\/.*$/gm, '').trim(), rust)
+  }
+
+  const clkDir = path.dirname(clockFile.path)
+  const probe = path.join(out, clkDir, 'clock_matrix.rs')
+  const modules: string[] = []
+  for (const [index, rust] of [...recipes.values()].entries()) {
+    fs.writeFileSync(path.join(out, clkDir, `clock_case_${index}.rs`), rust)
+    modules.push(`#[path = "clock_case_${index}.rs"] mod case_${index};`)
+  }
+
+  const adcClock = data.clock.peripheralClocks?.adc
+  const raw = adcClock?.clkDiv
+  const knob = adcClock?.knob
+  const adcCases: ProjectConfig[] = []
+  if (raw?.programmable) {
+    for (let value = 0; value < 2 ** raw.bits; value++) {
+      adcCases.push({ ...config, clock: { ...clock, adcClkDiv: value } })
+    }
+  } else if (knob && adc && periState[adc.id]) {
+    for (const value of adc.params[knob]?.options ?? []) {
+      adcCases.push({ ...config, peripherals: {
+        ...periState, [adc.id]: { ...periState[adc.id], params: { ...periState[adc.id].params, [knob]: value } },
+      } })
+    }
+  }
+  for (const [index, adcCase] of adcCases.entries()) {
+    const candidate = generateProject(adcCase, data)
+    if (candidate.errors.length) throw new Error(`ADC 时钟用例 ${index}：${JSON.stringify(candidate.errors)}`)
+    const adcFile = candidate.files.find((file) => file.path === path.join(clkDir, 'adc.rs'))
+    if (!adcFile) throw new Error(`ADC 时钟用例 ${index} 未生成 ADC 模块`)
+    fs.writeFileSync(path.join(out, clkDir, `adc_clock_case_${index}.rs`), adcFile.content)
+    modules.push(`#[path = "adc_clock_case_${index}.rs"] mod adc_${index};`)
+  }
+  fs.writeFileSync(probe, modules.join('\n'))
+  fs.appendFileSync(path.join(out, clkDir, 'mod.rs'), '\n#[allow(dead_code)] mod clock_matrix;\n')
+  console.log(`[verify] 时钟矩阵：${cases.length} 档，${rejected} 拦截，${recipes.size} 个不同 Rust 配方`)
+  if (adcCases.length) console.log(`[verify] ADC 采样时钟：${adcCases.length} 档`)
 }
 
 // vendor 模式：把完整 HAL 源码复制进 vendor/<hal>（与浏览器导出一致）

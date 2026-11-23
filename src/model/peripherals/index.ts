@@ -137,3 +137,8 @@ export function enabledUsage(usages: PeripheralUsage[], category: PeripheralUsag
 }
 
 export { categoryOfPeripheral }
+
+/** 将生成器实际消费的启用状态和参数投影到时钟树。 */
+export function peripheralClockState(usages: PeripheralUsage[]): Record<string, PeripheralState> {
+  return Object.fromEntries(usages.map(({ id, enabled, params }) => [id, { enabled, params }]))
+}

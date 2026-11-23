@@ -19,6 +19,8 @@ import {
   applyPeripheralClockControl,
   buildClockTree,
   formatMhz,
+  crossesForeignWire,
+  sharesForeignSegment,
   PRIM,
   type ClockNodeControl,
   type ClockTreeNode,
@@ -27,7 +29,7 @@ import {
   type PeripheralClockContext,
 } from '@/model/clock/tree'
 import { getDeviceData } from '@/model/device'
-import { arrangeClockDiagram, findClockJunctions } from '@/components/clock/diagram'
+import { arrangeClockDiagram, buildClockStrokes, findClockJunctions, isClockSelectionWire } from '@/components/clock/diagram'
 
 const v003 = getDeviceData('CH32V003F4P6')
 const spec = v003.clock
@@ -816,15 +818,16 @@ describe('USB 时钟域节点', () => {
     expect(tree.groups.map((g) => g.id)).not.toContain('g-usb')
   })
 
-  it('频率与双行标签来自 periFreqs；PLL→USB 边存在', () => {
+  it('频率与双行标签来自 periFreqs，USBPRE 串在 PLL 和 USBCLK 之间', () => {
     expect(usb.inMhz).toBe(48)
     expect(usb.outMhz).toBe(48)
     expect(usb.requestedLabel).toBe('48 MHz')
     expect(usb.actualLabel).toContain('实际 48 MHz')
-    const e = tree.edges.find((x) => x.id === 'pll-usb')!
-    expect(e.from).toBe('PLL')
-    expect(e.to).toBe('USB')
-    expect(e.active).toBe(true)
+    expect(tree.nodes.find((node) => node.id === 'USBPRE')).toMatchObject({
+      inMhz: 48, outMhz: 48, readoutText: '÷1', control: null,
+    })
+    expect(tree.edges.find((edge) => edge.to === 'USBPRE')).toMatchObject({ from: 'PLL', active: true })
+    expect(tree.edges.find((edge) => edge.to === 'USB')).toMatchObject({ from: 'USBPRE', active: true })
   })
 
   it('issueLevel 取 periFreqs 问题级别', () => {
@@ -985,15 +988,15 @@ describe('真实 clock.json peripheralClocks：7 芯片数据驱动', () => {
 
 // ---------- M16 D12：输出竖列 / 外设单列（七芯片真实数据） ----------
 
-/** SYSTICK 分频（契约 D12 表，HAL Stclk 事实：V003/V307/X035/H417=HCLK÷1，V103/V203/CH582=HCLK÷8） */
+/** 各芯片默认 HAL 后端的 SysTick 分频。 */
 const D12_SYSTICK_DIV: Record<string, number> = {
   CH32V003F4P6: 1,
   CH32V103C8T6: 8,
-  CH32V203C8T6: 8,
+  CH32V203C8T6: 1,
   CH32V307VCT6: 1,
   CH32X035C8T6: 1,
   CH32H417QEU6: 1,
-  CH582M: 8,
+  CH582M: 1,
 }
 
 describe('M16 D12 输出竖列 / 外设单列（七芯片真实数据）', () => {
@@ -1040,39 +1043,82 @@ describe('M16 D12 输出竖列 / 外设单列（七芯片真实数据）', () =>
       expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
     })
 
-    it(`${chip}：外设图独立分列，真实依赖仍可查询`, () => {
+    it(`${chip}：主干压缩保留端口，外设区域紧凑分列`, () => {
       const diagram = arrangeClockDiagram(tree)
       const sourcePeripherals = tree.nodes.filter((node) => node.kind === 'peri')
       const graphicsPeripherals = diagram.nodes.filter((node) => node.kind === 'peri')
       const ids = new Set(sourcePeripherals.map((node) => node.id))
       const columns = new Set(graphicsPeripherals.map((node) => node.x))
-      expect(columns.size).toBe(Math.min(3, Math.ceil(sourcePeripherals.length / 6)))
+      expect(columns.size).toBe(Math.min(2, Math.ceil(sourcePeripherals.length / 6)))
       expect(graphicsPeripherals.map((node) => node.id)).toEqual([...ids])
       expect(graphicsPeripherals.every((node) => node.inputClockLabel && node.x >= diagram.peripheralSection!.x)).toBe(true)
-      expect(diagram.edges).toEqual(tree.edges.filter((edge) => !ids.has(edge.from) && !ids.has(edge.to)))
-      expect(tree.edges.filter((edge) => ids.has(edge.to))).toHaveLength(ids.size)
+      const drawn = [...diagram.edges, ...diagram.inputs.map((input) => input.edge)]
+      expect(drawn.map((edge) => edge.id).sort()).toEqual(tree.edges.map((edge) => edge.id).sort())
+      const lowSpeedIds = tree.edges.filter((edge) => ['LSI', 'LSE', 'CK32K', 'RTC'].includes(edge.from)).map((edge) => edge.id)
+      expect(diagram.edges.map((edge) => edge.id)).toEqual(expect.arrayContaining(lowSpeedIds))
+      expect(diagram.edges.map((edge) => edge.id)).toEqual(expect.arrayContaining(tree.edges.filter(isClockSelectionWire).map((edge) => edge.id)))
+      expect(diagram.inputs.filter((input) => ids.has(input.edge.to) && input.showLabel)).toHaveLength(ids.size)
+      for (const input of diagram.inputs) {
+        const target = diagram.nodes.find((n) => n.id === input.edge.to)!
+        expect(input.anchor).toEqual(anchorIn(target, input.edge.from, input.edge.inputIndex))
+      }
       expect(diagram.height).toBeLessThanOrEqual(tree.height)
-      expect(diagram.nodes.filter((node) => node.kind !== 'peri')).toEqual(tree.nodes.filter((node) => node.kind !== 'peri'))
+      expect(diagram.width).toBeLessThanOrEqual(tree.width + 270)
+      for (const node of diagram.nodes.filter((node) => node.kind !== 'peri')) {
+        expect(node.x).toBeLessThanOrEqual(byId.get(node.id)!.x)
+        expect({ ...node, x: byId.get(node.id)!.x }).toEqual(byId.get(node.id))
+      }
+      for (const [index, edge] of diagram.edges.entries()) {
+        const source = diagram.nodes.find((node) => node.id === edge.from)!
+        const target = diagram.nodes.find((node) => node.id === edge.to)!
+        expect(edge.points[0]).toEqual(anchorOut(source))
+        expect(edge.points.at(-1)).toEqual(anchorIn(target, edge.from, edge.inputIndex))
+        expect(edge.points.slice(1).every((point, i) => point.x === edge.points[i]!.x || point.y === edge.points[i]!.y)).toBe(true)
+        expect(edge.points.slice(1).every((point, i) => point.x >= edge.points[i]!.x), edge.id).toBe(true)
+        expect(sharesForeignSegment(edge.points, edge.from, diagram.edges.slice(0, index)), edge.id).toBe(false)
+        if (!isClockSelectionWire(edge)) {
+          expect(crossesForeignWire(edge.points, edge.from, diagram.edges.slice(0, index)), edge.id).toBe(false)
+        }
+      }
     })
 
-    it(`${chip}：输出竖列右缘 1400、行序 CORE→V3F→SYSTICK→APB1→TIM1→APB2→TIM2→USB→ADC`, () => {
+    it(`${chip}：总线、定时器和输出分组对齐`, () => {
       const ids = chip === 'CH32H417QEU6' ? ['V5F', 'V3F', 'SYSTICK'] : ['CORE', 'SYSTICK']
-      ids.push('APB1', 'TIM1', 'APB2', 'TIM2')
-      if (pc.usb) ids.push('USB')
-      ids.push('ADC')
+      ids.push('TIM1')
+      if (chip !== 'CH582M') ids.push('TIM2', 'ADC')
+      else ids.unshift('ADC')
+      if (pc.usb) ids.unshift('USB')
+      const tim1 = byId.get('TIM1')!
+      const outputRight = tim1.x + tim1.w
       let prevY = -Infinity
       for (const id of ids) {
         const n = byId.get(id)
         expect(n, `缺少输出竖列节点 ${id}`).toBeTruthy()
-        expect(n!.x + n!.w, `${id} 右缘`).toBe(1400)
+        expect(n!.x + n!.w, `${id} 右缘`).toBe(outputRight)
         expect(n!.y, `${id} 行序`).toBeGreaterThan(prevY)
         prevY = n!.y
+      }
+      const diagram = arrangeClockDiagram(tree)
+      for (const [apbId, timId] of [['APB1', 'TIM1'], ['APB2', 'TIM2']] as const) {
+        if (chip === 'CH582M' && timId === 'TIM2') {
+          expect(byId.has(timId)).toBe(false)
+          continue
+        }
+        const tim = byId.get(timId)!
+        const from = d.clock.timerClock === 'hclk' ? 'AHB' : d.clock.timerClock === 'sysclk' ? 'SYSCLK' : apbId
+        const upstream = byId.get(from)!
+        expect(tim.x).toBeGreaterThan(upstream.x + upstream.w)
+        expect(tree.edges.find((edge) => edge.to === timId)?.from).toBe(from)
+        if (from === apbId) {
+          expect(anchorOut(upstream).y).toBe(anchorIn(tim).y)
+          expect(diagram.edges.find((edge) => edge.to === timId)?.points).toHaveLength(2)
+        }
       }
     })
 
     it(`${chip}：源 osc 同 x；CORE/SYSTICK（H417 V5F/V3F）归 g-out`, () => {
-      // 源列仅 osc（PLL 是 sources 中 pll:true 的处理器节点，位于独立列）
-      const xs = d.clock.sources.filter((s) => !s.pll).map((s) => byId.get(s.id)!.x)
+      // 振荡器同列；PLL 和由上游选择器派生的 CK32K 都位于下游。
+      const xs = tree.nodes.filter((node) => node.kind === 'osc').map((node) => node.x)
       expect(new Set(xs).size).toBe(1)
       if (chip === 'CH32H417QEU6') {
         expect(byId.get('V5F')!.group).toBe('g-out')
@@ -1192,10 +1238,12 @@ describe('M16 diagram 驱动布局', () => {
     expect(byId.get('ADCPRE')).toMatchObject({ w: 212, h: 44 })
   })
 
-  it('mux 输入锚点 = mux 左缘第 i 行（HSI→SYSCLK 第 0 行）', () => {
+  it('SYSCLK 输入锚点对齐 HSE 和 HSI 的显示行', () => {
     const e = tree.edges.find((x) => x.id === 'src-HSI-sys')!
     expect(e.points[0]).toEqual(anchorOut(byId.get('HSI')!))
-    expect(e.points[e.points.length - 1]).toEqual({ x: 560, y: 40 + PRIM.MUX_PAD + PRIM.MUX_ROW / 2 })
+    expect(e.points[e.points.length - 1]).toEqual({ x: 560, y: 40 + PRIM.MUX_PAD + 2.5 * PRIM.MUX_ROW })
+    const hse = tree.edges.find((x) => x.id === 'src-HSE-sys')!
+    expect(hse.points.at(-1)).toEqual({ x: 560, y: 40 + PRIM.MUX_PAD + 1.5 * PRIM.MUX_ROW })
   })
 
   it('非 mux 输入的 displayOnly 源：无 SYSCLK/PLL 灰边、无灰行（RM 保真）', () => {
@@ -1205,18 +1253,79 @@ describe('M16 diagram 驱动布局', () => {
     expect(tree.edges.find((x) => x.id === 'src-LSI-pll')).toBeUndefined()
   })
 
-  it('sysclkMuxInput 的 displayOnly 源画灰行：CH582 CK32K→SYSCLK 第 2 行', () => {
+  it('CH582 的 CK32K 由 LSI/LSE 选择器输出，同一信号分别接到 RTC 和 SYSCLK', () => {
     const c582 = getDeviceData('CH582M').clock
     const cfg582 = defaultClock(c582)
     const t582 = buildClockTree(c582, cfg582, computeClock(c582, cfg582))
     const sys = t582.nodes.find((n) => n.id === 'SYSCLK')!
-    expect(sys.muxInputs).toEqual(['HSE', 'PLL', 'CK32K'])
+    expect(sys.muxInputs).toEqual(['PLL', 'HSE', 'CK32K'])
+    const clock32k = t582.nodes.filter((n) => n.id === 'CK32K')
+    expect(clock32k).toHaveLength(1)
+    expect(clock32k[0]).toMatchObject({ kind: 'mux', muxInputs: ['LSE', 'LSI'], displayOnly: true, control: null })
+    expect(sys.control?.options?.map((option) => option.value)).not.toContain('CK32K')
     const e = t582.edges.find((x) => x.id === 'src-CK32K-sys')!
     expect(e.active).toBe(false)
     expect(e.points[e.points.length - 1]).toEqual({
       x: sys.x,
       y: sys.y + PRIM.MUX_PAD + 2 * PRIM.MUX_ROW + PRIM.MUX_ROW / 2,
     })
+    const diagram = arrangeClockDiagram(t582)
+    const drawn = diagram.edges
+    expect(drawn.filter((edge) => edge.to === 'CK32K').map((edge) => edge.from).sort()).toEqual(['LSE', 'LSI'])
+    const outgoing = drawn.filter((edge) => edge.from === 'CK32K')
+    expect(outgoing.map((edge) => edge.to).sort()).toEqual(['RTC', 'SYSCLK'])
+    const output = anchorOut(diagram.nodes.find((node) => node.id === 'CK32K')!)
+    expect(outgoing.map((edge) => edge.points[0])).toEqual([output, output])
+  })
+
+  it('CH582 的外部 32 MHz 晶振经过 SYSCLK 共用分频，同时直供 ADC 基准', () => {
+    const spec = getDeviceData('CH582M').clock
+    const cfg = { ...defaultClock(spec), source: 'HSE', pll: { div: 5 } }
+    const freqs = computeClock(spec, cfg)
+    expect(freqs).toMatchObject({ sysclkMhz: 6.4, hclkMhz: 6.4, pclk1TimMhz: 6.4, adcMhz: 32 })
+    const diagram = arrangeClockDiagram(buildClockTree(spec, cfg, freqs))
+    expect(diagram.edges.find((edge) => edge.to === 'SYSCLK' && edge.active)).toMatchObject({ from: 'HSE', label: '÷5' })
+    expect(diagram.edges.find((edge) => edge.to === 'ADC')).toMatchObject({ from: 'HSE' })
+    expect(diagram.edges.find((edge) => edge.to === 'TIM1')).toMatchObject({ from: 'SYSCLK' })
+  })
+
+  it('CH582 不显示独立 APB 时钟域，UART、SPI 和 I2C 的输入仍可追溯到 HCLK', () => {
+    const { clock: spec, peripherals } = getDeviceData('CH582M')
+    const cfg = defaultClock(spec)
+    const freqs = computeClock(spec, cfg)
+    const tree = buildClockTree(spec, cfg, freqs, undefined, { peripherals, state: {}, periFreqs: [] })
+    const diagram = arrangeClockDiagram(tree)
+    const apbIds = ['APB1', 'APB2']
+    expect(tree.nodes.some((node) => apbIds.includes(node.id))).toBe(false)
+    expect(tree.edges.some((edge) => apbIds.includes(edge.from) || apbIds.includes(edge.to))).toBe(false)
+    for (const instance of [...peripherals.usart, ...peripherals.spi, ...peripherals.i2c]) {
+      expect(diagram.inputs.find((input) => input.edge.to === `P-${instance.id}`)).toMatchObject({
+        edge: { from: 'AHB' }, label: 'HCLK',
+      })
+    }
+  })
+
+  it('CH582 的 SysTick 随工程选定的 HAL 后端使用 HCLK 或 HCLK÷8', () => {
+    const { clock: spec, peripherals } = getDeviceData('CH582M')
+    const cfg = defaultClock(spec)
+    const freqs = computeClock(spec, cfg)
+    for (const [halBackend, div] of [['ch5xx-hal', 1], ['ch58x-hal', 8]] as const) {
+      const tree = buildClockTree(spec, cfg, freqs, undefined, { peripherals, state: {}, periFreqs: [], halBackend })
+      expect(tree.nodes.find((node) => node.id === 'SYSTICK')?.outMhz).toBe(freqs.hclkMhz / div)
+    }
+  })
+
+  it('X035 的 USBCLK 经过独立 HSI 支路，AHB 分频只降低 HCLK 和定时器频率', () => {
+    const spec = getDeviceData('CH32X035C8T6').clock
+    const cfg = { ...defaultClock(spec), ahb: 4 }
+    const freqs = computeClock(spec, cfg)
+    const diagram = arrangeClockDiagram(buildClockTree(spec, cfg, freqs))
+    expect(diagram.nodes.find((node) => node.id === 'USB')).toMatchObject({ outMhz: 48, inputClockLabel: 'HSI' })
+    expect(diagram.edges.find((edge) => edge.to === 'USB')).toMatchObject({ from: 'HSI', active: true })
+    expect(diagram.nodes.find((node) => node.id === 'TIM1')).toMatchObject({ label: 'TIM2–3', outMhz: 12 })
+    expect(diagram.edges.find((edge) => edge.to === 'TIM1')).toMatchObject({ from: 'AHB' })
+    expect(diagram.nodes.find((node) => node.id === 'IWDG')).toMatchObject({ label: 'IWDG / AWU', outMhz: 0.046875 })
+    expect(diagram.edges.find((edge) => edge.to === 'IWDG')).toMatchObject({ from: 'HSI', label: '÷1024' })
   })
 
   it('PLL mux 输入锚点行：HSE→PLL 第 1 行', () => {
@@ -1227,11 +1336,11 @@ describe('M16 diagram 驱动布局', () => {
     })
   })
 
-  it('PLL→SYSCLK 锚点 = SYSCLK 第 2 行（pllInputs 顺序 HSI/HSE/PLL/LSI）', () => {
+  it('PLL→SYSCLK 接入最上方一行', () => {
     const e = tree.edges.find((x) => x.id === 'pll-sys')!
     expect(e.points[e.points.length - 1]).toEqual({
       x: 560,
-      y: 40 + PRIM.MUX_PAD + 2 * PRIM.MUX_ROW + PRIM.MUX_ROW / 2,
+      y: 40 + PRIM.MUX_PAD + PRIM.MUX_ROW / 2,
     })
   })
 
@@ -1415,9 +1524,9 @@ describe('M16 displayOnly 源（灰 osc + 灰行）', () => {
     expect(values).not.toContain('LSI')
   })
 
-  it('muxInputs = RM 真实输入：options 顺序 + 仅 sysclkMuxInput 的 displayOnly 灰行', () => {
+  it('SYSCLK 输入从上至下为 PLL、HSE、HSI', () => {
     // RM 保真：LSI/LSE 不是 SYSCLK/PLL mux 输入 → 不画假灰行（M16 主控裁决）
-    expect(byId.get('SYSCLK')!.muxInputs).toEqual(['HSI', 'HSE', 'PLL'])
+    expect(byId.get('SYSCLK')!.muxInputs).toEqual(['PLL', 'HSE', 'HSI'])
     expect(byId.get('PLL')!.muxInputs).toEqual(['HSI', 'HSE'])
     // ADC 分频 mux 不是源选择：仅显示源不进其输入行（V003 单档 HCLK÷2）
     expect(byId.get('ADC')!.muxInputs).toEqual(['HCLK_DIV2'])
@@ -1498,8 +1607,8 @@ describe('M16 kind 默认值与 PRIM 契约', () => {
     expect(PRIM.OSC_H - PRIM.MUX_PAD).toBeGreaterThanOrEqual(14)
   })
 
-  it('readout hint 行 +16（TIM1 有「SYSCLK 直通」hint，APB1 无）', () => {
-    expect(byId.get('TIM1')!.hint).toBe('SYSCLK 直通')
+  it('readout hint 行 +16（TIM 输出有「HCLK 直通」hint，APB1 无）', () => {
+    expect(byId.get('TIM1')!.hint).toBe('HCLK 直通')
     expect(byId.get('TIM1')!.h).toBe(PRIM.READOUT_H + 16)
     expect(byId.get('APB1')!.hint).toBeUndefined()
     expect(byId.get('APB1')!.h).toBe(PRIM.READOUT_H)
@@ -1523,6 +1632,60 @@ describe('formatMhz', () => {
 })
 
 describe('画布连线接入', () => {
+  it('CH32V203 的低速时钟到达 RTC 和 IWDG，SYSCLK 仅由高速源提供', () => {
+    const data = getDeviceData('CH32V203C8T6').clock
+    const config = defaultClock(data)
+    const tree = buildClockTree(data, config, computeClock(data, config))
+    const diagram = arrangeClockDiagram(tree)
+    const rtc = diagram.nodes.find((node) => node.id === 'RTC')!
+    expect(rtc.muxLabels).toEqual(['HSE÷128', 'LSI', 'LSE'])
+    expect(tree.nodes.find((node) => node.id === 'SYSCLK')!.muxInputs).toEqual(['PLL', 'HSE', 'HSI'])
+    expect(diagram.edges.find((edge) => edge.to === 'IWDG')?.from).toBe('LSI')
+    expect(diagram.edges.find((edge) => edge.to === 'RTC_OUT')?.from).toBe('RTC')
+    for (const source of ['LSI', 'LSE']) {
+      const oscillator = diagram.nodes.find((node) => node.id === source)!
+      const wire = diagram.edges.find((edge) => edge.from === source && edge.to === 'RTC')!
+      expect(wire.points[0]).toEqual(anchorOut(oscillator))
+      expect(wire.points.at(-1)).toEqual(anchorIn(rtc, source))
+    }
+  })
+
+  it('同源重叠区间只画一次，异源几何相同也不合并', () => {
+    const route = (id: string, from: string, x: number, active: boolean): ClockTreeEdge => ({
+      id, from, to: id, points: [{ x: 0, y: 0 }, { x, y: 0 }], active, labelAt: { x: 0, y: 0 },
+    })
+    const strokes = buildClockStrokes([route('a', 'HSI', 20, false), route('b', 'HSI', 10, true), route('c', 'HSE', 20, false)])
+    expect([...strokes.paths]).toEqual([['b', 'M 0 0 H 10'], ['a', 'M 10 0 H 20'], ['c', 'M 0 0 H 20']])
+    expect([...strokes.sources]).toEqual(['b', 'c'])
+  })
+
+  it('CH32V203 的 PLL 输出分叉到 SYSCLK 和上方 USB，避开晶振直连线', () => {
+    const data = getDeviceData('CH32V203C8T6').clock
+    const config = defaultClock(data)
+    const tree = buildClockTree(data, config, computeClock(data, config))
+    const diagram = arrangeClockDiagram(tree)
+    const crystal = diagram.edges.filter((edge) => edge.to === 'SYSCLK' && ['HSI', 'HSE'].includes(edge.from))
+    const pll = diagram.edges.filter((edge) => edge.from === 'PLL' && ['SYSCLK', 'USBPRE'].includes(edge.to))
+    expect(crystal).toHaveLength(2)
+    expect(pll).toHaveLength(2)
+    expect(findClockJunctions(pll)).toHaveLength(1)
+    expect(pll.some((edge) => crossesForeignWire(edge.points, edge.from, crystal))).toBe(false)
+  })
+
+  it('CH32V203 的 USBPRE 和 ADCPRE 各在实际的输出路径上', () => {
+    const data = getDeviceData('CH32V203C8T6').clock
+    const config = defaultClock(data)
+    const tree = buildClockTree(data, config, computeClock(data, config))
+    expect(tree.edges.find((edge) => edge.to === 'USBPRE')?.from).toBe('PLL')
+    expect(tree.edges.find((edge) => edge.to === 'USB')?.from).toBe('USBPRE')
+    expect(tree.edges.find((edge) => edge.to === 'ADC')?.from).toBe('APB2')
+    expect(tree.nodes.find((node) => node.id === 'ADC')).toMatchObject({ label: 'ADCPRE', outputLabel: 'ADCCLK' })
+    expect(tree.nodes.some((node) => node.id === 'ADCPRE')).toBe(false)
+    const diagram = arrangeClockDiagram(tree)
+    expect(diagram.edges.filter((edge) => edge.to === 'USB')[0]?.points).toHaveLength(2)
+    expect(diagram.edges.find((edge) => edge.to === 'ADC')?.from).toBe('APB2')
+  })
+
   it('ADC 输入分频档切换时，连线进入对应行', () => {
     const data = getDeviceData('CH32V203C8T6').clock
     for (const [index, option] of data.adc.options.entries()) {
@@ -1553,5 +1716,6 @@ describe('画布连线接入', () => {
     const branch = route('A', 'C', [{ x: 1, y: 5 }, { x: 8, y: 5 }, { x: 8, y: 12 }], false)
     const crossing = route('D', 'E', [{ x: 14, y: 1 }, { x: 14, y: 12 }], true)
     expect(findClockJunctions([trunk, branch, crossing])).toEqual([{ x: 8, y: 5, active: true }])
+    expect(buildClockStrokes([branch, trunk, crossing]).gaps).toEqual(new Map([['B', [{ x: 14, y: 5 }]]]))
   })
 })

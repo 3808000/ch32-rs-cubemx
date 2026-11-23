@@ -17,6 +17,7 @@ import { render } from '../render'
 import * as T from './templates'
 import { renderSkeletonFiles } from './cargo'
 import { renderClock } from './clock'
+import { peripheralClockErrors } from '../clockValidation'
 import { renderPins } from './pins'
 import { renderUsart } from './usart'
 import { renderSpi } from './spi'
@@ -54,6 +55,7 @@ export function generateCh58xProject(
   // 2. 生成期错误：开漏 / UART 缺引脚 / SPI 构造方式 / I2C 缺引脚
   const usages = derivePeripheralUsage(config, data)
   errors.push(...generationErrors(config, data, usages))
+  if (clockUsed) errors.push(...peripheralClockErrors(config, data, usages, 'ch58x-hal'))
   // 2b. BLE 生成期兜底（D2/D3/D7；冲突链已报的 code 不重复报）
   errors.push(...bleGenerationErrors(config, new Set(errors.map((e) => e.code))))
 

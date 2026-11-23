@@ -189,7 +189,7 @@ export function filterSignalGroups(groups: SignalGroup[], query: string): Signal
 import { computed, ref } from 'vue'
 import { Search } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
-import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import { usePinOverwrite } from '@/components/pinout/usePinOverwrite'
 // 类型 import 在普通 <script> 块（模块作用域），setup 函数可直接引用，避免重复标识符。
 
 const props = defineProps<{

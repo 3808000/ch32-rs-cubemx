@@ -2,7 +2,7 @@
 // 契约：只做纯计算，不渲染模板、不写文件（docs/CH58X_BACKEND_CONTRACT.md §1）。
 import type { ClockPreset, Conflict, DeviceData, GeneratedFile, PinAssignment, ProjectConfig } from '@/model/types'
 import { labelToIdent } from '@/model/conflicts'
-import { computeClock, matchPreset, mergeClockConfig } from '@/model/clock'
+import { clockExportIssue, computeClock, matchPreset, mergeClockConfig } from '@/model/clock'
 import { enabledUsage, type PeripheralUsage } from '@/model/peripherals'
 import { identWithPrefix, pinIdent } from '../util'
 import { BLE_ADV_PAYLOAD_MAX, BLE_NAME_MAX_BYTES, bleAdvPayloadBytes, bleScanRspPayloadBytes, buildBlePlan } from './ble'
@@ -96,9 +96,6 @@ export function remapConst(remap: number | null | undefined): 'false' | 'true' {
 
 // ---------- 时钟决策（D3） ----------
 
-const PLL_DIV_MIN = 2
-const PLL_DIV_MAX = 31
-
 function presetConstOf(data: DeviceData, preset: ClockPreset): string | undefined {
   const raw = data.clock.codegen.presetConstMap[preset.id]
   if (!raw) return undefined
@@ -115,41 +112,15 @@ function presetConstOf(data: DeviceData, preset: ClockPreset): string | undefine
 export function resolveClock(config: ProjectConfig, data: DeviceData): ClockPlan {
   const spec = data.clock
   const cfg = mergeClockConfig(spec, config.clock)
-  const f = computeClock(spec, cfg)
+  const { sysclkMhz } = computeClock(spec, cfg)
+  const issue = clockExportIssue(spec, cfg, 'ch58x-hal')
+  if (issue) {
+    return { error: { code: 'CLOCK_PRESET_UNAVAILABLE', level: issue.level, message: issue.message }, sysclkMhz }
+  }
+
   const preset = matchPreset(spec, cfg)
-  if (preset) {
-    const presetConst = presetConstOf(data, preset)
-    if (presetConst) {
-      return { presetConst, presetLabel: preset.label, sysclkMhz: f.sysclkMhz }
-    }
-  }
-
-  if (cfg.source === 'PLL') {
-    const div = cfg.pll?.div
-    if (typeof div !== 'number' || div < PLL_DIV_MIN || div > PLL_DIV_MAX) {
-      return {
-        error: {
-          code: 'CLOCK_PRESET_UNAVAILABLE',
-          level: 'error',
-          message: `ch58x-hal 的 PLL 分频必须为 ${PLL_DIV_MIN}..=${PLL_DIV_MAX}（5 位寄存器，32 会截断为 0 等同关闭 HCLK）；当前 div=${String(div ?? '未配置')}，无法生成时钟初始化`,
-        },
-        sysclkMhz: f.sysclkMhz,
-      }
-    }
-    return { div, sysclkMhz: f.sysclkMhz }
-  }
-
-  return {
-    error: {
-      code: 'CLOCK_PRESET_UNAVAILABLE',
-      level: 'error',
-      message:
-        `ch58x-hal 后端仅生成 PLL 时钟（固定 480MHz VCO ÷ div，或 use_pll_XXmhz 预设）：` +
-        `当前时钟源为 ${cfg.source}。HSE 直连 32MHz 需要 div=1，HAL 明确 assert 拒绝（src/sysctl.rs）；` +
-        `CK32K 直连未建模。请在时钟页选择 PLL 预设或显式 PLL 分频`,
-    },
-    sysclkMhz: f.sysclkMhz,
-  }
+  const presetConst = preset && presetConstOf(data, preset)
+  return presetConst ? { presetConst, presetLabel: preset.label, sysclkMhz } : { div: cfg.pll?.div, sysclkMhz }
 }
 
 // ---------- 生成期错误（补充 checkConflicts 之外的 ch58x 专属规则） ----------

@@ -1,3 +1,5 @@
-// 时钟树对外出口：数据模型（节点 / 连线 / 分组构建、控件应用）与 SVG 布局（坐标 / 走线）。
+// 时钟树对外入口：配置控件、节点与连线模型、画布布局。
+export { applyClockControl, applyPeripheralClockControl } from './controls'
+export type { ClockNodeControl, ClockNodeControlField, ClockNodeControlOption } from './controls'
 export * from './model'
 export * from './layout'

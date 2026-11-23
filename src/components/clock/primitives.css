@@ -1,25 +1,37 @@
 /*
- * M16 时钟树共享图元样式（契约 D1，MX2 分离图元语言）。
+ * 时钟树共享图元样式。
  * 由 ClockNode.vue 以 <style scoped src="./primitives.css"> 引入：样式随节点作用域，
  * 选择器只命中单个时钟节点内部，不污染画布/其他组件。
- * 行距硬约束：读数两行基线差 ≥18px、peri 行距 ≥20px、标题-控件 ≥14px（坐标在模板中计算）。
+ * 读数突出当前频率，外设卡保留来源、参数和结果。
  */
 
-/* ---------- 通用块：白纸面板上的 1px 淡描边卡片/图元 ---------- */
+/* ---------- 通用图元 ---------- */
 .prim-block {
   fill: var(--mx-surface);
-  stroke: #d5dbe5;
+  stroke: var(--clock-border);
   stroke-width: 1;
   transition:
     stroke var(--mx-dur-node) linear,
     fill var(--mx-dur-node) linear;
 }
+.node.primary:not(.selected, .issue-error, .issue-warning) :is(.osc-card, .readout-card) {
+  fill: var(--clock-subtle);
+  stroke: #9cb8df;
+}
 
-/* 选中：簇内所有图元描边强调蓝（簇无整体外框，MX2 逐块高亮） */
+/* 簇内各图元共同显示选中状态。 */
 .node.selected .prim-block {
   stroke: var(--mx-accent);
   stroke-width: 2;
-  filter: drop-shadow(0 0 4px rgba(42, 98, 183, 0.45));
+  fill: var(--mx-accent-soft);
+}
+.node.search-hit .prim-block {
+  stroke: var(--mx-accent);
+}
+.node.inactive.selected,
+.node.display-only.selected,
+.node.search-hit {
+  opacity: 1;
 }
 /* 越界语义色保留：error 红 / warning 橙 */
 .node.issue-error .prim-block {
@@ -35,56 +47,73 @@
 }
 @keyframes prim-pulse {
   0% {
-    filter: drop-shadow(0 0 0 rgba(42, 98, 183, 0));
+    filter: drop-shadow(0 0 0 transparent);
   }
   35% {
-    filter: drop-shadow(0 0 8px rgba(42, 98, 183, 0.65));
+    filter: drop-shadow(0 0 6px var(--clock-active-wire));
   }
   100% {
-    filter: drop-shadow(0 0 0 rgba(42, 98, 183, 0));
+    filter: drop-shadow(0 0 0 transparent);
   }
 }
 
-/* 灰态：未启用（dim）/仅显示（displayOnly，灰描边 + 半透明） */
+/* 未启用的外设保留可读文字，并使用淡色底区分状态。 */
 .node.inactive {
-  opacity: 0.62;
+  opacity: 0.78;
+}
+.node.peripheral-node.inactive {
+  opacity: 1;
+}
+.node.peripheral-node.inactive:not(.selected) .peri-card {
+  fill: var(--clock-field);
 }
 .node.display-only {
-  opacity: 0.55;
+  opacity: 0.86;
 }
-.node.display-only .prim-block {
-  fill: #f5f6f9;
-  stroke: #c9d2e0;
+.node.display-only:not(.selected) .prim-block {
+  fill: var(--clock-field);
+  stroke: var(--clock-border);
 }
 
-/* ---------- osc：标题行（11px muted）+ 值格 ---------- */
-.osc-title {
+/* ---------- 图元文字 ---------- */
+.node {
+  color: var(--clock-ink);
+}
+.osc-title,
+.readout-label,
+.peri-title,
+.cluster-title {
   font-size: 11px;
-  fill: var(--mx-text-muted);
+  font-weight: 650;
+}
+.osc-title,
+.readout-label {
+  color: var(--clock-muted);
 }
 .osc-cell {
-  fill: #f7f8fa;
-  stroke: #d0d5dd;
+  fill: var(--clock-paper);
+  stroke: var(--clock-border);
   cursor: pointer;
 }
 .osc-cell.fixed {
+  fill: transparent;
+  stroke: none;
   cursor: default;
 }
 .osc-value {
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
-  fill: var(--mx-text);
   pointer-events: none;
 }
-.node.display-only .osc-title,
 .node.display-only .osc-value {
-  fill: var(--mx-text-muted);
+  color: var(--clock-muted);
 }
 
 /* ---------- mux：竖块（输入小 label 10px + radio 点列） ---------- */
 .mux-box {
-  fill: #f7f8fa;
-  stroke: #d5dbe5;
+  fill: var(--clock-field);
+  stroke: var(--clock-border);
 }
 .mux-row {
   cursor: pointer;
@@ -92,16 +121,22 @@
 .mux-row.disabled {
   cursor: default;
 }
+.mux-row-hit {
+  fill: transparent;
+}
+.mux-row:not(.disabled):is(:hover, :focus-visible) .mux-row-hit,
+.mux-row-hit.on {
+  fill: var(--mx-accent-soft);
+}
 .mux-label {
-  font-size: 10px;
-  fill: var(--mx-text);
+  font-size: 11px;
 }
 .mux-label.muted {
-  fill: var(--mx-text-muted);
+  color: var(--clock-muted);
 }
 .mux-dot {
-  fill: #fff;
-  stroke: #98a2b3;
+  fill: var(--mx-surface);
+  stroke: var(--clock-wire);
   stroke-width: 1.5;
   transition:
     fill var(--mx-dur-node) linear,
@@ -111,65 +146,68 @@
   fill: var(--mx-accent);
   stroke: var(--mx-accent);
 }
-.mux-dot.disabled {
-  fill: #f2f4f7;
-  stroke: #c0c6d0;
+.mux-dot.disabled:not(.on) {
+  fill: var(--clock-field);
+  stroke: #aebaca;
 }
 
 /* ---------- 簇内 1px 连接线（mux/stepper → 读数卡） ---------- */
 .cluster-link {
   fill: none;
-  stroke: #d5dbe5;
+  stroke: var(--clock-wire);
   stroke-width: 1;
+}
+.node.primary .cluster-link,
+.cluster-link.output-link {
+  stroke: var(--clock-active-wire);
+  stroke-width: 1.5;
+}
+.output-arrow {
+  fill: var(--clock-active-wire);
 }
 
 /* 簇外上方节点标题（mux/div/readout/pll；osc/peri 用内部标题） */
 .cluster-title {
-  font-size: 10px;
-  fill: var(--mx-text-muted);
   pointer-events: none;
   user-select: none;
 }
 
-/* ---------- 读数卡：N MHz（13px/600）+ max N MHz（10px muted），基线差 18px ---------- */
+/* ---------- 读数卡 ---------- */
 .readout-card {
   fill: var(--mx-surface);
-  stroke: #d5dbe5;
+  stroke: var(--clock-border);
 }
 .readout-out {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
-  fill: var(--mx-text);
 }
 .readout-out.error {
-  fill: var(--mx-error);
+  color: var(--mx-error);
 }
 .readout-out.warning {
-  fill: var(--mx-warning);
+  color: var(--mx-warning);
 }
 .readout-max {
   font-size: 10px;
-  fill: var(--mx-text-muted);
+  color: var(--clock-muted);
 }
-.readout-hint {
-  font-size: 10px;
-  fill: var(--mx-text-secondary);
-}
-
 /* ---------- stepper：- N + ---------- */
 .step-box {
-  fill: #f7f8fa;
-  stroke: #d0d5dd;
+  fill: var(--clock-paper);
+  stroke: var(--clock-border);
 }
 .step-btn-bg {
-  fill: #eef1f6;
+  fill: var(--clock-subtle);
 }
-.step-btn-bg:hover {
+.step-btn-bg:is(:hover, :focus-visible) {
   fill: var(--mx-accent-soft);
 }
+.step-btn-bg:focus-visible {
+  outline: 1px solid var(--mx-accent);
+}
 .step-btn-bg.disabled {
-  fill: #f2f4f7;
+  fill: var(--clock-field);
 }
 .step-btn-text {
   font-size: 14px;
@@ -180,72 +218,59 @@
   user-select: none;
 }
 .step-btn-text.disabled {
-  fill: #c0c6d0;
+  fill: #aebaca;
 }
 .step-val {
   font-size: 11px;
-  fill: var(--mx-text);
-  text-anchor: middle;
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
   user-select: none;
 }
-.stepper.disabled {
-  opacity: 0.55;
+.stepper.disabled .step-val {
+  color: var(--clock-muted);
 }
 .stepper.disabled .step-btn-bg:hover {
-  fill: #f2f4f7;
+  fill: var(--clock-field);
 }
 
-/* ---------- pll 参数链补充说明 ---------- */
-.pll-hint {
-  font-size: 10px;
-  fill: var(--mx-text-muted);
+/* ---------- 外设时钟卡 ---------- */
+.peri-result {
+  font-size: 11px;
+  color: var(--clock-muted);
 }
-
-/* ---------- peri：airy 卡（行距 ≥20px） ---------- */
+.peri-result.enabled {
+  color: var(--clock-ink);
+}
+.peri-result.warning {
+  color: var(--mx-warning);
+}
+.peri-result.error {
+  color: var(--mx-error);
+}
 .peri-card {
   fill: var(--mx-surface);
-  stroke: #d5dbe5;
-}
-.peri-title-fo {
-  overflow: hidden;
-}
-/* 标题：12px/600，overflow ellipsis；模板按 PERI_W-70 预留徽标位 */
-.peri-title {
-  box-sizing: border-box;
-  width: 100%;
-  height: 16px;
-  line-height: 16px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--mx-text);
-}
-.peri-req {
-  font-size: 10.5px;
-  fill: var(--mx-text-secondary);
-}
-.peri-act {
-  font-size: 10.5px;
-  fill: var(--mx-text-muted);
+  stroke: var(--clock-border);
 }
 .peri-value {
   font-size: 11px;
-  fill: var(--mx-text);
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 .ctrl-hit {
-  fill: transparent;
-  cursor: pointer;
+  fill: var(--mx-surface);
+  stroke: var(--clock-border);
+  cursor: text;
+}
+.ctrl-hit:not(.fixed):is(:hover, :focus-visible),
+.osc-cell:not(.fixed):is(:hover, :focus-visible) {
+  stroke: var(--mx-accent);
 }
 .ctrl-hit.fixed {
+  fill: var(--clock-field);
   cursor: default;
 }
-.node.inactive .peri-title,
-.node.inactive .peri-value {
-  color: var(--mx-text-muted);
+.node.inactive .peri-title {
+  color: var(--clock-muted);
 }
 
 /* ---------- 内联编辑器（osc 值格 / peri 数字旋钮）：非法输入短暂红框 ---------- */
@@ -261,8 +286,9 @@
   padding: 0 8px;
   font-size: 11px;
   font-family: inherit;
-  color: var(--mx-text);
-  background: #fff;
+  font-variant-numeric: tabular-nums;
+  color: var(--clock-ink);
+  background: var(--mx-surface);
   border: 1px solid var(--mx-accent);
   border-radius: 4px;
   outline: none;
@@ -284,9 +310,10 @@
   padding: 0 6px;
   font-size: 11px;
   font-family: inherit;
-  color: var(--mx-text);
-  background: #fff;
-  border: 1px solid #d0d5dd;
+  font-variant-numeric: tabular-nums;
+  color: var(--clock-ink);
+  background: var(--mx-surface);
+  border: 1px solid var(--clock-border);
   border-radius: 4px;
   outline: none;
   cursor: pointer;

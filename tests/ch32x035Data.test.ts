@@ -282,9 +282,9 @@ describe('CH32X035C8T6 时钟数据（契约 D4）', () => {
     expect(adc.label).toContain('0b11')
   })
 
-  it('timerClock=apb_x2；fallback=preset_only；无 defaultSource（缺省 HSI）', () => {
-    expect(clock.timerClock).toBe('apb_x2')
-    expect(clock.codegen.fallback).toBe('preset_only')
+  it('定时器直取 HCLK，显式配置仅写 AHB，缺省 HSI', () => {
+    expect(clock.timerClock).toBe('hclk')
+    expect(clock.codegen.rccLayout).toBe('ahb_only')
     expect(clock.defaultSource).toBeUndefined()
   })
 
@@ -317,7 +317,7 @@ describe('CH32X035C8T6 时钟数据（契约 D4）', () => {
       expect(f.hclkMhz).toBe(nominal)
       expect(f.pclk1Mhz).toBe(nominal)
       expect(f.pclk2Mhz).toBe(nominal)
-      // APB 固定 ÷1 + timerClock=apb_x2 ⇒ 定时器时钟 = HCLK
+      // TIM1/2/3 直接使用 HCLK。
       expect(f.pclk1TimMhz).toBe(nominal)
       expect(f.pclk2TimMhz).toBe(nominal)
       // ADC = SYSCLK(HSI 48MHz)/8，与 AHB 分频无关
@@ -344,7 +344,7 @@ describe('CH32X035C8T6 时钟数据（契约 D4）', () => {
     expect(matchPreset(clock, d)?.id).toBe('48MHZ_HSI')
   })
 
-  it('AHB÷6（HAL 复位默认 8MHz）无对应预设常量 → 导出应被 preset_only 阻止', () => {
+  it('AHB÷6（HAL 复位默认 8MHz）无对应预设常量，使用显式分频', () => {
     const cfg = mergeClockConfig(clock, { source: 'HSI', ahb: 6, apb1: 1, apb2: 1 })
     expect(computeClock(clock, cfg).hclkMhz).toBe(8)
     expect(matchPreset(clock, cfg)).toBeNull()

@@ -57,7 +57,7 @@ ch5xx-hal 的时钟树为内部/外部振荡器 → PLL（CH582：固定 480MHz 
 
 - 命中预设时生成 \`hal::rcc::Config::PLL_XXMHZ\`（60/80/48/32/24MHz；**CH582 无 20MHz 预设**，20MHz 生成显式 \`Config::new(Osc::Hse32, Sys::Pll(24))\`）；
 - 非预设 PLL 分频生成 \`Config::new(Osc::Hse32, Sys::Pll(div))\`，div 合法 **6..=32**、Fsys **15..=80MHz**；
-- HSE 32MHz 直连生成 \`Sys::Direct\`；CK32K 仅为显示源（无 SYSCLK 预设）→ 生成期报 \`CLOCK_PRESET_UNAVAILABLE\`。
+- HSE 32MHz 使用 \`Sys::Divided(div)\`，Fsys 须落在 2–10 MHz 或 15–80 MHz。CK32K 为显示源，选为 SYSCLK 时导出报 \`CLOCK_PRESET_UNAVAILABLE\`。
 <% if (ble) { -%>
 
 BLE 32K 时钟源：\`clock32k=<%- clock32k %>\` → main.rs 在 \`hal::init\` 之后、\`generated::ble::run()\` 之前调用 \`ch5xx_ble::<%- clock32k === 'lse' ? 'enable_lse()' : 'set_clock32k_lsi()' %>\`（shim 逐字移植 legacy sysctl 的 32K 寄存器序列）。lsi 回退的 LSI 校准未移植，连接稳定性未保证。

@@ -4,7 +4,6 @@
 import { computed, getCurrentInstance, onBeforeUnmount, onMounted, ref, watch, type ComputedRef } from 'vue'
 import { useProjectStore } from '@/controllers/project'
 import { createHistoryStack } from '@/services/historyStack'
-import { clearUndo } from '@/model/pins/pinOverwrite'
 import { isEditableTarget } from '@/components/common/useHotkeys'
 import type { ProjectConfig } from '@/model/types'
 
@@ -105,8 +104,6 @@ export function useHistory(): UseHistoryReturn {
     try {
       store.loadConfig(snapshot)
       store.markDirty()
-      // 全局撤回后，引脚覆盖的单步撤回栈不再与当前态一致，必须清空。
-      clearUndo()
     } finally {
       suppressing = false
     }

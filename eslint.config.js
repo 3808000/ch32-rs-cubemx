@@ -1,38 +1,53 @@
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import pluginVue from 'eslint-plugin-vue'
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript'
 import skipFormatting from '@vue/eslint-config-prettier/skip-formatting'
 
-/**
- * MVC 分层边界规则。
- *
- * 核心规则 no-restricted-imports 没有 zones 选项（zones 属于 eslint-plugin-import），
- * 这里用等价的 flat config 组合实现：files 限定被约束的层，patterns.regex 匹配被禁止的层。
- * 依赖方向必须单向向下：views/components → controllers → services → model。
- *
- * @param {string} name 规则块名（eslint --debug 可见）
- * @param {string[]} files 受约束的文件 glob
- * @param {string[]} forbiddenLayers 禁止 import 的层（src 下的目录名）
- * @param {string} message 违规提示（中文）
- */
-function layerBoundary(name, files, forbiddenLayers, message) {
-  return {
-    name,
-    files,
-    rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          patterns: [
-            {
-              // 仅匹配 `@/` 别名导入；相对路径跨层由 review 兜底（项目约定统一用别名）。
-              regex: `^@/(${forbiddenLayers.join('|')})(?:/|$)`,
-              message,
-            },
-          ],
-        },
-      ],
-    },
-  }
+const srcRoot = fileURLToPath(new URL('./src/', import.meta.url))
+const forbiddenLayers = {
+  model: ['controllers', 'services', 'views', 'components'],
+  services: ['controllers', 'views', 'components'],
+  controllers: ['views', 'components'],
+}
+
+// 同时检查别名、相对路径和字面量动态导入，按目标文件所在层判断。
+// 领域层可以依赖纯计算库，Vue、Pinia、Element Plus 和 Tauri 只在上层使用。
+const layerBoundary = {
+  create(context) {
+    const importer = context.physicalFilename
+    const layer = relative(srcRoot, importer).split(sep)[0]
+    const blocked = forbiddenLayers[layer]
+    if (!blocked) return {}
+
+    function checkImport(node) {
+      const specifier = node.source?.value
+      if (typeof specifier !== 'string') return
+      if (layer === 'model' && /^(?:vue|pinia|element-plus|@vue\/[^/]+|@element-plus\/[^/]+|@tauri-apps\/[^/]+)(?:\/|$)/.test(specifier)) {
+        context.report({ node: node.source, message: `model 层不得依赖界面或桌面库 ${specifier}。` })
+        return
+      }
+      const target = specifier.startsWith('@/')
+        ? resolve(srcRoot, specifier.slice(2))
+        : specifier.startsWith('./') || specifier.startsWith('../') || isAbsolute(specifier)
+          ? resolve(dirname(importer), specifier)
+          : null
+      if (!target) return
+
+      const targetLayer = relative(srcRoot, target).split(sep)[0]
+      if (blocked.includes(targetLayer)) {
+        context.report({ node: node.source, message: `${layer} 层不得依赖 ${targetLayer} 层。` })
+      }
+    }
+
+    return {
+      ImportDeclaration: checkImport,
+      ExportAllDeclaration: checkImport,
+      ExportNamedDeclaration: checkImport,
+      ImportExpression: checkImport,
+      TSImportType: checkImport,
+    }
+  },
 }
 
 export default defineConfigWithVueTs(
@@ -63,23 +78,10 @@ export default defineConfigWithVueTs(
     },
   },
 
-  // ---- MVC 分层边界（依赖只能向下：views/components → controllers → services → model）----
-  layerBoundary(
-    'app/layer-model',
-    ['src/model/**/*.{ts,mts,tsx,vue}'],
-    ['controllers', 'views', 'components', 'services'],
-    'model 层必须保持纯净：禁止 import controllers/views/components/services，请改为参数注入或把代码上移。',
-  ),
-  layerBoundary(
-    'app/layer-services',
-    ['src/services/**/*.{ts,mts,tsx,vue}'],
-    ['controllers', 'views', 'components'],
-    'services 层不得依赖 controllers/views/components，请把状态与 UI 逻辑留在上层。',
-  ),
-  layerBoundary(
-    'app/layer-controllers',
-    ['src/controllers/**/*.{ts,mts,tsx,vue}'],
-    ['views', 'components'],
-    'controllers 层不得依赖 views/components，视图应通过 store 读取状态。',
-  ),
+  {
+    name: 'app/layer-boundaries',
+    files: ['src/**/*.{ts,mts,tsx,vue}'],
+    plugins: { app: { rules: { 'layer-boundary': layerBoundary } } },
+    rules: { 'app/layer-boundary': 'error' },
+  },
 )

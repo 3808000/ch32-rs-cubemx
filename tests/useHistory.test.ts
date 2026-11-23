@@ -4,9 +4,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { effectScope, type EffectScope } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
+import { ElMessageBox } from 'element-plus'
 import { useProjectStore } from '@/controllers/project'
 import { useHistory, resolveHistoryShortcut } from '@/components/common/useHistory'
-import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import { usePinOverwrite } from '@/components/pinout/usePinOverwrite'
 import type { ProjectConfig } from '@/model/types'
 
 let scope: EffectScope | null = null
@@ -21,6 +22,7 @@ afterEach(() => {
   scope?.stop()
   scope = null
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 /** 在 effectScope 内创建 useHistory（无组件实例，node 下不注册 window 监听）。 */
@@ -183,20 +185,44 @@ describe('useHistory 芯片切换与导入', () => {
 describe('useHistory 与引脚覆盖撤回栈联动', () => {
   it('全局 undo 会清空 pinOverwrite 的单步撤回栈', async () => {
     const { history, store } = setup()
-    const overwrite = usePinOverwrite({
-      assignmentOf: (pin) => store.assignmentOf(pin),
-      setPinAssignment: (pin, mode, opts) => store.setPinAssignment(pin, mode, opts),
-      clearPin: (pin) => store.clearPin(pin),
-    })
+    const overwrite = usePinOverwrite(store)
     tickPastCoalesce()
     // 新引脚无已有配置 → 不弹确认框，直接入覆盖撤回栈
     await overwrite.requestOverwrite('PA0', () => store.setPinAssignment('PA0', 'OUTPUT'))
-    expect(overwrite.canUndo()).toBe(true)
+    expect(store.pinOverwriteHistory).toHaveLength(1)
     expect(history.canUndo.value).toBe(true)
 
     history.undo()
-    expect(overwrite.canUndo()).toBe(false) // clearUndo 已生效
+    expect(store.pinOverwriteHistory).toEqual([])
     expect(store.assignments).toEqual([])
+  })
+
+  it('打开同型号的另一个工程后，旧工程的引脚撤回记录已失效', () => {
+    const { store } = setup()
+    store.setPinAssignment('PA0', 'INPUT', { label: 'old' })
+    store.applyPinOverwrite('PA0', () => store.setPinAssignment('PA0', 'OUTPUT'))
+
+    store.openConfig({ ...store.config, projectName: 'other', pins: [{ pin: 'PA0', mode: 'OUTPUT', params: {} }] })
+
+    expect(store.undoPinOverwrite()).toBeNull()
+    expect(store.assignmentOf('PA0')).toMatchObject({ mode: 'OUTPUT' })
+    expect(store.assignmentOf('PA0')?.label).toBeUndefined()
+  })
+
+  it('确认框等待期间如果加载了另一个工程，确认结果不能写入新工程', async () => {
+    const { store } = setup()
+    store.setPinAssignment('PA0', 'INPUT')
+    // 故意在确认返回前载入相同的引脚值，确认跨工程仍会失效。
+    vi.spyOn(ElMessageBox, 'confirm').mockImplementation(async () => {
+      store.openConfig({ ...store.config, projectName: 'other' })
+      // 无输入框时，Element Plus 运行时直接返回 action 字符串。
+      return 'confirm' as Awaited<ReturnType<typeof ElMessageBox.confirm>>
+    })
+
+    const overwrite = usePinOverwrite(store)
+    expect(await overwrite.requestOverwrite('PA0', () => store.setPinAssignment('PA0', 'OUTPUT'))).toBe(false)
+    expect(store.assignmentOf('PA0')?.mode).toBe('INPUT')
+    expect(store.pinOverwriteHistory).toEqual([])
   })
 })
 

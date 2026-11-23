@@ -6,11 +6,13 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Aim, FullScreen, Position, Pointer, ZoomIn, ZoomOut } from '@element-plus/icons-vue'
 import type { ClockNodeControl, ClockTreeGroup, ClockTreeNode, ClockTreeLayout } from '@/model/clock/tree'
+import ClockLabel from '@/components/clock/ClockLabel.vue'
 import ClockNode from '@/components/clock/ClockNode.vue'
+import ClockInput from '@/components/clock/ClockInput.vue'
 import ClockWire from '@/components/clock/ClockWire.vue'
 import { arrowScrollDelta, clampZoom, shouldIgnoreSceneKeys } from '@/components/common/canvasNav'
 import { computeHighlightSet, edgeInHighlight } from '@/components/clock/graph'
-import { arrangeClockDiagram, findClockJunctions } from '@/components/clock/diagram'
+import { arrangeClockDiagram, buildClockStrokes, findClockJunctions, isClockSelectionWire, isLowSpeedWire } from '@/components/clock/diagram'
 
 const props = defineProps<{
   layout: ClockTreeLayout
@@ -18,54 +20,32 @@ const props = defineProps<{
   searchMatches?: ReadonlySet<string> | null
   /** 路径高亮节点集合（空=不高亮；非空时其余节点/边 dim） */
   highlightIds?: Set<string>
+  traceActiveOnly?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'focus', nodeId: string): void
+  (e: 'locate', nodeId: string): void
   (e: 'control-change', control: ClockNodeControl, value: string | number): void
   (e: 'toggle-lock', nodeId: string): void
   (e: 'contextmenu', nodeId: string, x: number, y: number): void
 }>()
 
 const diagram = computed(() => arrangeClockDiagram(props.layout))
+const hasPllHeading = computed(() => diagram.value.groups.some((group) => group.id === 'g-pll'))
+const namedOutputs = computed(() => new Map(diagram.value.inputs
+  .filter((input) => input.showLabel)
+  .map((input) => [input.edge.from, input.label]),
+))
 const trunkNodes = computed(() => computeHighlightSet(
-  diagram.value.edges.filter((edge) => edge.active), 'AHB', 'upstream',
+  props.layout.edges.filter((edge) => edge.active), 'AHB', 'upstream',
 ))
 
 // ---------- 分组标签截断（SVG text 无 ellipsis；全文走 <title>） ----------
-/** 单字符宽度估算（em）：CJK/全角≈1，窄字符≈0.3，大写/数字≈0.62，其余≈0.55 */
-function charWidthEm(ch: string): number {
-  const code = ch.codePointAt(0) ?? 0
-  if (code >= 0x2e80) return 1
-  if (ch === ' ' || /[ilI.,:;'!|]/.test(ch)) return 0.3
-  if (/[A-Z0-9]/.test(ch)) return 0.62
-  return 0.55
-}
-
-function truncateGroupLabel(text: string, maxWidth: number): string {
-  const full = text.replace(/\s+/g, ' ').trim()
-  const widthOf = (s: string): number => {
-    let w = 0
-    for (const ch of s) w += charWidthEm(ch)
-    return w * 11
-  }
-  if (!full || widthOf(full) <= maxWidth) return full
-  const ellW = charWidthEm('…') * 11
-  let out = ''
-  let acc = 0
-  for (const ch of full) {
-    const cw = charWidthEm(ch) * 11
-    if (acc + cw + ellW > maxWidth) break
-    out += ch
-    acc += cw
-  }
-  return `${out.trimEnd()}…`
-}
-
-/** 分组标签可用宽度 = 组宽 - 左右各 10px 内边距 */
-function groupLabelText(g: ClockTreeGroup): string {
-  const readable = g.id === 'g-aux' ? '辅助时钟' : g.label.split(/[（(·]/, 1)[0]!
-  return truncateGroupLabel(readable, Math.max(20, g.w - 20))
+function groupLabelText(group: ClockTreeGroup): string {
+  if (group.id === 'g-aux') return '辅助时钟'
+  if (group.label.endsWith('（续）')) return group.label
+  return group.label.split(/[（(·]/, 1)[0]!.trim()
 }
 
 // ---------- 缩放与定位 ----------
@@ -187,7 +167,7 @@ function onPanStart(e: PointerEvent) {
   if (!el || e.pointerType === 'touch' || (e.button !== 0 && e.button !== 1)) return
   const target = e.target as Element
   if (target.closest('button, input, select, textarea')) return
-  if (e.button === 0 && !effectiveHand.value && target.closest('.node')) return
+  if (e.button === 0 && !effectiveHand.value && target.closest('.node, .clock-input')) return
   e.preventDefault()
   el.focus({ preventScroll: true })
   el.setPointerCapture(e.pointerId)
@@ -289,8 +269,8 @@ const activeInputById = computed(() => {
 })
 /** 仅显示源节点 id（M16：mux 灰行判定；不参与 control options） */
 const displayOnlyInputs = computed(() => props.layout.nodes.filter((n) => n.displayOnly).map((n) => n.id))
-function edgeDimmed(edge: { from: string; to: string }): boolean {
-  if (highlight.value !== null && !edgeInHighlight(edge, highlight.value)) return true
+function edgeDimmed(edge: ClockTreeLayout['edges'][number]): boolean {
+  if (highlight.value !== null && (!edgeInHighlight(edge, highlight.value) || (props.traceActiveOnly && !edge.active))) return true
   const matches = props.searchMatches
   return !!matches && !matches.has(edge.from) && !matches.has(edge.to)
 }
@@ -302,6 +282,7 @@ const orderedEdges = computed(() => {
   return [...diagram.value.edges].sort((a, b) => weight(a) - weight(b))
 })
 const junctions = computed(() => findClockJunctions(orderedEdges.value.filter((edge) => !edgeDimmed(edge))))
+const strokes = computed(() => buildClockStrokes(orderedEdges.value))
 function edgeHighlighted(edge: ClockTreeLayout['edges'][number]) {
   return highlight.value !== null && edgeInHighlight(edge, highlight.value) && !edgeDimmed(edge)
 }
@@ -354,6 +335,7 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
     <div
       ref="scrollEl"
       class="canvas-scroll"
+      :class="{ 'centered-overview': fitting && manualScale === null }"
       tabindex="0"
       aria-label="时钟树画布"
       @wheel="onWheel"
@@ -373,14 +355,19 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
               :y1="diagram.peripheralSection.y" :y2="diagram.height - 22"
               class="peripheral-divider"
             />
-            <text :x="diagram.peripheralSection.x + 8" :y="diagram.peripheralSection.y + 21" class="peripheral-heading">外设时钟</text>
+            <ClockLabel
+              :x="diagram.peripheralSection.x + 8" :y="diagram.peripheralSection.y + 5"
+              :width="diagram.peripheralSection.w - 16" :height="20"
+              text="外设时钟" class="peripheral-heading"
+            />
           </g>
           <g v-for="g in diagram.groups" :key="g.id">
             <rect v-if="g.id === 'g-sys'" :x="g.x" :y="g.y" :width="g.w" :height="g.h" rx="7" class="system-lane" />
-            <path :d="`M ${g.x + 1} ${g.y + 3} v 10`" class="group-tick" />
-            <text :x="g.x + 10" :y="g.y + 12" class="group-label">
-              {{ groupLabelText(g) }}<title>{{ g.label }}</title>
-            </text>
+            <path :d="`M ${g.x + 1} ${g.y + 2} v 9`" class="group-tick" />
+            <ClockLabel
+              :x="g.x + 9" :y="g.y" :width="Math.max(0, g.w - 18)" :height="13"
+              :text="groupLabelText(g)" :title="g.label" class="group-label"
+            />
           </g>
 
           <!-- 连线（正交折线）：按目标节点问题级别着色 + 高亮 dim -->
@@ -388,8 +375,13 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
             v-for="e in orderedEdges"
             :key="e.id"
             :edge="e"
+            :stroke-path="strokes.paths.get(e.id)"
+            :crossing-gaps="strokes.gaps.get(e.id)"
+            :draw-source="strokes.sources.has(e.id)"
             :target-level="edgeLevel(e.to)"
             :primary="isTrunkEdge(e)"
+            :low-speed="isLowSpeedWire(e)"
+            :selection="isClockSelectionWire(e)"
             :dimmed="edgeDimmed(e)"
             :highlighted="edgeHighlighted(e)"
           />
@@ -408,6 +400,8 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
             v-for="n in diagram.nodes"
             :key="n.id"
             :node="n"
+            :signal-name="namedOutputs.get(n.id)"
+            :hide-title="n.id === 'PLL' && hasPllHeading"
             :selected="n.id === selectedId"
             :search-hit="searchMatches?.has(n.id)"
             :dimmed="nodeDimmed(n.id)"
@@ -422,6 +416,14 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
             @control-change="onControlChange"
             @toggle-lock="(id: string) => emit('toggle-lock', id)"
             @contextmenu="onNodeContextMenu"
+          />
+          <ClockInput
+            v-for="input in diagram.inputs"
+            :key="input.edge.id"
+            :input="input"
+            :highlighted="edgeHighlighted(input.edge)"
+            :dimmed="edgeDimmed(input.edge)"
+            @locate="emit('locate', $event)"
           />
         </svg>
       </div>
@@ -446,6 +448,7 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
       <div class="canvas-legend" aria-label="连线图例">
         <span><i class="legend-wire active"></i>工作路径</span>
         <span><i class="legend-wire"></i>其他路径</span>
+        <span v-if="strokes.gaps.size" title="异源线交越时，下层线在交点断开；实心点表示同源分叉。"><i class="legend-crossing"></i>交越</span>
       </div>
       <div class="canvas-actions"><slot name="actions" /></div>
     </div>
@@ -462,7 +465,7 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--clock-border);
-  border-radius: 10px;
+  border-radius: var(--clock-radius);
   container: clock-canvas / inline-size;
 }
 .canvas-scroll {
@@ -475,11 +478,14 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
   justify-content: safe center;
   align-items: flex-start;
   overscroll-behavior: contain;
-  background-color: #f0f5f2;
+  background-color: var(--clock-paper);
 }
 .canvas-scroll:focus-visible {
   outline: 2px solid var(--mx-accent);
   outline-offset: -2px;
+}
+.canvas-scroll.centered-overview {
+  align-items: safe center;
 }
 .hand .canvas-scroll,
 .hand .canvas-scroll :deep(.node *) {
@@ -493,7 +499,7 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
 .canvas-inner {
   position: relative;
   flex: none;
-  background: #fff;
+  background: var(--mx-surface);
   border-radius: 4px;
 }
 .clock-svg {
@@ -512,22 +518,22 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
   stroke: var(--clock-border);
 }
 .peripheral-heading {
-  font-size: 16px;
-  font-weight: 700;
-  fill: var(--clock-ink);
+  font-size: var(--mx-fz-card-title);
+  font-weight: 650;
+  color: var(--clock-ink);
 }
 .system-lane {
-  fill: #edf6f1;
+  fill: var(--clock-subtle);
 }
 .group-tick {
   fill: none;
-  stroke: #829b90;
+  stroke: var(--clock-wire);
   stroke-width: 2;
 }
 .group-label {
-  font-size: 12px;
-  font-weight: 700;
-  fill: var(--clock-ink);
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--clock-muted);
 }
 .canvas-tools {
   display: flex;
@@ -592,6 +598,13 @@ function onNodeContextMenu(nodeId: string, x: number, y: number) {
 }
 .legend-wire.active {
   border-block-start: 2px solid var(--clock-active-wire);
+}
+.legend-crossing {
+  width: 15px;
+  height: 12px;
+  background:
+    linear-gradient(var(--clock-muted), var(--clock-muted)) center / 100% 1px no-repeat,
+    linear-gradient(var(--clock-muted) 3px, transparent 3px 9px, var(--clock-muted) 9px) center / 1px 100% no-repeat;
 }
 @container clock-canvas (max-width: 535px) {
   .canvas-legend {

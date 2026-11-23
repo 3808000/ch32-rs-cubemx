@@ -13,8 +13,8 @@ import PanelResizer, {
   clampPanelWidth,
 } from '@/components/common/PanelResizer.vue'
 import { computeClock, resolveClockIssues, validateClock } from '@/model/clock'
-import { computePeripheralClocks, validatePeripheralClocks } from '@/model/clock/peripheral'
-import { applyClockControl, buildClockTree, formatMhz } from '@/model/clock/tree'
+import { computePeripheralClocks } from '@/model/clock/peripheral'
+import { applyClockControl, applyPeripheralClockControl, buildClockTree, formatMhz } from '@/model/clock/tree'
 import type { ClockNodeControl, ClockTreeLayout, ClockTreeNode, PeripheralClockContext } from '@/model/clock/tree'
 import type { PeripheralClockFreq } from '@/model/types'
 import ClockCanvas from '../components/ClockCanvas.vue'
@@ -25,6 +25,7 @@ import CodePreviewPanel from '../components/CodePreviewPanel.vue'
 import { subscribeClockFocus, takeClockFocus } from '@/components/clock/clockFocus'
 import { requestPeripheralFocus } from '@/components/peripherals/peripheralFocus'
 import { computeHighlightSet, type HighlightMode } from '@/components/clock/graph'
+import { derivePeripheralUsage, peripheralClockState } from '@/model/peripherals'
 import { clampNumber, resolveSelectValue } from '@/components/clock/inlineEdit'
 
 const store = useProjectStore()
@@ -33,28 +34,23 @@ const cfg = computed(() => store.clockConfig)
 const freqs = computed(() => computeClock(spec.value, cfg.value))
 
 // ---------- 外设时钟域（M15）：实例派生频率 + 合并问题 ----------
+const clockPeripherals = computed(() => peripheralClockState(derivePeripheralUsage(store.config, store.deviceData)))
 const periCtx = computed<PeripheralClockContext>(() => ({
   peripherals: store.deviceData.peripherals,
-  state: store.peripherals,
+  state: clockPeripherals.value,
+  halBackend: store.effectiveHalBackend,
   periFreqs: computePeripheralClocks(
     spec.value,
     cfg.value,
     freqs.value,
     store.deviceData.peripherals,
-    store.peripherals,
+    clockPeripherals.value,
     store.effectiveHalBackend,
   ),
 }))
 const issues = computed(() => [
-  ...validateClock(spec.value, cfg.value),
-  ...validatePeripheralClocks(
-    spec.value,
-    cfg.value,
-    freqs.value,
-    store.deviceData.peripherals,
-    store.peripherals,
-    store.effectiveHalBackend,
-  ),
+  ...validateClock(spec.value, cfg.value, store.effectiveHalBackend),
+  ...(periCtx.value.periFreqs ?? []).flatMap((rate) => rate.issues),
 ])
 
 /** 布局兜底：构建异常时回退空布局并展示错误信息，避免整页空白 */
@@ -81,7 +77,7 @@ const clockReadouts = computed(() => [
   { id: 'AHB', label: 'HCLK', value: formatMhz(freqs.value.hclkMhz) },
   { id: 'APB1', label: 'PCLK1', value: formatMhz(freqs.value.pclk1Mhz) },
   { id: 'APB2', label: 'PCLK2', value: formatMhz(freqs.value.pclk2Mhz) },
-])
+].filter(({ id }) => layout.value.nodes.some((node) => node.id === id)))
 
 // ---------- 面板可见性 / 宽度持久化（M6） ----------
 // 初始化即从偏好恢复（刷新后还原），读取时夹取到合法范围；可见性变化经 watch 写回。
@@ -114,7 +110,7 @@ const selectedId = ref<string | null>(null)
 const showIssues = ref(false)
 const searchQuery = computed(() => search.value.trim().toLowerCase())
 const matchingNodes = computed(() => layout.value.nodes.filter((node) =>
-  [node.id, node.label, node.inputClockLabel].some((value) => value?.toLowerCase().includes(searchQuery.value)),
+  [node.id, node.label, node.inputClockLabel, node.outputLabel].some((value) => value?.toLowerCase().includes(searchQuery.value)),
 ))
 const searchMatches = computed(() => searchQuery.value ? new Set(matchingNodes.value.map((node) => node.id)) : null)
 
@@ -124,12 +120,12 @@ function onControlChange(control: ClockNodeControl, value: string | number) {
     const periId = control.periId
     if (!periId) return
     const cur = store.peripherals[periId] ?? { enabled: false, params: {} }
-    const paramKey = control.paramKey
-    if (!paramKey) return
-    store.setPeripheral(periId, { ...cur, params: { ...cur.params, [paramKey]: value } })
+    const next = applyPeripheralClockControl(cur, control, value)
+    if (next !== cur) store.setPeripheral(periId, next)
     return
   }
-  store.setClock(applyClockControl(cfg.value, control, value))
+  const next = applyClockControl(cfg.value, control, value)
+  if (next !== cfg.value) store.setClock(next)
 }
 
 // ---------- Reset 确认（M15）：可勾选「不再询问」写入 uiPreferences ----------
@@ -150,14 +146,24 @@ function onConfirmReset(skip: boolean) {
   doReset()
 }
 
-// ---------- 路径高亮（M15）：右键菜单触发 BFS，上游 / 上下游闭包 ----------
-const highlightIds = ref<Set<string>>(new Set())
-const hasHighlight = computed(() => highlightIds.value.size > 0)
+// 可配置节点追踪生效来源，仅显示节点追踪硬件候选输入。
+const highlightedPath = ref<{ nodeId: string; mode: HighlightMode } | null>(null)
+const traceActiveOnly = computed(() => {
+  const path = highlightedPath.value
+  return path?.mode === 'upstream' && !layout.value.nodes.find((node) => node.id === path.nodeId)?.displayOnly
+})
+const highlightIds = computed(() => {
+  const path = highlightedPath.value
+  if (!path) return new Set<string>()
+  const edges = traceActiveOnly.value ? layout.value.edges.filter((edge) => edge.active) : layout.value.edges
+  return computeHighlightSet(edges, path.nodeId, path.mode)
+})
+const hasHighlight = computed(() => highlightedPath.value !== null)
 function highlightPath(nodeId: string, mode: HighlightMode) {
-  highlightIds.value = computeHighlightSet(layout.value.edges, nodeId, mode)
+  highlightedPath.value = { nodeId, mode }
 }
 function clearHighlight() {
-  highlightIds.value = new Set()
+  highlightedPath.value = null
 }
 
 // ---------- 节点右键菜单 ----------
@@ -191,10 +197,8 @@ watch(
   () => layout.value.nodes,
   (nodes) => {
     if (menuState.value && !nodes.some((n) => n.id === menuState.value!.nodeId)) menuState.value = null
-    if (highlightIds.value.size > 0) {
-      const keep = new Set([...highlightIds.value].filter((id) => nodes.some((n) => n.id === id)))
-      if (keep.size !== highlightIds.value.size) highlightIds.value = keep
-    }
+    const path = highlightedPath.value
+    if (path && !nodes.some((n) => n.id === path.nodeId)) clearHighlight()
   },
 )
 
@@ -274,13 +278,6 @@ function focusNextMatch() {
 }
 
 /** 锁定/解锁节点：写回 ClockConfig.locked（预设/解算/自动修复会跳过锁定节点） */
-function toggleLock(nodeId: string) {
-  const locked = new Set(cfg.value.locked ?? [])
-  if (locked.has(nodeId)) locked.delete(nodeId)
-  else locked.add(nodeId)
-  store.setClock({ ...cfg.value, locked: [...locked] })
-}
-
 /** Resolve clock issues：约束求解自动修复（尊重锁定节点）；无解时回退到问题列表 */
 const solving = ref(false)
 async function resolveIssues() {
@@ -289,7 +286,7 @@ async function resolveIssues() {
   try {
     // 求解为同步纯函数；让按钮 loading 至少渲染一帧
     await new Promise<void>((resolve) => setTimeout(resolve, 0))
-    const result = resolveClockIssues(spec.value, cfg.value)
+    const result = resolveClockIssues(spec.value, cfg.value, store.effectiveHalBackend)
     if (!result) {
       showIssues.value = true
       store.notify('未找到满足锁定约束的合法时钟配置，已打开问题列表', 'warning')
@@ -454,9 +451,11 @@ const filteredRows = computed(() => {
         :selected-id="selectedId"
         :search-matches="searchMatches"
         :highlight-ids="highlightIds"
+        :trace-active-only="traceActiveOnly"
         @focus="focusNode"
+        @locate="focusNodeFromOutside"
         @control-change="onControlChange"
-        @toggle-lock="toggleLock"
+        @toggle-lock="store.toggleClockLock"
         @contextmenu="openContextMenu"
       >
         <template #actions>
@@ -504,7 +503,7 @@ const filteredRows = computed(() => {
                 size="small"
                 :type="row.locked ? 'primary' : 'default'"
                 :disabled="!row.lockable"
-                @click.stop="toggleLock(row.id)"
+                @click.stop="store.toggleClockLock(row.id)"
               >
                 {{ row.locked ? '已锁定' : row.lockable ? '锁定' : '—' }}
               </el-button>
@@ -579,7 +578,7 @@ const filteredRows = computed(() => {
       :has-highlight="hasHighlight"
       :configure-id="menuConfigureId"
       @close="closeContextMenu"
-      @toggle-lock="toggleLock"
+      @toggle-lock="store.toggleClockLock"
       @highlight-source="(id: string) => highlightPath(id, 'upstream')"
       @highlight-all="(id: string) => highlightPath(id, 'both')"
       @clear-highlight="clearHighlight"
@@ -613,7 +612,7 @@ const filteredRows = computed(() => {
     </div>
 
     <!-- 问题定位对话框 -->
-    <el-dialog v-model="showIssues" title="时钟问题" width="520px">
+    <el-dialog v-model="showIssues" title="时钟问题" width="min(520px, calc(100% - 24px))">
       <div v-if="!issues.length" class="no-issue">当前时钟配置没有问题</div>
       <button v-for="(i, idx) in issues" :key="idx" type="button" class="issue-row" @click="locateIssue(i.node)">
         <el-tag :type="i.level === 'error' ? 'danger' : 'warning'" size="small">
@@ -631,30 +630,25 @@ const filteredRows = computed(() => {
 
 <style scoped>
 .clock-view {
-  --mx-accent: #06675d;
-  --mx-accent-soft: #dff2eb;
-  --clock-ink: #172c2a;
-  --clock-muted: #4c655f;
-  --clock-border: #cddcd7;
-  --clock-paper: #f3f8f6;
-  --clock-wire: #849c96;
-  --clock-active-wire: #08796a;
-  --el-color-primary: var(--mx-accent);
-  --el-color-primary-light-3: #3d9386;
-  --el-color-primary-light-5: #79b4a9;
-  --el-color-primary-light-7: #acd2ca;
-  --el-color-primary-light-8: #c8e3dc;
-  --el-color-primary-light-9: var(--mx-accent-soft);
-  --el-color-primary-dark-2: #095349;
+  --clock-ink: var(--mx-titlebar-bg);
+  --clock-muted: #51627a;
+  --clock-border: #d5deeb;
+  --clock-paper: var(--mx-bg);
+  --clock-subtle: #edf3fb;
+  --clock-field: #f7f9fc;
+  --clock-wire: #778ba4;
+  --clock-active-wire: var(--mx-accent);
+  --clock-radius: var(--mx-radius-card);
   position: relative;
   flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   background: var(--clock-paper);
 }
 .clock-header {
-  padding: 15px 20px;
+  padding: 12px 20px;
   background: var(--mx-surface);
   border-bottom: 1px solid var(--clock-border);
 }
@@ -673,15 +667,15 @@ const filteredRows = computed(() => {
 .page-icon {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--clock-radius);
   color: var(--mx-accent);
   background: var(--mx-accent-soft);
 }
 .page-title {
-  font-size: 21px;
+  font-size: 19px;
   font-weight: 700;
   line-height: 1.18;
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   color: var(--clock-ink);
 }
 .page-sub {
@@ -690,22 +684,24 @@ const filteredRows = computed(() => {
 }
 .clock-readouts {
   display: flex;
+  flex-wrap: wrap;
   max-width: 100%;
   border: 1px solid var(--clock-border);
-  background: var(--clock-paper);
-  border-radius: 8px;
+  background: var(--clock-field);
+  border-radius: var(--clock-radius);
 }
 .clock-readout {
   display: grid;
   gap: 3px;
   min-width: 88px;
   padding: 6px 12px;
-  white-space: nowrap;
   border: 0;
   background: transparent;
   border-radius: 0;
   color: var(--clock-ink);
-  font: 13px var(--mx-font-mono);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
   text-align: left;
   cursor: pointer;
 }
@@ -722,7 +718,11 @@ const filteredRows = computed(() => {
 }
 .clock-readout span {
   color: var(--clock-muted);
-  font-size: 11px;
+  font: 11px var(--mx-font-mono);
+}
+.clock-readout strong {
+  font-size: 14px;
+  font-weight: 650;
 }
 .clock-readout:enabled:hover,
 .clock-readout.readout-selected {
@@ -771,19 +771,19 @@ const filteredRows = computed(() => {
   gap: 5px;
   padding: 5px 9px;
   border-radius: 6px;
-  background: var(--mx-accent-soft);
-  color: var(--mx-accent);
+  background: var(--clock-field);
+  color: var(--mx-success);
   font-size: 12px;
 }
 .view-controls {
-  padding: 12px 20px;
+  padding: 10px 20px;
 }
 .segmented {
   display: inline-flex;
-  padding: 3px;
-  border-radius: 7px;
+  padding: 2px;
+  border-radius: var(--clock-radius);
   border: 1px solid var(--clock-border);
-  background: #e8f0ed;
+  background: var(--clock-subtle);
 }
 .seg-btn {
   display: inline-flex;
@@ -791,7 +791,8 @@ const filteredRows = computed(() => {
   gap: 6px;
   border: 0;
   background: transparent;
-  padding: 5px 11px;
+  min-height: 27px;
+  padding: 4px 11px;
   font: inherit;
   color: var(--clock-muted);
   cursor: pointer;
@@ -801,7 +802,7 @@ const filteredRows = computed(() => {
 .seg-btn.active {
   background: var(--mx-surface);
   color: var(--mx-accent);
-  box-shadow: 0 1px 3px #163c3029;
+  box-shadow: var(--mx-shadow-card);
 }
 .work-area {
   flex: 1;
@@ -817,7 +818,7 @@ const filteredRows = computed(() => {
   overflow: auto;
   padding: 12px 16px;
   border: 1px solid var(--clock-border);
-  border-radius: 10px;
+  border-radius: var(--clock-radius);
 }
 .layout-empty {
   flex: 1;
@@ -852,7 +853,7 @@ const filteredRows = computed(() => {
 }
 .detail-col {
   border: 1px solid var(--clock-border);
-  border-radius: 10px;
+  border-radius: var(--clock-radius);
   overflow: hidden;
   background: var(--mx-surface);
 }
@@ -862,7 +863,7 @@ const filteredRows = computed(() => {
   align-items: center;
   gap: 8px;
   color: var(--clock-ink);
-  background: #edf5f1;
+  background: var(--clock-subtle);
   border-bottom: 1px solid var(--clock-border);
 }
 .detail-header h2 {
@@ -874,7 +875,7 @@ const filteredRows = computed(() => {
 .detail-close {
   display: grid;
   place-items: center;
-  width: 26px;
+  flex: 0 0 26px;
   height: 26px;
   border: 0;
   border-radius: 5px;
@@ -932,9 +933,11 @@ const filteredRows = computed(() => {
     width: 100%;
   }
   .clock-readout {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 0;
     padding-inline: 6px;
+  }
+  .clock-readout strong {
     font-size: 12px;
   }
   .view-controls .toolbar-fill {
@@ -963,8 +966,10 @@ const filteredRows = computed(() => {
 }
 .issue-msg {
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
-  color: var(--mx-text-secondary);
+  color: var(--clock-muted);
 }
 .issue-node {
   font-size: 11px;
@@ -986,8 +991,8 @@ const filteredRows = computed(() => {
   max-height: min(420px, 75%);
   overflow-y: auto;
   background: var(--mx-surface);
-  border: 1px solid var(--mx-border);
-  border-radius: 10px;
+  border: 1px solid var(--clock-border);
+  border-radius: var(--clock-radius);
   box-shadow: var(--mx-shadow-popover);
   padding: 10px 12px 12px;
   z-index: 25;
@@ -1000,7 +1005,7 @@ const filteredRows = computed(() => {
   font-weight: 600;
   color: var(--mx-text);
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--mx-border);
+  border-bottom: 1px solid var(--clock-border);
 }
 .shortcuts-close {
   border: none;
@@ -1035,12 +1040,13 @@ const filteredRows = computed(() => {
   font-size: 12px;
 }
 .shortcuts-key {
-  flex-shrink: 0;
+  max-width: 55%;
   font-family: var(--mx-font-mono);
+  overflow-wrap: anywhere;
   font-size: 11px;
   color: var(--mx-text);
-  background: #f2f5fa;
-  border: 1px solid var(--mx-border);
+  background: var(--clock-field);
+  border: 1px solid var(--clock-border);
   border-radius: 4px;
   padding: 1px 6px;
 }

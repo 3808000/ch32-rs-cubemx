@@ -128,7 +128,7 @@ export function clusterSize(spec: ClockData, node: ClockNodeModel | ClockTreeNod
     case 'div':
       return { w: PRIM.DIV_W + PRIM.CLUSTER_GAP + PRIM.READOUT_W, h: Math.max(PRIM.DIV_H, PRIM.READOUT_H) }
     case 'readout':
-      return { w: PRIM.READOUT_W, h: PRIM.READOUT_H + (node.hint ? 16 : 0) }
+      return { w: PRIM.READOUT_W, h: PRIM.READOUT_H + (node.hint && node.readoutText === undefined ? 16 : 0) }
     case 'peri':
       return { w: PRIM.PERI_W, h: PRIM.PERI_H }
   }
@@ -142,13 +142,13 @@ export function anchorOut(node: ClockTreeNode): ClockPt {
 }
 
 /**
- * 输入锚点：mux/pll = mux 左缘第 i 行（i=fromId 在 muxInputs 的索引；含仅显示灰行）；
+ * 输入锚点：mux/pll = 左缘指定输入行，缺省按来源 ID 查找（含仅显示灰行）；
  * 其它 kind（osc/div/readout/peri）= 左中。
  */
-export function anchorIn(node: ClockTreeNode, fromId?: string): ClockPt {
-  if ((node.kind === 'mux' || node.kind === 'pll') && fromId && node.muxInputs?.length) {
-    const i = node.muxInputs.indexOf(fromId)
-    if (i >= 0) {
+export function anchorIn(node: ClockTreeNode, fromId?: string, inputIndex?: number): ClockPt {
+  if ((node.kind === 'mux' || node.kind === 'pll') && node.muxInputs?.length) {
+    const i = inputIndex ?? node.muxInputs.indexOf(fromId ?? '')
+    if (i >= 0 && i < node.muxInputs.length) {
       return { x: node.x, y: node.y + PRIM.MUX_PAD + i * PRIM.MUX_ROW + PRIM.MUX_ROW / 2 }
     }
   }
@@ -214,12 +214,19 @@ function simplify(pts: ClockPt[]): ClockPt[] {
 }
 
 /** 计算连线标签位置：取最后一段的中点，水平段在上方、垂直段在右侧。 */
-function labelPos(points: ClockPt[]): ClockPt {
+function labelPos(points: ClockPt[], label?: string): ClockPt {
   const n = points.length
   if (n < 2) return { x: points[0]!.x + 8, y: points[0]!.y - 8 }
   const a = points[n - 2]!
   const b = points[n - 1]!
-  if (a.y === b.y) return { x: (a.x + b.x) / 2, y: a.y - 7 }
+  if (a.y === b.y) {
+    const labelWidth = (label?.length ?? 0) * 5
+    const prev = points[n - 3]
+    if (Math.abs(b.x - a.x) < labelWidth && prev?.x === a.x) {
+      return { x: a.x + labelWidth / 2 + 6, y: (prev.y + a.y) / 2 }
+    }
+    return { x: (a.x + b.x) / 2, y: a.y - 7 }
+  }
   return { x: a.x + 8, y: (a.y + b.y) / 2 }
 }
 
@@ -242,11 +249,45 @@ interface RouteCtx {
   corridorUse: Map<number, number>
   channelUse: Map<number, number>
   lanes?: Record<string, number>
+  routed: ClockTreeEdge[]
+}
+
+/** 只复用同源走廊。不同输出端口允许十字交越，不能共用一段线。 */
+export function sharesForeignSegment(points: readonly ClockPt[], from: string, routed: readonly ClockTreeEdge[]): boolean {
+  return routed.some((edge) => edge.from !== from && points.slice(1).some((b, i) => {
+    const a = points[i]!
+    const horizontal = a.y === b.y
+    const axis = horizontal ? 'x' : 'y'
+    const lane = horizontal ? 'y' : 'x'
+    return edge.points.slice(1).some((d, j) => {
+      const c = edge.points[j]!
+      return a[lane] === c[lane] && a[lane] === d[lane]
+        && Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis]))
+          > Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis]))
+    })
+  }))
+}
+
+/** 异源的横线和竖线相交，即使只在其中一条线的端点接触也会造成误读。 */
+export function crossesForeignWire(points: readonly ClockPt[], from: string, routed: readonly ClockTreeEdge[]): boolean {
+  const between = (value: number, a: number, b: number) => value >= Math.min(a, b) && value <= Math.max(a, b)
+  return routed.some((edge) => edge.from !== from && points.slice(1).some((b, i) => {
+    const a = points[i]!
+    return edge.points.slice(1).some((d, j) => {
+      const c = edge.points[j]!
+      if (a.y === b.y && c.x === d.x && c.y !== d.y) {
+        return between(c.x, a.x, b.x) && between(a.y, c.y, d.y)
+      }
+      return a.x === b.x && a.y !== b.y && c.y === d.y
+        && between(a.x, c.x, d.x) && between(c.y, a.y, b.y)
+    })
+  }))
 }
 
 /** 接入缓冲直线（M16 用户裁决）：锚点外先走一段垂直于框边的直线再进走廊，
  *  末段必须水平垂直进入左缘锚点（不得竖线贴框边擦行）。 */
 const STUB = 14
+const MIN_STUB = 10
 /** 走廊/通道与簇边界最小间距：竖/横段不得贴框边擦行 */
 const GRAZE = 3
 
@@ -271,15 +312,20 @@ function grazes(points: ClockPt[], rects: Rect[]): boolean {
 }
 
 /** 通用正交避障路由：缓冲直线 + 垂直进入 + 走廊/通道错开 + 擦边拒绝 + 极端绕行兜底。 */
-function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: RouteCtx): ClockPt[] {
+function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edge: ClockEdgeModel, ctx: RouteCtx): ClockPt[] {
   const p0 = anchorOut(a)
-  const p1 = anchorIn(b, a.id)
+  const p1 = anchorIn(b, a.id, edge.inputIndex)
   // 缓冲段：出锚点右行 STUB、入锚点左行 STUB（均垂直于框边）
   const s0: ClockPt = { x: p0.x + STUB, y: p0.y }
   const s1: ClockPt = { x: p1.x - STUB, y: p1.y }
+  let crossingFallback: ClockPt[] | null = null
   const tryPath = (pts: ClockPt[]): ClockPt[] | null => {
     const p = simplify(pts)
-    return pathClear(p, ctx.rects) && !grazes(p, ctx.rects) ? p : null
+    if (p.length > 2 && (Math.abs(p[1]!.x - p0.x) < MIN_STUB || Math.abs(p1.x - p.at(-2)!.x) < MIN_STUB)) return null
+    if (!pathClear(p, ctx.rects) || grazes(p, ctx.rects)) return null
+    if (!sharesForeignSegment(p, a.id, ctx.routed) && !crossesForeignWire(p, a.id, ctx.routed)) return p
+    crossingFallback ??= p
+    return null
   }
 
   // 1) 同 y 水平直连（两端天然垂直于框边）
@@ -287,6 +333,16 @@ function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: Rout
     const p = tryPath([p0, p1])
     if (p) return p
   }
+
+  // 输出到多个下游时，优先从同一竖线分叉。两端保留缓冲，复用段必须仍能避开节点和异源线。
+  for (const previous of ctx.routed) {
+    if (previous.from !== a.id || previous.points.length < 4) continue
+    const mx = previous.points[1]!.x
+    if (mx - p0.x < MIN_STUB || p1.x - mx < MIN_STUB) continue
+    const p = tryPath([p0, { x: mx, y: p0.y }, { x: mx, y: p1.y }, p1])
+    if (p) return p
+  }
+
   // 2) 缓冲 L（末段水平垂直进入左缘）
   for (const pts of [
     [p0, s0, { x: s1.x, y: s0.y }, s1, p1],
@@ -296,7 +352,7 @@ function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: Rout
     if (p) return p
   }
 
-  const hint = ctx.lanes?.[edgeId]
+  const hint = ctx.lanes?.[edge.id]
   // 3) H-V-H：竖向走两簇之间走廊（缓冲段之间）
   const rightOfA = a.x + a.w
   const leftOfB = b.x
@@ -343,8 +399,8 @@ function routeEdge(a: ClockTreeNode, b: ClockTreeNode, edgeId: string, ctx: Rout
     const p = tryPath([p0, s0, { x: mx, y: s0.y }, { x: mx, y: s1.y }, s1, p1])
     if (p) return p
   }
-  // 理论上不可达；返回带缓冲的简化折线保证渲染不崩
-  return simplify([p0, s0, { x: s0.x, y: s1.y }, s1, p1])
+  // 走廊都被占用时优先保留已有避障结果。
+  return crossingFallback ?? simplify([p0, s0, { x: s0.x, y: s1.y }, s1, p1])
 }
 
 // ---------- 主布局 ----------
@@ -466,15 +522,16 @@ export function buildClockTree(
     corridorUse: new Map(),
     channelUse: new Map(),
     lanes: diagram?.lanes,
+    routed: [],
   }
-  const edges: ClockTreeEdge[] = model.edges.map((e) => {
+  for (const e of model.edges) {
     const a = byId.get(e.from)
     const b = byId.get(e.to)
     // 防御：模型引用不存在的节点时退化为零长线（不抛错，避免画布整体失败）
     const points =
-      a && b ? routeEdge(a, b, e.id, ctx) : [{ x: 0, y: 0 }, { x: 0, y: 0 }]
-    return { ...e, points, labelAt: labelPos(points) }
-  })
+      a && b ? routeEdge(a, b, e, ctx) : [{ x: 0, y: 0 }, { x: 0, y: 0 }]
+    ctx.routed.push({ ...e, points, labelAt: labelPos(points, e.label) })
+  }
 
   // ---------- 画布尺寸：最大簇右下 + 40 / 36 ----------
   let right = 0
@@ -483,5 +540,5 @@ export function buildClockTree(
     right = Math.max(right, n.x + n.w)
     bottom = Math.max(bottom, n.y + n.h)
   }
-  return { width: right + 40, height: bottom + 36, nodes, edges, groups }
+  return { width: right + 40, height: bottom + 36, nodes, edges: ctx.routed, groups }
 }

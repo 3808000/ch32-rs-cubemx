@@ -16,6 +16,7 @@ import type {
 } from '@/model/types'
 import { DEFAULT_BLE_CONFIG } from '@/model/types/project'
 import { getDeviceData } from '@/model/device'
+import { resolveHalBackend } from '@/model/halBackend'
 import { mergeClockConfig } from '@/model/clock'
 import { checkConflicts } from '@/model/conflicts'
 import { HAL_REV } from '@/model/codegen/halRev'
@@ -23,12 +24,18 @@ import { loadProject, saveProject } from '@/services/projectStorage'
 
 export type ViewId = 'home' | 'pinout' | 'clock' | 'peripherals' | 'project-settings'
 
+interface PinOverwriteEntry {
+  pin: string
+  previous: PinAssignment | undefined
+}
+
 interface ProjectState {
   chip: string
   /** 工程级 HAL 后端覆盖（M17）：undefined = 按 chip 缺省解析（历史工程 → legacyHalBackend） */
   halBackend?: string
   projectName: string
   assignments: PinAssignment[]
+  pinOverwriteHistory: PinOverwriteEntry[]
   groups: PinGroup[]
   prefix: string
   clock: ClockConfig | null // null = 芯片默认档
@@ -65,6 +72,7 @@ export const useProjectStore = defineStore('project', {
     halBackend: undefined,
     projectName: 'ch32-project',
     assignments: [],
+    pinOverwriteHistory: [],
     groups: [],
     prefix: '',
     clock: null,
@@ -94,8 +102,7 @@ export const useProjectStore = defineStore('project', {
     },
     /** 生效 HAL 后端（M17）：显式覆盖 > 历史工程 legacy > chip 默认。 */
     effectiveHalBackend(): string {
-      const chip = this.deviceData.chip
-      return this.halBackend ?? chip.legacyHalBackend ?? chip.halBackend ?? 'ch32-hal'
+      return resolveHalBackend(this, this.deviceData)
     },
     config(): ProjectConfig {
       return {
@@ -234,8 +241,32 @@ export const useProjectStore = defineStore('project', {
       this.markDirty()
     },
 
+    /** 覆盖确认由调用方完成。执行成功后记录当前工程的撤回快照。 */
+    applyPinOverwrite(pin: string, apply: () => void) {
+      const existing = this.assignmentOf(pin)
+      const previous = existing ? JSON.parse(JSON.stringify(existing)) as PinAssignment : undefined
+      apply()
+      this.pinOverwriteHistory.push({ pin, previous })
+      if (this.pinOverwriteHistory.length > 100) this.pinOverwriteHistory.shift()
+    },
+
+    undoPinOverwrite(): string | null {
+      const entry = this.pinOverwriteHistory.pop()
+      if (!entry) return null
+      if (entry.previous) {
+        const index = this.assignments.findIndex((assignment) => assignment.pin === entry.pin)
+        if (index >= 0) this.assignments.splice(index, 1, entry.previous)
+        else this.assignments.push(entry.previous)
+        this.markDirty()
+      } else {
+        this.clearPin(entry.pin)
+      }
+      return entry.pin
+    },
+
     resetPinout() {
       this.assignments = []
+      this.pinOverwriteHistory = []
       this.groups = []
       this.peripherals = {}
       this.interrupts = []
@@ -254,6 +285,13 @@ export const useProjectStore = defineStore('project', {
     setClock(cfg: ClockConfig) {
       this.clock = cfg
       this.markDirty()
+    },
+
+    toggleClockLock(nodeId: string) {
+      const cfg = this.clockConfig
+      const locked = new Set(cfg.locked ?? [])
+      if (!locked.delete(nodeId)) locked.add(nodeId)
+      this.setClock({ ...cfg, locked: [...locked] })
     },
 
     resetClock() {
@@ -369,6 +407,7 @@ export const useProjectStore = defineStore('project', {
       this.halBackend = typeof cfg.halBackend === 'string' && cfg.halBackend !== '' ? cfg.halBackend : undefined
       if (cfg.projectName) this.projectName = cfg.projectName
       this.assignments = (cfg.pins ?? []).map((p) => ({ ...p, params: p.params ?? {} }))
+      this.pinOverwriteHistory = []
       this.groups = cfg.groups ?? []
       this.prefix = cfg.naming?.prefix ?? ''
       this.clock = cfg.clock ?? null
@@ -396,6 +435,7 @@ export const useProjectStore = defineStore('project', {
       // 同芯片再次「新建工程」也要回到默认，故赋值放在提前返回之前。
       const chipData = getDeviceData(chip)
       this.halBackend = chipData.chip.legacyHalBackend ? (chipData.chip.halBackend ?? undefined) : undefined
+      this.pinOverwriteHistory = []
       if (chip === this.chip) return
       this.chip = chip
       this.assignments = []

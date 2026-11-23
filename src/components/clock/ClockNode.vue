@@ -5,10 +5,11 @@
 //   div    = stepper 块（- N +）+ 读数卡
 //   pll    = mux(pllSource 行) + 参数 stepper（当前模型仅首参数）+ hint 静态补充 + 读数卡
 //   readout= 单读数卡（out + max + 可选 hint 行）
-//   peri   = airy 卡：标题+徽标 / 旋钮（number 内联 / select 常驻 / adcClkDiv stepper）/ 请求 / 实际
+//   peri   = 独立外设卡：名称和状态 / 时钟来源 / 参数控件 / 请求与实际频率
 // 逻辑节点 props/emits、编辑态机、锁定、问题标记、右键菜单全部沿用 M15；
 // 簇外包仍为 <g class="node">，ClockCanvas 的 pan 守卫形状不变。
 import type { ClockNodeControl, ClockTreeNode } from '@/model/clock/tree'
+import ClockLabel from '@/components/clock/ClockLabel.vue'
 import { formatMhz, PRIM } from '@/model/clock/tree'
 import type { ClockNodeKind } from '@/model/types'
 import {
@@ -25,6 +26,10 @@ const props = withDefaults(
   defineProps<{
     node: ClockTreeNode
     selected?: boolean
+    searchHit?: boolean
+    primary?: boolean
+    signalName?: string
+    hideTitle?: boolean
     dimmed?: boolean
     pulse?: boolean
     editing?: boolean
@@ -89,38 +94,6 @@ function ctrlText(c: ClockNodeControl): string {
 }
 
 // ---------- SVG 文本截断（text 无 ellipsis：按字号估宽计算截断，全文交给 <title>） ----------
-/** 单字符宽度估算（em）：CJK/全角≈1，窄字符≈0.3，大写/数字≈0.62，其余≈0.55 */
-function charWidthEm(ch: string): number {
-  const code = ch.codePointAt(0) ?? 0
-  if (code >= 0x2e80) return 1
-  if (ch === ' ' || /[ilI.,:;'!|]/.test(ch)) return 0.3
-  if (/[A-Z0-9]/.test(ch)) return 0.62
-  return 0.55
-}
-
-function textWidthEm(text: string): number {
-  let w = 0
-  for (const ch of text) w += charWidthEm(ch)
-  return w
-}
-
-/** 超宽时按字符边界截断并追加 …；不改变布局/锚点，仅影响渲染文本 */
-function truncateText(text: string | null | undefined, maxWidth: number, fontSize: number): string {
-  const full = (text ?? '').replace(/\s+/g, ' ').trim()
-  if (!full || maxWidth <= 0) return ''
-  if (textWidthEm(full) * fontSize <= maxWidth) return full
-  const ellEm = charWidthEm('…')
-  let out = ''
-  let acc = 0
-  for (const ch of full) {
-    const cw = charWidthEm(ch)
-    if ((acc + cw + ellEm) * fontSize > maxWidth) break
-    out += ch
-    acc += cw
-  }
-  return `${out.trimEnd()}…`
-}
-
 const controlText = computed(() => (props.node.control ? ctrlText(props.node.control) : ''))
 
 const badgeLabel = computed(() => {
@@ -141,36 +114,35 @@ const issueText = computed(() => (props.node.issues ?? []).map((i) => i.message)
 const hoverText = computed(
   () =>
     [
+      props.node.label,
       issueText.value,
+      cardCaption.value,
       props.node.hint,
+      kind.value === 'peri' ? periSourceText.value : '',
       props.node.requestedLabel ? `请求 ${props.node.requestedLabel}` : '',
       props.node.actualLabel,
     ]
       .filter(Boolean)
-      .join('\n') || props.node.label,
+      .join('\n'),
 )
 const nodeClass = computed(() => ({
   selected: props.selected,
+  primary: props.primary,
+  'search-hit': props.searchHit,
   dimmed: props.dimmed,
   inactive: !props.node.active,
   pulse: props.pulse,
   locked: props.node.locked,
   'display-only': !!props.node.displayOnly,
+  'peripheral-node': kind.value === 'peri',
   'issue-error': props.node.issueLevel === 'error',
   'issue-warning': props.node.issueLevel === 'warning',
 }))
-
-/** 徽标右对齐位置：避开右上锁定图标/问题圆点 */
-const badgeX = computed(
-  () => props.node.x + props.node.w - (props.node.lockable ? 34 : props.node.issueLevel ? 16 : 8),
-)
 
 // ---------- mux 输入行（radio 行即控件） ----------
 interface MuxRow {
   id: string
   label: string
-  /** 按竖块可用宽度截断后的渲染文本（全文在行级 <title>） */
-  labelText: string
   /** 提交值：control.options 命中时保留原始类型，否则=节点 id */
   value: string | number
   /** 未进 control.options 的仅显示源（灰行，不可点） */
@@ -193,7 +165,6 @@ const muxRows = computed<MuxRow[]>(() => {
     return {
       id,
       label,
-      labelText: truncateText(label, PRIM.MUX_W - 28, 10),
       value: opt ? opt.value : id,
       displayOnly,
       selected: selectedValue !== null ? selectedValue === id : props.activeInput === id,
@@ -222,6 +193,7 @@ function muxRowCenter(i: number): number {
 }
 
 function onMuxRowClick(row: MuxRow) {
+  emit('focus', props.node.id)
   if (row.disabled || !muxEditable.value) return
   const c = props.node.control
   if (c && (c.field === 'source' || c.field === 'adc' || c.field === 'pllSource')) {
@@ -249,33 +221,20 @@ interface CardGeom {
   h: number
 }
 
-/** 读数卡：两行基线差固定 18px；hint 行额外 +16px */
-function cardGeom(x: number, y: number, hint: boolean): CardGeom {
-  return { x, y, w: PRIM.READOUT_W, h: PRIM.READOUT_H + (hint ? 16 : 0) }
+/** 在簇内居中放置读数卡，使左右端口保持同一水平线。 */
+function cardGeom(x: number): CardGeom {
+  return {
+    x,
+    y: props.node.y + (props.node.h - PRIM.READOUT_H) / 2,
+    w: PRIM.READOUT_W,
+    h: PRIM.READOUT_H,
+  }
 }
 
-const muxCard = computed(() =>
-  cardGeom(
-    props.node.x + PRIM.MUX_W + PRIM.CLUSTER_GAP,
-    props.node.y + Math.max(0, (props.node.h - PRIM.READOUT_H) / 2),
-    false,
-  ),
-)
-const divCard = computed(() =>
-  cardGeom(
-    props.node.x + PRIM.DIV_W + PRIM.CLUSTER_GAP,
-    props.node.y + Math.max(0, (props.node.h - PRIM.READOUT_H) / 2),
-    false,
-  ),
-)
-const pllCard = computed(() =>
-  cardGeom(
-    props.node.x + props.node.w - PRIM.READOUT_W,
-    props.node.y + Math.max(0, (props.node.h - PRIM.READOUT_H) / 2),
-    false,
-  ),
-)
-const readoutCard = computed(() => cardGeom(props.node.x, props.node.y, !!props.node.hint))
+const muxCard = computed(() => cardGeom(props.node.x + PRIM.MUX_W + PRIM.CLUSTER_GAP))
+const divCard = computed(() => cardGeom(props.node.x + PRIM.DIV_W + PRIM.CLUSTER_GAP))
+const pllCard = computed(() => cardGeom(props.node.x + props.node.w - PRIM.READOUT_W))
+const readoutCard = computed(() => cardGeom(props.node.x))
 
 /** osc 值格：标题基线下方 ≥14px，格高 14~18px（OSC_H=44 时 16px） */
 const oscCell = computed(() => {
@@ -303,7 +262,7 @@ function stepGeom(x: number, y: number, w: number, h: number): StepGeom {
 
 const divStep = computed(() => stepGeom(props.node.x, props.node.y, PRIM.DIV_W, PRIM.DIV_H))
 /** PLL 完整参数链：node.pllControls（缺省回退 [node.control]），每参数一槽 STEP_W×STEP_H */
-const pllSteps = computed<{ control: ClockNodeControl; geom: StepGeom; valueText: string }[]>(() => {
+const pllSteps = computed<{ control: ClockNodeControl; geom: StepGeom }[]>(() => {
   if (kind.value !== 'pll') return []
   const list = props.node.pllControls?.length ? props.node.pllControls : props.node.control ? [props.node.control] : []
   if (!list.length) return []
@@ -311,17 +270,12 @@ const pllSteps = computed<{ control: ClockNodeControl; geom: StepGeom; valueText
   const y = props.node.y + (props.node.h - h) / 2
   const x0 = props.node.x + (muxRows.value.length ? PRIM.MUX_W + PRIM.CLUSTER_GAP : 0)
   return list.map((control, i) => {
-    const geom = stepGeom(x0 + i * (PRIM.STEP_W + PRIM.CLUSTER_GAP), y, PRIM.STEP_W, h)
-    return {
-      control,
-      geom,
-      valueText: truncateText(ctrlText(control), geom.w - geom.btnW * 2 - 8, 11),
-    }
+    return { control, geom: stepGeom(x0 + i * (PRIM.STEP_W + PRIM.CLUSTER_GAP), y, PRIM.STEP_W, h) }
   })
 })
-const periStep = computed(() => stepGeom(props.node.x + 10, props.node.y + 28, props.node.w - 20, 30))
+const periStep = computed(() => stepGeom(props.node.x + 9, props.node.y + 23, props.node.w - 18, 22))
 
-const divValue = computed(() => `÷${props.node.control?.value ?? '—'}`)
+const divValue = computed(() => props.node.control ? `÷${props.node.control.value}` : '—')
 
 /** 簇内 1px 连接线：mux/div → 读数卡 */
 const muxLink = computed(() => {
@@ -358,43 +312,39 @@ const pllLinks = computed<string[]>(() => {
   return links
 })
 
-const pllHintPos = computed(() => ({
-  x: props.node.x + (muxRows.value.length ? PRIM.MUX_W + PRIM.CLUSTER_GAP : 0) + 8,
-  y: props.node.y + props.node.h / 2 + 4,
-}))
+const clusterTitle = computed(() => !props.node.outputLabel && props.signalName && props.signalName !== props.node.label
+  ? `${props.node.label} · ${props.signalName}`
+  : props.node.label)
 
-// ---------- 渲染文本（按所在块宽截断；全文由行级 <title> 承载） ----------
-const clusterTitleText = computed(() => truncateText(props.node.label, props.node.w, 10))
-const oscTitleText = computed(() => truncateText(props.node.label, props.node.w - 16, 11))
-const oscValueDisplay = computed(() => truncateText(oscValueText.value, oscCell.value.w - 8, 12))
-const readoutHintText = computed(() => truncateText(props.node.hint, readoutCard.value.w - 20, 10))
-const pllHintText = computed(() => {
-  const usable = Math.max(20, props.node.x + props.node.w - 8 - pllHintPos.value.x)
-  return truncateText(props.node.hint, usable, 10)
+const cardOutText = computed(() => props.node.readoutText ?? formatAdaptiveMhz(props.node.outMhz))
+const cardCaption = computed(() => props.node.maxMhz !== null ? `上限 ${formatMhz(props.node.maxMhz)}` : props.node.displayOnly ? '仅显示' : '')
+const visibleCaption = computed(() => props.selected || props.node.issueLevel ? cardCaption.value : '')
+const hasMarker = computed(() => props.node.lockable || !!props.node.issueLevel)
+const readout = computed(() => {
+  switch (kind.value) {
+    case 'mux': return { card: muxCard.value, label: props.node.outputLabel }
+    case 'div': return { card: divCard.value }
+    case 'pll': return { card: pllCard.value }
+    case 'readout': return { card: readoutCard.value, label: clusterTitle.value }
+    default: return null
+  }
 })
-const periRequestText = computed(() =>
-  truncateText(props.node.requestedLabel ? `请求 ${props.node.requestedLabel}` : '', props.node.w - 20, 10.5),
+const marker = computed(() => {
+  const card = readout.value?.card ?? props.node
+  return { x: card.x + card.w - 10, y: card.y + 10 }
+})
+const periSourceText = computed(() =>
+  [props.node.inputClockLabel, formatAdaptiveMhz(props.node.inMhz)].filter(Boolean).join(' · '),
 )
-const periActualText = computed(() => truncateText(props.node.actualLabel, props.node.w - 20, 10.5))
-const divValueText = computed(() => truncateText(divValue.value, divStep.value.w - divStep.value.btnW * 2 - 8, 11))
-const periStepValueText = computed(() =>
-  truncateText(controlText.value, periStep.value.w - periStep.value.btnW * 2 - 8, 11),
-)
-const periValueText = computed(() => truncateText(controlText.value, periStep.value.w - 16, 11))
-/** 读数卡两行（四类簇共用 READOUT_W） */
-const cardOutText = computed(() => truncateText(formatMhz(props.node.outMhz), PRIM.READOUT_W - 20, 13))
-const cardMaxText = computed(() => truncateText(`max ${formatMhz(props.node.maxMhz)}`, PRIM.READOUT_W - 20, 10))
-
-// ---------- 外设卡片 geometry（行距硬约束：标题→控件 14、请求→实际 20） ----------
-const periCard = computed(() => ({ x: props.node.x, y: props.node.y, w: PRIM.PERI_W, h: PRIM.PERI_H }))
-const periTitleFo = computed(() => ({
-  x: props.node.x + 10,
-  y: props.node.y + 1,
-  w: Math.max(40, props.node.w - 70),
-  h: 16,
-}))
-/** peri 徽标右对齐；有问题圆点时左移避让 */
-const periBadgeX = computed(() => props.node.x + props.node.w - (props.node.issueLevel ? 16 : 10))
+const periResult = computed(() => {
+  if (!props.node.active) return '未启用'
+  const out = props.node.outMhz
+  if (out === null) return props.node.actualLabel ?? badgeLabel.value
+  const value = props.node.requestedLabel?.endsWith(' baud')
+    ? `${Math.round(out * 1_000_000)} baud`
+    : formatAdaptiveMhz(out)
+  return `实际 ${value}`
+})
 
 // ---------- stepper 单步（复用 inlineEdit 纯函数） ----------
 /** 单个参数控件可编辑（fixed/锁定/displayOnly 置灰） */
@@ -407,6 +357,7 @@ function canStepControl(c: ClockNodeControl | null | undefined, dir: -1 | 1): bo
 }
 
 function onStepControl(c: ClockNodeControl, dir: -1 | 1) {
+  emit('focus', props.node.id)
   if (!controlEditable(c)) return
   const v = stepControlValue(c, dir)
   if (v !== null) emit('control-change', c, v)
@@ -434,8 +385,9 @@ function clearInvalidTimer() {
 }
 
 /** 值格单击：请求进入编辑态（父级协调同一时刻仅一个节点编辑） */
-function onControlClick(e: MouseEvent) {
+function onControlClick(e: Event) {
   e.stopPropagation()
+  emit('focus', props.node.id)
   if (!editable.value || !inlineMode.value) return
   emit('edit-start', props.node.id)
 }
@@ -451,7 +403,7 @@ watch(
     draft.value = c ? String(c.value) : ''
     void nextTick(() => {
       const el = inputEl.value
-      el?.focus()
+      el?.focus({ preventScroll: true })
       el?.select()
     })
   },
@@ -501,7 +453,10 @@ function onSelectChange(e: Event) {
   if (!c || c.kind !== 'select' || !editable.value) return
   const raw = e.target instanceof HTMLSelectElement ? e.target.value : ''
   const v = resolveSelectValue(raw, c)
-  if (v !== null) emit('control-change', c, v)
+  if (v !== null) {
+    emit('focus', props.node.id)
+    emit('control-change', c, v)
+  }
   if (props.editing) emit('edit-end', props.node.id)
 }
 
@@ -530,45 +485,58 @@ function onContextMenu(e: MouseEvent) {
   emit('contextmenu', props.node.id, e.clientX, e.clientY)
 }
 
-function onToggleLock(e: MouseEvent) {
+function onToggleLock(e: Event) {
   e.stopPropagation()
   emit('toggle-lock', props.node.id)
 }
 </script>
 
 <template>
-  <g class="node" :class="nodeClass" @click="emit('focus', node.id)" @contextmenu="onContextMenu">
+  <g
+    class="node"
+    :class="nodeClass"
+    :data-node-id="node.id"
+    tabindex="0"
+    role="group"
+    :aria-label="node.label"
+    @click="emit('focus', node.id)"
+    @keydown.enter.self.prevent="emit('focus', node.id)"
+    @contextmenu="onContextMenu"
+  >
     <title>{{ hoverText }}</title>
 
-    <!-- M16：簇外上方 10px muted 节点标题（osc/peri 已有内部标题，不重复） -->
-    <text v-if="kind !== 'osc' && kind !== 'peri'" :x="node.x" :y="node.y - 6" class="cluster-title">
-      {{ clusterTitleText }}<title>{{ node.label }}</title>
-    </text>
+    <ClockLabel
+      v-if="!hideTitle && (kind === 'mux' || kind === 'div' || kind === 'pll')"
+      :x="node.x" :y="node.y - 15" :width="node.w" :height="13"
+      :text="clusterTitle" class="cluster-title"
+    />
 
     <!-- ===== osc：标题行 + 值格 ===== -->
     <template v-if="kind === 'osc'">
-      <text :x="node.x + 8" :y="node.y + 12" class="osc-title">
-        {{ oscTitleText }}<title>{{ node.label }}</title>
-      </text>
+      <rect :x="node.x" :y="node.y" :width="node.w" :height="node.h" rx="6" class="prim-block osc-card" />
+      <ClockLabel
+        :x="node.x + 8" :y="node.y + 4" :width="node.w - (hasMarker ? 27 : 16)" :height="14"
+        :text="node.label" class="osc-title"
+      />
       <rect
         :x="oscCell.x"
         :y="oscCell.y"
         :width="oscCell.w"
         :height="oscCell.h"
         rx="4"
-        class="prim-block osc-cell"
+        class="osc-cell"
         :class="{ fixed: !editable }"
+        :role="editable ? 'button' : undefined"
+        :tabindex="editable ? 0 : undefined"
+        :aria-label="editable ? `编辑 ${node.label} 频率` : undefined"
         @click.stop="onControlClick"
+        @keydown.enter.space.stop.prevent="onControlClick"
       />
-      <text
+      <ClockLabel
         v-if="!inlineEditing"
-        :x="oscCell.x + oscCell.w / 2"
-        :y="oscCell.y + oscCell.h - 4"
-        text-anchor="middle"
-        class="osc-value"
-      >
-        {{ oscValueDisplay }}<title>{{ oscValueText }}</title>
-      </text>
+        :x="oscCell.x + 3" :y="oscCell.y" :width="oscCell.w - 6" :height="oscCell.h"
+        :text="oscValueText" align="center" class="osc-value"
+      />
       <foreignObject
         v-else
         :x="oscCell.x"
@@ -606,16 +574,21 @@ function onToggleLock(e: MouseEvent) {
       />
       <g
         v-for="(row, i) in muxRows"
-        :key="row.id"
+        :key="`${row.id}-${i}`"
         class="mux-row"
         :class="{ disabled: row.disabled }"
-        role="button"
+        :role="row.disabled ? undefined : 'button'"
+        :tabindex="row.disabled ? undefined : 0"
+        :aria-pressed="row.disabled ? undefined : row.selected"
+        :aria-label="row.disabled ? undefined : row.label"
         @click.stop="onMuxRowClick(row)"
-        @contextmenu.stop
+        @keydown.enter.space.stop.prevent="onMuxRowClick(row)"
       >
-        <text :x="node.x + 10" :y="muxRowCenter(i) + 3.5" class="mux-label" :class="{ muted: row.displayOnly || !muxEditable }">
-          {{ row.labelText }}<title>{{ row.label }}</title>
-        </text>
+        <rect :x="node.x + 3" :y="muxRowCenter(i) - 7" :width="PRIM.MUX_W - 6" height="14" rx="3" class="mux-row-hit" :class="{ on: row.selected }" />
+        <ClockLabel
+          :x="node.x + 8" :y="muxRowCenter(i) - 7" :width="PRIM.MUX_W - 26" :height="14"
+          :text="row.label" class="mux-label" :class="{ muted: row.displayOnly || !muxEditable }"
+        />
         <circle
           :cx="node.x + PRIM.MUX_W - 12"
           :cy="muxRowCenter(i)"
@@ -624,12 +597,12 @@ function onToggleLock(e: MouseEvent) {
           :class="{ on: row.selected, disabled: row.disabled }"
         />
       </g>
-      <path :d="muxLink" class="cluster-link" />
-      <rect :x="muxCard.x" :y="muxCard.y" :width="muxCard.w" :height="muxCard.h" rx="6" class="prim-block readout-card" />
-      <text :x="muxCard.x + 10" :y="muxCard.y + 20" class="readout-out" :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }">
-        {{ cardOutText }}<title>{{ formatMhz(node.outMhz) }}</title>
-      </text>
-      <text :x="muxCard.x + 10" :y="muxCard.y + 38" class="readout-max">{{ cardMaxText }}<title>max {{ formatMhz(node.maxMhz) }}</title></text>
+      <path :d="muxLink" class="cluster-link" :class="{ 'output-link': node.outputLabel }" />
+      <path
+        v-if="node.outputLabel"
+        :d="`M ${muxCard.x} ${muxCard.y + muxCard.h / 2} l -5 -2.5 v 5 z`"
+        class="output-arrow"
+      />
     </template>
 
     <!-- ===== div：stepper(- N +) + 读数卡 ===== -->
@@ -637,6 +610,7 @@ function onToggleLock(e: MouseEvent) {
       <g class="stepper" :class="{ disabled: !editable }">
         <rect :x="divStep.x" :y="divStep.y" :width="divStep.w" :height="divStep.h" rx="6" class="prim-block step-box" />
         <rect
+          v-if="editable"
           :x="divStep.x + 2"
           :y="divStep.y + 2"
           :width="divStep.btnW"
@@ -644,10 +618,15 @@ function onToggleLock(e: MouseEvent) {
           rx="4"
           class="step-btn-bg"
           :class="{ disabled: !canStep(-1) }"
+          :role="canStep(-1) ? 'button' : undefined"
+          :tabindex="canStep(-1) ? 0 : undefined"
+          :aria-label="canStep(-1) ? `减小 ${node.control?.label || node.label}` : undefined"
           @click.stop="onStep(-1)"
+          @keydown.enter.space.stop.prevent="onStep(-1)"
           @contextmenu.stop
         />
         <text
+          v-if="editable"
           :x="divStep.x + 2 + divStep.btnW / 2"
           :y="divStep.y + divStep.h / 2 + 5"
           class="step-btn-text"
@@ -655,10 +634,13 @@ function onToggleLock(e: MouseEvent) {
         >
           −
         </text>
-        <text :x="divStep.x + divStep.w / 2" :y="divStep.y + divStep.h / 2 + 4" class="step-val">
-          {{ divValueText }}<title>{{ divValue }}</title>
-        </text>
+        <ClockLabel
+          :x="divStep.x + divStep.btnW + 3" :y="divStep.y + (divStep.h - 15) / 2"
+          :width="divStep.w - 2 * divStep.btnW - 6" :height="15"
+          :text="divValue" align="center" class="step-val"
+        />
         <rect
+          v-if="editable"
           :x="divStep.x + divStep.w - 2 - divStep.btnW"
           :y="divStep.y + 2"
           :width="divStep.btnW"
@@ -666,10 +648,15 @@ function onToggleLock(e: MouseEvent) {
           rx="4"
           class="step-btn-bg"
           :class="{ disabled: !canStep(1) }"
+          :role="canStep(1) ? 'button' : undefined"
+          :tabindex="canStep(1) ? 0 : undefined"
+          :aria-label="canStep(1) ? `增大 ${node.control?.label || node.label}` : undefined"
           @click.stop="onStep(1)"
+          @keydown.enter.space.stop.prevent="onStep(1)"
           @contextmenu.stop
         />
         <text
+          v-if="editable"
           :x="divStep.x + divStep.w - 2 - divStep.btnW / 2"
           :y="divStep.y + divStep.h / 2 + 5"
           class="step-btn-text"
@@ -679,14 +666,9 @@ function onToggleLock(e: MouseEvent) {
         </text>
       </g>
       <path :d="divLink" class="cluster-link" />
-      <rect :x="divCard.x" :y="divCard.y" :width="divCard.w" :height="divCard.h" rx="6" class="prim-block readout-card" />
-      <text :x="divCard.x + 10" :y="divCard.y + 20" class="readout-out" :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }">
-        {{ cardOutText }}<title>{{ formatMhz(node.outMhz) }}</title>
-      </text>
-      <text :x="divCard.x + 10" :y="divCard.y + 38" class="readout-max">{{ cardMaxText }}<title>max {{ formatMhz(node.maxMhz) }}</title></text>
     </template>
 
-    <!-- ===== pll：mux(pllSource) + 参数 stepper 链 + hint + 读数卡 ===== -->
+    <!-- PLL 的说明随节点详情和悬停提示展示。 -->
     <template v-else-if="kind === 'pll'">
       <template v-if="muxRows.length">
         <rect
@@ -699,16 +681,21 @@ function onToggleLock(e: MouseEvent) {
         />
         <g
           v-for="(row, i) in muxRows"
-          :key="row.id"
+          :key="`${row.id}-${i}`"
           class="mux-row"
           :class="{ disabled: row.disabled }"
-          role="button"
+          :role="row.disabled ? undefined : 'button'"
+          :tabindex="row.disabled ? undefined : 0"
+          :aria-pressed="row.disabled ? undefined : row.selected"
+          :aria-label="row.disabled ? undefined : row.label"
           @click.stop="onMuxRowClick(row)"
-          @contextmenu.stop
+          @keydown.enter.space.stop.prevent="onMuxRowClick(row)"
         >
-          <text :x="node.x + 10" :y="muxRowCenter(i) + 3.5" class="mux-label" :class="{ muted: row.displayOnly || !muxEditable }">
-            {{ row.labelText }}<title>{{ row.label }}</title>
-          </text>
+          <rect :x="node.x + 3" :y="muxRowCenter(i) - 7" :width="PRIM.MUX_W - 6" height="14" rx="3" class="mux-row-hit" :class="{ on: row.selected }" />
+          <ClockLabel
+            :x="node.x + 8" :y="muxRowCenter(i) - 7" :width="PRIM.MUX_W - 26" :height="14"
+            :text="row.label" class="mux-label" :class="{ muted: row.displayOnly || !muxEditable }"
+          />
           <circle
             :cx="node.x + PRIM.MUX_W - 12"
             :cy="muxRowCenter(i)"
@@ -740,7 +727,11 @@ function onToggleLock(e: MouseEvent) {
           rx="4"
           class="step-btn-bg"
           :class="{ disabled: !canStepControl(slot.control, -1) }"
+          :role="canStepControl(slot.control, -1) ? 'button' : undefined"
+          :tabindex="canStepControl(slot.control, -1) ? 0 : undefined"
+          :aria-label="canStepControl(slot.control, -1) ? `减小 ${slot.control.label}` : undefined"
           @click.stop="onStepControl(slot.control, -1)"
+          @keydown.enter.space.stop.prevent="onStepControl(slot.control, -1)"
           @contextmenu.stop
         />
         <text
@@ -751,9 +742,11 @@ function onToggleLock(e: MouseEvent) {
         >
           −
         </text>
-        <text :x="slot.geom.x + slot.geom.w / 2" :y="slot.geom.y + slot.geom.h / 2 + 4" class="step-val">
-          {{ slot.valueText }}<title>{{ ctrlText(slot.control) }}</title>
-        </text>
+        <ClockLabel
+          :x="slot.geom.x + (controlEditable(slot.control) ? slot.geom.btnW + 3 : 4)" :y="slot.geom.y + (slot.geom.h - 15) / 2"
+          :width="slot.geom.w - (controlEditable(slot.control) ? 2 * slot.geom.btnW + 6 : 8)" :height="15"
+          :text="ctrlText(slot.control)" align="center" class="step-val"
+        />
         <rect
           :x="slot.geom.x + slot.geom.w - 2 - slot.geom.btnW"
           :y="slot.geom.y + 2"
@@ -762,7 +755,11 @@ function onToggleLock(e: MouseEvent) {
           rx="4"
           class="step-btn-bg"
           :class="{ disabled: !canStepControl(slot.control, 1) }"
+          :role="canStepControl(slot.control, 1) ? 'button' : undefined"
+          :tabindex="canStepControl(slot.control, 1) ? 0 : undefined"
+          :aria-label="canStepControl(slot.control, 1) ? `增大 ${slot.control.label}` : undefined"
           @click.stop="onStepControl(slot.control, 1)"
+          @keydown.enter.space.stop.prevent="onStepControl(slot.control, 1)"
           @contextmenu.stop
         />
         <text
@@ -774,53 +771,17 @@ function onToggleLock(e: MouseEvent) {
           +
         </text>
       </g>
-      <text v-if="node.hint && !pllSteps.length" :x="pllHintPos.x" :y="pllHintPos.y" class="pll-hint">
-        {{ pllHintText }}<title>{{ node.hint }}</title>
-      </text>
       <path v-for="(d, i) in pllLinks" :key="i" :d="d" class="cluster-link" />
-      <rect :x="pllCard.x" :y="pllCard.y" :width="pllCard.w" :height="pllCard.h" rx="6" class="prim-block readout-card" />
-      <text :x="pllCard.x + 10" :y="pllCard.y + 20" class="readout-out" :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }">
-        {{ cardOutText }}<title>{{ formatMhz(node.outMhz) }}</title>
-      </text>
-      <text :x="pllCard.x + 10" :y="pllCard.y + 38" class="readout-max">{{ cardMaxText }}<title>max {{ formatMhz(node.maxMhz) }}</title></text>
     </template>
 
-    <!-- ===== readout：单读数卡（out + max + 可选 hint） ===== -->
-    <template v-else-if="kind === 'readout'">
-      <rect
-        :x="readoutCard.x"
-        :y="readoutCard.y"
-        :width="readoutCard.w"
-        :height="readoutCard.h"
-        rx="6"
-        class="prim-block readout-card"
+    <!-- 外设：来源、可编辑参数和生效结果。 -->
+    <template v-else-if="kind === 'peri'">
+      <rect :x="node.x" :y="node.y" :width="node.w" :height="node.h" rx="5" class="prim-block peri-card" />
+      <ClockLabel
+        :x="node.x + 9" :y="node.y + 5" :width="node.w - (hasMarker ? 28 : 18)" :height="15"
+        :text="node.label" class="peri-title"
       />
-      <text :x="readoutCard.x + 10" :y="readoutCard.y + 20" class="readout-out" :class="{ error: node.issueLevel === 'error', warning: node.issueLevel === 'warning' }">
-        {{ cardOutText }}<title>{{ formatMhz(node.outMhz) }}</title>
-      </text>
-      <text :x="readoutCard.x + 10" :y="readoutCard.y + 38" class="readout-max">{{ cardMaxText }}<title>max {{ formatMhz(node.maxMhz) }}</title></text>
-      <text v-if="node.hint" :x="readoutCard.x + 10" :y="readoutCard.y + 54" class="readout-hint">
-        {{ readoutHintText }}<title>{{ node.hint }}</title>
-      </text>
-    </template>
-
-    <!-- ===== peri：airy 卡（标题+徽标 / 旋钮 / 请求 / 实际） ===== -->
-    <template v-else>
-      <rect :x="periCard.x" :y="periCard.y" :width="periCard.w" :height="periCard.h" rx="8" class="prim-block peri-card" />
-      <foreignObject
-        :x="periTitleFo.x"
-        :y="periTitleFo.y"
-        :width="periTitleFo.w"
-        :height="periTitleFo.h"
-        class="peri-title-fo"
-      >
-        <div class="peri-title" :title="node.label">{{ node.label }}</div>
-      </foreignObject>
-      <text v-if="badgeLabel" :x="periBadgeX" :y="node.y + 14" text-anchor="end" class="node-badge">
-        {{ badgeLabel }}
-      </text>
-
-      <!-- 旋钮行（30px）：adcClkDiv stepper / periParam select 常驻 / number 内联 -->
+      <!-- 旋钮行：adcClkDiv stepper / periParam select 常驻 / number 内联 -->
       <template v-if="node.control">
         <g v-if="stepperMode" class="stepper" :class="{ disabled: !editable }">
           <rect :x="periStep.x" :y="periStep.y" :width="periStep.w" :height="periStep.h" rx="6" class="prim-block step-box" />
@@ -832,7 +793,11 @@ function onToggleLock(e: MouseEvent) {
             rx="4"
             class="step-btn-bg"
             :class="{ disabled: !canStep(-1) }"
+            :role="canStep(-1) ? 'button' : undefined"
+            :tabindex="canStep(-1) ? 0 : undefined"
+            :aria-label="canStep(-1) ? `减小 ${node.control?.label || node.label}` : undefined"
             @click.stop="onStep(-1)"
+            @keydown.enter.space.stop.prevent="onStep(-1)"
             @contextmenu.stop
           />
           <text
@@ -843,9 +808,11 @@ function onToggleLock(e: MouseEvent) {
           >
             −
           </text>
-          <text :x="periStep.x + periStep.w / 2" :y="periStep.y + periStep.h / 2 + 4" class="step-val">
-            {{ periStepValueText }}<title>{{ controlText }}</title>
-          </text>
+          <ClockLabel
+            :x="periStep.x + periStep.btnW + 3" :y="periStep.y + (periStep.h - 15) / 2"
+            :width="periStep.w - 2 * periStep.btnW - 6" :height="15"
+            :text="controlText" align="center" class="step-val"
+          />
           <rect
             :x="periStep.x + periStep.w - 2 - periStep.btnW"
             :y="periStep.y + 2"
@@ -854,7 +821,11 @@ function onToggleLock(e: MouseEvent) {
             rx="4"
             class="step-btn-bg"
             :class="{ disabled: !canStep(1) }"
+            :role="canStep(1) ? 'button' : undefined"
+            :tabindex="canStep(1) ? 0 : undefined"
+            :aria-label="canStep(1) ? `增大 ${node.control?.label || node.label}` : undefined"
             @click.stop="onStep(1)"
+            @keydown.enter.space.stop.prevent="onStep(1)"
             @contextmenu.stop
           />
           <text
@@ -898,11 +869,17 @@ function onToggleLock(e: MouseEvent) {
             rx="4"
             class="ctrl-hit"
             :class="{ fixed: !editable }"
+            :role="editable ? 'button' : undefined"
+            :tabindex="editable ? 0 : undefined"
+            :aria-label="editable ? `编辑 ${node.label} ${node.control.label}` : undefined"
             @click.stop="onControlClick"
+            @keydown.enter.space.stop.prevent="onControlClick"
           />
-          <text v-if="!inlineEditing" :x="periStep.x + 8" :y="periStep.y + periStep.h / 2 + 4" class="peri-value">
-            {{ periValueText }}<title>{{ controlText }}</title>
-          </text>
+          <ClockLabel
+            v-if="!inlineEditing"
+            :x="periStep.x + 8" :y="periStep.y + (periStep.h - 15) / 2" :width="periStep.w - 16" :height="15"
+            :text="controlText" class="peri-value"
+          />
           <foreignObject
             v-else
             :x="periStep.x"
@@ -929,20 +906,45 @@ function onToggleLock(e: MouseEvent) {
         </template>
       </template>
 
-      <text v-if="node.requestedLabel" :x="node.x + 10" :y="node.y + 73" class="peri-req">
-        {{ periRequestText }}<title>请求 {{ node.requestedLabel }}</title>
-      </text>
-      <text v-if="node.actualLabel" :x="node.x + 10" :y="node.y + 93" class="peri-act">
-        {{ periActualText }}<title>{{ node.actualLabel }}</title>
-      </text>
+      <ClockLabel
+        v-if="periResult"
+        :x="node.x + 9" :y="node.y + (node.control ? 48 : 27)" :width="node.w - 18" :height="15"
+        :text="periResult" :title="node.actualLabel || periResult" class="peri-result"
+        :class="{ enabled: node.active, warning: node.issueLevel === 'warning', error: node.issueLevel === 'error' }"
+      />
+    </template>
+
+    <template v-if="readout">
+      <rect
+        :x="readout.card.x" :y="readout.card.y"
+        :width="readout.card.w" :height="readout.card.h"
+        rx="6" class="prim-block readout-card"
+      />
+      <ClockLabel
+        v-if="readout.label"
+        :x="readout.card.x + 8" :y="readout.card.y + 3"
+        :width="readout.card.w - (hasMarker ? 28 : 16)" :height="14"
+        :text="readout.label" class="readout-label"
+      />
+      <ClockLabel
+        :x="readout.card.x + 8" :y="readout.card.y + (readout.label ? 17 : 10)"
+        :width="readout.card.w - (hasMarker ? 28 : 16)" :height="16"
+        :text="cardOutText" class="readout-out" :class="node.issueLevel"
+      />
+      <ClockLabel
+        v-if="visibleCaption"
+        :x="readout.card.x + 8" :y="readout.card.y + (readout.label ? 32 : 27)"
+        :width="readout.card.w - (hasMarker && !readout.label ? 28 : 16)" :height="11"
+        :text="visibleCaption" class="readout-max"
+      />
     </template>
 
     <!-- 问题标记：簇右上小圆点（error 红 / warning 橙），hover 见 <title> -->
     <circle
       v-if="node.issueLevel"
-      :cx="node.x + node.w - 7"
-      :cy="node.y + 7"
-      r="4"
+      :cx="marker.x"
+      :cy="marker.y + (node.lockable ? 16 : 0)"
+      r="3"
       class="issue-marker"
       :class="node.issueLevel"
     />
@@ -952,23 +954,23 @@ function onToggleLock(e: MouseEvent) {
       class="lock-btn"
       :class="{ on: node.locked }"
       role="button"
+      tabindex="0"
+      :aria-label="`${node.locked ? '解锁' : '锁定'} ${node.label}`"
+      :aria-pressed="node.locked"
       @click="onToggleLock"
+      @keydown.enter.space.stop.prevent="onToggleLock"
       @contextmenu.stop.prevent="onToggleLock"
     >
       <title>{{ node.locked ? '解锁该节点（预设/自动修复可再次修改）' : '锁定该节点（预设/自动修复保留当前值）' }}</title>
-      <rect :x="node.x + node.w - 28" :y="node.y + 4" width="20" height="20" rx="5" class="lock-hit" />
+      <rect :x="marker.x - 8" :y="marker.y - 8" width="16" height="16" rx="4" class="lock-hit" />
       <path
-        :d="`M ${node.x + node.w - 22} ${node.y + 15} v-2 a 4 4 0 0 1 8 0 v2`"
+        :d="`M ${marker.x - 3} ${marker.y} v-2 a 3 3 0 0 1 6 0 v2`"
         class="lock-shackle"
         fill="none"
         stroke-linecap="round"
       />
-      <rect :x="node.x + node.w - 23" :y="node.y + 15" width="10" height="7" rx="1.5" class="lock-body" />
+      <rect :x="marker.x - 4" :y="marker.y" width="8" height="6" rx="1.5" class="lock-body" />
     </g>
-    <!-- 徽标：fixed / derived / raw（peri 徽标在标题行内右对齐，其余簇右上） -->
-    <text v-if="badgeLabel && kind !== 'peri'" :x="badgeX" :y="node.y + 12" text-anchor="end" class="node-badge">
-      {{ badgeLabel }}
-    </text>
   </g>
 </template>
 
@@ -977,11 +979,15 @@ function onToggleLock(e: MouseEvent) {
 .node {
   cursor: pointer;
 }
+.node:focus-visible {
+  outline: 2px solid var(--mx-accent);
+  outline-offset: 3px;
+}
 .node.dimmed {
   opacity: 0.3;
 }
 .issue-marker {
-  stroke: #fff;
+  stroke: var(--mx-surface);
   stroke-width: 1.5;
 }
 .issue-marker.error {
@@ -990,17 +996,13 @@ function onToggleLock(e: MouseEvent) {
 .issue-marker.warning {
   fill: var(--mx-warning);
 }
-.node-badge {
-  font-size: 9px;
-  fill: var(--mx-text-muted);
-}
-
 /* 锁定开关图标：默认低透明度，悬停/锁定后高亮 */
 .lock-btn {
   opacity: 0.35;
   transition: opacity var(--mx-dur-node) linear;
 }
 .node:hover .lock-btn,
+.lock-btn:focus-visible,
 .lock-btn.on {
   opacity: 1;
 }

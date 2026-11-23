@@ -4,7 +4,7 @@
 // 说明：V307 的器件注册（src/model/device.ts）由主控集成；本测试直接读 data/devices/ch32v307vct6/*.json，
 // 不依赖注册表。依赖 D 代理运行时能力（maxBySource 校验、prediv 除法语义）的断言在 D 落地后复核。
 import { describe, it, expect } from 'vitest'
-import { computeClock, defaultClock, matchPreset, mergeClockConfig, validateClock } from '@/model/clock'
+import { presetToConfig, computeClock, defaultClock, matchPreset, mergeClockConfig, validateClock } from '@/model/clock'
 import type { ChipData, ClockData, ClockPreset, PeripheralsData, RemapData, ExtiData } from '@/model/types'
 
 import chipJson from '../data/devices/ch32v307vct6/chip.json'
@@ -23,21 +23,7 @@ const exti = extiJson as unknown as ExtiData
 
 /** 按预设构造完整时钟配置（与 validate-device-data.mjs 的复现逻辑一致）。 */
 function presetConfig(preset: ClockPreset) {
-  const match = preset.match as unknown as Record<string, number | string | undefined>
-  const pll: Record<string, number> = {}
-  for (const param of clock.pll.params) {
-    const v = match[param.key]
-    if (typeof v === 'number') pll[param.key] = v
-  }
-  return mergeClockConfig(clock, {
-    source: preset.match.source,
-    pllSource: preset.match.pllSource,
-    hxtalMhz: preset.match.hxtalMhz,
-    pll: Object.keys(pll).length ? pll : undefined,
-    ahb: preset.match.ahb,
-    apb1: preset.match.apb1,
-    apb2: preset.match.apb2,
-  })
+  return presetToConfig(clock, preset, defaultClock(clock))
 }
 
 describe('CH32V307VCT6 封装与引脚', () => {
@@ -218,18 +204,18 @@ describe('EXTI', () => {
 })
 
 describe('时钟（rcc v3：输入 ÷ prediv × mul）', () => {
-  it('基础参数：144MHz、HSE 3-25MHz 默认 8、defaultSource=PLL、ADC 仅 APB2_DIV2', () => {
+  it('基础参数：144MHz、HSE 3-25MHz 默认 8、defaultSource=PLL、ADC 分频 ÷2/4/6/8', () => {
     expect(clock.sysclkMaxMhz).toBe(144)
     expect(clock.defaultSource).toBe('PLL')
     const hse = clock.sources.find((s) => s.id === 'HSE')!
     expect(hse.hxtal).toEqual({ min: 3, max: 25, default: 8 })
     expect(clock.sources.find((s) => s.id === 'HSI')?.freqMhz).toBe(8)
-    expect(clock.adc.options.map((o) => o.id)).toEqual(['APB2_DIV2'])
+    expect(clock.adc.options.map((o) => o.id)).toEqual(['APB2_DIV2', 'APB2_DIV4', 'APB2_DIV6', 'APB2_DIV8'])
     expect(clock.adc.maxMhz).toBe(14)
     expect(clock.timerClock).toBe('apb_x2')
     expect(clock.apb1.maxMhz).toBe(144)
     expect(clock.apb2.maxMhz).toBe(144)
-    expect(clock.codegen.fallback).toBe('preset_only')
+    expect(clock.codegen.fallback).toBe('explicit')
   })
 
   it('mul 档位：无 ×2，含 6.5 与 18；默认 18', () => {

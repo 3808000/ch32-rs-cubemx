@@ -31,10 +31,12 @@ export function renderCoreGenerated(
   const modules: string[] = []
   const fields: ModField[] = []
   const irqs: IrqBinding[] = []
+  const initCalls: string[] = []
 
   if (sel.clock) {
     files.push(renderClock(config, data, base))
     modules.push('clock')
+    if (data.clock.codegen.pacAdcPrescaler) initCalls.push('clock::init_adc_prescaler()')
   }
   let pinsFile: GeneratedFile | null = null
   if (sel.pins) {
@@ -64,7 +66,6 @@ export function renderCoreGenerated(
 
   // NVIC/PFIC：有启用中断时才生成 irq.rs，并在 mod.rs 的 init 中调用
   const irqFile = renderIrq(config, data, base)
-  const initCalls: string[] = []
   if (irqFile) {
     files.push(irqFile)
     modules.push('irq')

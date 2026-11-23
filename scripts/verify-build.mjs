@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // 端到端编译验证：vite-node 跑浏览器同一份生成逻辑 → 临时目录 → cargo build。
-// 用法：npm run verify:build [-- --chip CH582M] [--embassy] [--ble] [--legacy-hal] [--hal-backend <id>]
+// 用法：npm run verify:build [-- --chip CH582M] [--embassy] [--ble [--clock32k lsi|lse]] [--legacy-hal] [--hal-backend <id>] [--clock-matrix]
 //   CH582 默认走 ch5xx-hal；--legacy-hal 或 --hal-backend ch58x-hal 走 legacy。
 // 环境变量：CH32_HAL_DIR / CH58X_HAL_DIR / CH5XX_HAL_DIR（本地 HAL 路径，加速）、
 //           CH5XX_DATA_DIR（ch5xx-hal build.rs 的兄弟数据目录）、CH32_HAL_REV（覆盖锁定 rev）
@@ -21,6 +21,11 @@ function argOf(name, fallback) {
 const chips = argOf('--chip', 'CH32V003F4P6,CH32V203C8T6,CH582M,CH32V103C8T6,CH32X035C8T6,CH32V307VCT6').split(',')
 const embassy = process.argv.includes('--embassy')
 const ble = process.argv.includes('--ble')
+const clock32k = argOf('--clock32k', 'lse')
+if (!['lse', 'lsi'].includes(clock32k) || (process.argv.includes('--clock32k') && !ble)) {
+  console.error('--clock32k 需与 --ble 一起使用，取值为 lse 或 lsi')
+  process.exit(2)
+}
 // M17：CH582 默认 ch5xx-hal；--legacy-hal 或 --hal-backend <id> 覆盖（legacy 用于 ch58x 回归）
 const legacyHal = process.argv.includes('--legacy-hal')
 const halBackendArg = argOf('--hal-backend', '')
@@ -86,35 +91,20 @@ function backendOf(chip) {
   return info?.halBackend ?? 'ch32-hal'
 }
 
-/**
- * 读取芯片数据的 toolchain 需求（M14/M17）。
- * - chip.nightlyByBackend[backend] 优先（ch5xx-hal=true / ch58x-hal=false）；
- * - 回退 chip.nightly=true（V003 rv32ec / V307 targetSpec）；
- * - 双核 workspace（H417）固定 nightly；
- * - --embassy 且非 BLE 档仍 nightly（legacy ch58x BLE busy-poll 档除外）。
- */
-function toolchainOf(chip, backend) {
-  const info = chipInfo(chip)
-  const byBackend = info?.nightlyByBackend?.[backend]
-  const nightly =
-    byBackend !== undefined
-      ? !!byBackend
-      : !!info?.nightly || (info?.cores?.length ?? 0) > 0 || (embassy && !ble)
-  return nightly ? 'nightly' : 'stable'
-}
-
 let failed = 0
 for (const chip of chips) {
   const backend = backendOf(chip)
   console.log(`\n[verify:build] === ${chip}（${backend}）===`)
-  const chipEnv = { ...env, RUSTUP_TOOLCHAIN: toolchainOf(chip, backend) }
-  console.log(`[verify:build] RUSTUP_TOOLCHAIN=${chipEnv.RUSTUP_TOOLCHAIN}`)
+  const chipEnv = { ...env }
+  // 与实际导出一致，让 rustup 读取生成工程的 rust-toolchain.toml。
+  delete chipEnv.RUSTUP_TOOLCHAIN
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), `ch32-cubemx-${chip.toLowerCase()}-`))
 
   // 1. vite-node 运行浏览器同一份生成逻辑
   const entryArgs = [path.join(root, 'node_modules/vite-node/vite-node.mjs'), path.join(root, 'scripts/verify-build-entry.ts'), '--chip', chip, '--out', tmp, '--hal-backend', backend]
+  if (process.argv.includes('--clock-matrix')) entryArgs.push('--clock-matrix')
   if (embassy) entryArgs.push('--embassy')
-  if (ble) entryArgs.push('--ble')
+  if (ble) entryArgs.push('--ble', '--clock32k', clock32k)
   const gen = spawnSync(process.execPath, entryArgs, { cwd: root, env: chipEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
   process.stdout.write(gen.stdout ?? '')
   if (gen.status !== 0) {

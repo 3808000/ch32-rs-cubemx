@@ -805,6 +805,7 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 ### 17.7 验证状态（诚实分级）
 
 - **五档 cargo 绿（2026-11-19，本机）**：ch5xx blocking / embassy / BLE 三档（nightly；三档 target 下均有 `build/core/*/out/libcore-*.rlib`，证明 `build-std` 实际执行）+ legacy blocking / BLE 两档（stable；无 build-std 产物）。产物均存在 `target/riscv32imc-unknown-none-elf/release/verify-build`（ELF，20136 / 27256 / 358500 / 21400 / 360272 B）；临时工程目录 `/tmp/m17ch5`、`/tmp/m17ch5e`、`/tmp/m17ch5b`、`/tmp/m17legacy`、`/tmp/m17legacyble`（vendor 树分别含 `ch5xx-hal`+`ch5xx-data`(+`ch5xx-ble`) 或 `ch58x-hal`）。
+- CH582 的 32 MHz 晶振与 480 MHz PLL 共用 `RB_CLK_PLL_DIV`。`reference/ch5xx-hal`（锁定 rev `875651b6`）的 `src/rcc.rs` 在 CH58x 路径使用 `Sys::Divided(div)` 选择晶振分频，校验 Fsys 须落在 2–10 MHz 或 15–80 MHz，`Sys::Direct` 会触发错误。时钟树和 ch5xx 导出均从同一分频参数取值。
 - **BLE 实机：已通过（2026-11-19，主控复验 ×2）**。ch5xx+shim 固件（`/tmp/m17ch5b` BLE 档 ELF，nightly 重建）经 MRS OpenOCD `program … verify reset exit` **Verified OK** 烧录（用户 pkexec 授权）；宿主 AX210（1M PHY 持久化）bluez D-Bus 复验：扫描命中出厂 MAC `0C:3D:5E:A6:62:94`（与 legacy/C 同源）→ Connect + ServicesResolved → FFE1/FFE2 发现 → 读 FFE1=00 → 写 FFE2=42 → 读 FFE1=42 → **notify 20 包/20s**（首轮间隔 0.99–1.03s，二轮 0.77–1.17s，`systick_hz()` 派生周期正确）。脚本 `/tmp/m17-ble-test/gatt-test.py`、日志 `result.log`。**ch5xx BLE 升级为实机验证级**；legacy 结论仍见 §14.2quater/quinquies。
 - **测试**：**1621 用例 / 63 文件全绿**（ch5xxCodegen 59 / ch5xxBleCodegen 32 + 分流/导出/往返；ch58x 72+91 零 regress）；vue-tsc/eslint/validate 0/0/build 绿；verify 6/6 + embassy 6/6 + BLE(CH582) ch5xx 1/1 + legacy 1/1；浏览器抽查 ch5xx 默认 Cargo/build.rs/cube.json halBackend 与 legacy 切换联动。
 - 已知边界：BLE shim 未做 PA 控制；`sel_rtc_clock=0` 依赖板上 32.768 kHz 晶振，无晶振板需 LSI 回退（校准未移植，连接稳定性未保证）；温度回调在 CH583 上上游自述“未上板测试”。
@@ -851,3 +852,16 @@ V003/X035/V103/V203/V307/H417/CH582 逐芯片 fit 截图核：mux radio 列/step
 ### 18.4 上游裁决
 
 - 用户裁决：**维持 blob 路线；上游 issue/PR 暂缓至 Rust 重写完成**。重写 spike（`docs/m18-cleanroom-spike.md`）：无禁逆向条款但手册禁复制；开源 LL 首选 NimBLE（Apache-2.0，移植面 1.5–3k 行）/备选 Zephyr；BTstack 许可禁商用排除；RF 黑盒代码量 9% 但关键路径 100% 阻塞（aes_soft.o 0 字节→硬件 AES 引擎未公开）；工作量方案 A 20–30 人月 / 方案 B 13–22 人月 + BQB 3–6 人月；建议 M19+ 独立里程碑 + 前置 2–4 周 G1 探针（RF 寄存器/校准布局合法获取可行性）。
+
+## 19. 时钟树与 HAL 导出一致性复核（2026-11-23）
+
+- CH32 的 RCC 字段以 `ch32-hal` @ `a0863ebcc1082f64e508b73d3b944f119b0db77b` 为准。V103 用 `rcc/v1.rs` 的 PLL 配置，V203/V307 用 `rcc/v3.rs` 的 PLL 配置，X035 的 `rcc/x0.rs` 只写 `ahb_pre`。V203 HAL 对高位 HPRE 编码的频率换算与寄存器表不同，导出挡住旧工程的 ÷64/128/256/512。V203 QingKe V4 的延时驱动选择 HCLK，V003 TIM1/TIM2 取 HCLK（`CH32V003.yaml` 与 HAL 的外设频率映射）。
+- V203 的 ADCPRE 非复位档用于预览，生成器会提示恢复复位档。V203/V307/X035 的 `ADC_CTLR3.CLK_DIV` 逐档核对生成的 HAL 配置值。X035 的 ADC 输入为 48MHz SYSCLK，寄存器编码含义尚待实测，图中保留 raw 值并省略输出频率。H417 的三种系统时钟配方使用 HCLK / PPRE2 / ADCPRE，界面可写其公开的 `bus.adcpre`，与 `rcc/h4` 的 ADC 时钟路径一致。
+- CH582 在 `ch5xx-hal` @ `875651b693ef437e045d023171adaf052a07525c` 下导出 PLL 和合法 HSE 分频，在 `ch58x-hal` @ `611954e40cc4a562f0c4756ab4c0a935af6158df` 下按既有接口导出 PLL。UART、SPI、I²C 的派生速率和拒绝条件由时钟页与生成器共用。RTC 的 BLE 选项通过对应后端初始化，SysTick 读数采用后端的延时驱动，CH582 新后端的 Embassy 时间驱动单独使用 TMR0。辅助支路按节点上的配置能力区分预览与导出。USB 自动分频由 HAL 在支持的 PLL 频点配置。
+- `npm run verify:build -- --clock-matrix --chip CH32V003F4P6,CH32V103C8T6,CH32V203C8T6,CH32X035C8T6,CH32V307VCT6,CH32H417QEU6,CH582M` 验证各时钟源、PLL 参数组合、HSE 低/中/高代表值、总线与 ADC 各档位。附加 `--legacy-hal --chip CH582M` 验证历史后端。每种不同的可导出 RCC 配方与每个可写 ADC 采样档均进行 Rust 编译，系统测试仍需板上测量频率。
+
+## 20. V103/V307 预设的 ADC 时钟
+
+- WCH 的 CH32x103 与 CH32FV2x_V3x 参考手册按 PCLK2 / RCC_CFGR0.ADCPRE 计算 ADCCLK，上限为 14MHz。V307 EVT 的 `RCC_GetClocksFreq` 同样从 RCC 的 PPRE2 与 ADCPRE 读取分频。V307 的 CTLR3 原始字段保持独立，当前计算以手册定义的 RCC 分频为准。
+- `ch32-hal` @ `a0863ebcc1082f64e508b73d3b944f119b0db77b` 的 `rcc/v1.rs` 和 `rcc/v3.rs` 初始化 PPRE2。它们保留 ADCPRE，ADC 构造也未设置该字段。V103 与 V307 对应的 HAL PAC 提供 `RCC.cfgr0().modify`、`set_adcpre` 和 `Adcpre::DIV2/4/6/8`。生成工程在 `generated::init` 中先写共享 ADCPRE，再构造 ADC。设置由 `clock.json` 的后端能力字段触发。
+- V103 保持各预设原有总线速度，用 ADCPRE ÷4 将 48/72/80MHz 预设的 ADCCLK 分别设为 12/9/10MHz。V307 的 144MHz 预设保留 SYSCLK、HCLK 与 PCLK1，采用 APB2 ÷2 与 ADCPRE ÷6。96MHz 档用 PCLK2 24MHz ÷2，48MHz 档用 PCLK2 48MHz ÷4，四个预设的 ADCCLK 均为 12MHz。

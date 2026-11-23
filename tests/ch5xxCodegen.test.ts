@@ -338,13 +338,20 @@ describe('时钟（D4/D5）', () => {
     expect(c).toContain('480MHz VCO ÷ 7 = 68.57MHz')
   })
 
-  it('HSE 32MHz 直连 → Sys::Direct', () => {
-    const clock = mergeClockConfig(data.clock, { source: 'HSE', ahb: 1, apb1: 1, apb2: 1 })
+  it('HSE 32MHz ÷5 以 6.4 MHz 生成 Sys::Divided(5)', () => {
+    const clock = mergeClockConfig(data.clock, { source: 'HSE', pll: { div: 5 } })
     const r = gen(baseConfig({ clock }))
     expect(r.errors).toEqual([])
-    expect(contentOf(r, 'src/generated/clock.rs')).toContain(
-      'hal::rcc::Config::new(hal::rcc::Osc::Hse32, hal::rcc::Sys::Direct)',
-    )
+    const output = contentOf(r, 'src/generated/clock.rs')
+    expect(output).toContain('SYSCLK=6.4MHz')
+    expect(output).toContain('hal::rcc::Config::new(hal::rcc::Osc::Hse32, hal::rcc::Sys::Divided(5))')
+  })
+
+  it('HSE ÷3 落在两个合法频段之间，生成时报错', () => {
+    const clock = mergeClockConfig(data.clock, { source: 'HSE', pll: { div: 3 } })
+    const r = gen(baseConfig({ clock }))
+    expect(r.files).toEqual([])
+    expect(r.errors.find((error) => error.code === 'CLOCK_PRESET_UNAVAILABLE')?.message).toContain('2–10 MHz 或 15–80 MHz')
   })
 
   it('PLL div=5（旧 2..5 档）→ CLOCK_PRESET_UNAVAILABLE error（6..=32）', () => {
@@ -370,7 +377,7 @@ describe('时钟（D4/D5）', () => {
     const r = gen(baseConfig({ clock }))
     expect(r.files).toEqual([])
     const e = r.errors.find((x) => x.code === 'CLOCK_PRESET_UNAVAILABLE')
-    expect(e!.message).toContain('仅生成 PLL')
+    expect(e!.message).toContain('CK32K 仅为显示源')
     expect(e!.message).toContain('CK32K')
   })
 })

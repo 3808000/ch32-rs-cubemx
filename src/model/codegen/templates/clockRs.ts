@@ -18,4 +18,11 @@ pub fn rcc_config() -> hal::rcc::Config {
     cfg
 <% } -%>
 }
+<% if (pacAdcDiv !== undefined) { -%>
+
+/// RCC 初始化后，在构造 ADC 驱动前设置共享的 ADC 分频器。
+pub(super) fn init_adc_prescaler() {
+    hal::pac::RCC.cfgr0().modify(|w| w.set_adcpre(hal::pac::rcc::vals::Adcpre::DIV<%- pacAdcDiv %>));
+}
+<% } -%>
 `

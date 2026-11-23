@@ -3,6 +3,7 @@
 // SampleTime 参数，逐字使用数据层变体名）。分辨率由芯片固定（ADC_MAX：V003 10 位、
 // 其余 12 位），无运行时分辨率 API；连续转换只在 adc/v4x7 的 read_dma 内部启用，
 // 没有公开配置接口。数据层不提供 resolution/continuous 参数（标「待核实」，不臆造）。
+import { mergeClockConfig } from '@/model/clock'
 import type { DeviceData, ProjectConfig } from '@/model/types'
 import type { PeripheralUsage } from '@/model/peripherals'
 import { enabledUsage } from '@/model/peripherals'
@@ -27,10 +28,8 @@ export function renderAdc(
   // 上游均未核实，X035 的 0b11=÷8 仅为 HAL 注释假设——生成注释如实标注边界。
   // 等于缺省或未设置时保持 Default::default()（输出与历史逐字节一致）。
   const clkDivSpec = data.clock.peripheralClocks?.adc?.clkDiv
-  const adcClkDiv =
-    adcApi !== 'v4x7' && clkDivSpec?.programmable && config.clock?.adcClkDiv !== undefined && config.clock.adcClkDiv !== clkDivSpec.default
-      ? config.clock.adcClkDiv
-      : undefined
+  const div = mergeClockConfig(data.clock, config.clock).adcClkDiv
+  const adcClkDiv = adcApi !== 'v4x7' && clkDivSpec?.programmable && div !== clkDivSpec.default ? div : undefined
 
   const instances = insts.map((u) => {
     const typeName = typeNameOf(u.id)

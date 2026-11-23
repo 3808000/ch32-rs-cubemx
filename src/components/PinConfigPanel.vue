@@ -4,7 +4,7 @@ import { computed, ref } from 'vue'
 import { Delete, Unlock } from '@element-plus/icons-vue'
 import { useProjectStore } from '@/controllers/project'
 import { remapsOfPin, remapValuesFor } from '@/model/device'
-import { usePinOverwrite } from '@/model/pins/pinOverwrite'
+import { usePinOverwrite } from '@/components/pinout/usePinOverwrite'
 import type { PinMode } from '@/model/types'
 import SignalsSelector from '@/components/pinout/SignalsSelector.vue'
 

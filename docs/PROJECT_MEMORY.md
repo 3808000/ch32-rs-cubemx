@@ -15,7 +15,7 @@
 - **model/**（领域层，纯函数、无 UI/Vue/Pinia 依赖）
   - `types/`：ProjectConfig / 数据层 schema / Conflict / CodegenSelection 全部类型。
   - `device.ts`：器件注册表 + Lookup（remapsOfPin/pinsOfSignal/remapValuesFor/extiOfPin…）。新增芯片在此 register。
-  - `clock/`：`index.ts`（computeClock/validateClock/solvePll/mergeClockConfig/matchPreset…）+ `tree/`（节点模型 + SVG 布局）。
+  - `clock/`：`index.ts` 为统一入口，`config.ts` / `frequency.ts` / `validation.ts` / `solver.ts` 分别负责配置、计算、校验和求解。图形模型与布局在 `tree/`。
   - `conflicts/`：checkConflicts + 规则模块（pin/clock/peripheral/exti 分族）。
   - `pins/`：allocation（分配枚举）/ usage（使用归并）/ groups（分组单归属）/ pinOverwrite（覆盖确认，纯函数）。
   - `package.ts`：computePackageGeometry(chip,rotation) dual/quad + pinColors。
@@ -27,7 +27,7 @@
   - `projectFile.ts`：cube.json 解析/序列化/下载（桌面走原生另存为）。
   - `desktop.ts`：Tauri 桥（isDesktopApp/saveFileNative/pickFolderNative/writeFolderNative）。
   - `monaco.ts`：Monaco 异步加载 + 语言映射。
-- **controllers/**：`project.ts`（Pinia）assignments/groups/clock/peripherals/features/unlocked/selectedPin/activeView/dirty/lastExportSnapshot；config getter 组装 ProjectConfig；conflicts getter 跑 checkConflicts；save/restore 委托 projectStorage。
+- **controllers/**：`project.ts`（Pinia）assignments/groups/clock/peripherals/features/unlocked/selectedPin/activeView/dirty/lastExportSnapshot；config getter 组装 ProjectConfig；conflicts getter 跑 checkConflicts；save/restore 委托 projectStorage。引脚覆盖快照由工程 store 持有，确认和提示由 `components/pinout/usePinOverwrite.ts` 处理。
 - **views/**：HomeView / PinoutView / ClockView / PeripheralsView。
 - **components/**：骨架（AppShell/TabStrip/IconRail/StatusBar）、Pinout（PackageCanvas/PinTable/PinConfigPanel/ConflictsPanel）、Clock（ClockCanvas + 子组件 / ClockDetail）、Peripherals（PeripheralList/PeripheralConfigCard + 参数子组件 + 分配面板）、CodePreviewPanel（Monaco 只读+diff）、CodegenDialog（导出，纯视图）。
 - `data/devices/<chip>/`：chip/remap/exti/clock/peripherals/interrupts/dma 七份 JSON。

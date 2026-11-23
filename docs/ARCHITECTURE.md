@@ -71,56 +71,22 @@ controllers ✗→ views / components
 1. **只允许向下**：依赖方向固定为 `views/components → controllers → services → model`。下层不得 import 上层任何文件。
 2. **同层可互引**：`model/` 内模块互相引用（如 `conflicts` 用 `clock`）是允许的；`services/projectFile.ts` 用 `services/desktop.ts` 也允许。
 3. **跨层可越级，但只能向下**：视图可直接用 `model` 的纯函数、`services` 的文件能力，不必每件事都经过 controller；但 `model` 永远不能回头拿 store 或 UI。
-4. **统一别名**：跨层 import 用 `@/model/...`、`@/controllers/...`。ESLint 规则基于 `@/` 别名匹配，相对路径的跨层引用不会被自动拦截（由 review 兜底）。
+4. **统一别名**：跨层 import 使用 `@/model/...`、`@/controllers/...`。ESLint 按解析后的目录判断依赖层级，覆盖别名、相对路径、重导出和字面量动态导入。
 5. **类型导入同样受限**：即使 `import type { X } from '@/controllers/...'` 也会被拦截，避免类型层面的隐性耦合。
 
 ### 4.2 状态访问 = 参数注入
 
-model 层需要“读当前配置 / 写回配置”时，用**接口参数注入**，由调用方（views/components）传值，而不是 import store。
+model 层通过函数参数接收配置，返回计算结果或操作建议。控制层负责更新工程状态。组件从控制层读取结果并处理对话框、提示等交互。
 
-示例：`src/model/pins/pinOverwrite.ts`
-
-```ts
-export interface PinOverwriteDeps {
-  assignmentOf: (pin: string) => PinAssignment | undefined
-  setPinAssignment: (pin: string, mode: PinMode, opts?: {...}) => void
-  clearPin: (pin: string) => void
-}
-
-export function usePinOverwrite(deps: PinOverwriteDeps) { /* ... */ }
-```
-
-调用方（组件内）把自己持有的 store 作为实现传入：
-
-```ts
-const store = useProjectStore()
-const { requestOverwrite } = usePinOverwrite(store)
-```
-
-这样 model 不知道 Pinia 的存在，撤回/覆盖逻辑仍可单测。
-
-> 已知妥协：`pinOverwrite.ts` 位于 model 层，但会调用 Element Plus 的 `ElMessageBox/ElMessage` 做确认与提示。这是为了保证“所有覆盖操作走同一条确认 + 撤回通道”。它已不再依赖 store，若未来要求 model 绝对不含 UI 库，可把该组合式函数移到 `controllers/`（或新建 `composables/`），行为不变。
+引脚覆盖沿用 `usePinOverwrite`。组件收到确认后调用工程 store 的 `applyPinOverwrite`，由 store 记录修改前的引脚快照。工程加载、切换芯片和重置引脚会清空该工程的引脚覆盖历史。全局撤回通过同一套配置加载动作清理覆盖历史。
 
 ### 4.3 ESLint 强制
 
-规则在 `eslint.config.js` 中，用 flat config 按目录作用域 + 核心规则 `no-restricted-imports` 的 `patterns.regex` 实现。
-（核心规则没有 `zones` 选项——`zones` 属于 `eslint-plugin-import`；此写法等价，且不引入重量级插件。）
+`eslint.config.js` 的 `app/layer-boundary` 按文件路径识别层级，检查普通导入、类型导入、重导出和字面量动态导入。模型层禁止依赖 Vue、Pinia、Element Plus 和 Tauri。新增层时在 `forbiddenLayers` 中更新依赖边界。
 
-```js
-layerBoundary('app/layer-model', ['src/model/**/*.{ts,mts,tsx,vue}'],
-  ['controllers', 'views', 'components', 'services'],
-  'model 层必须保持纯净：禁止 import controllers/views/components/services，请改为参数注入或把代码上移。')
+### 4.4 时钟模型
 
-layerBoundary('app/layer-services', ['src/services/**/*.{ts,mts,tsx,vue}'],
-  ['controllers', 'views', 'components'], '…')
-
-layerBoundary('app/layer-controllers', ['src/controllers/**/*.{ts,mts,tsx,vue}'],
-  ['views', 'components'], '…')
-```
-
-- `src/views/**`、`src/components/**` 不设限制（可调任意下层）。
-- 新增层（如 `src/composables/`）时：在 `eslint.config.js` 追加一条 `layerBoundary(...)`，并把该层加入需要约束的上层的禁止列表。
-- 门禁：`npx eslint .` 必须 0 error。
+`src/model/clock/index.ts` 保留统一调用入口。配置默认值、锁定与预设在 `config.ts`，频率计算在 `frequency.ts`，物理与 HAL 限制在 `validation.ts`，目标频率求解及自动修复在 `solver.ts`。`tree/` 分别处理控件写回、图的构建和画布布局。图形模型和 HAL 导出复用同一套数据与规则，生效的 HAL 后端由 `src/model/halBackend.ts` 统一解析。
 
 ## 5. 新代码放哪：决策表
 
@@ -134,7 +100,7 @@ layerBoundary('app/layer-controllers', ['src/controllers/**/*.{ts,mts,tsx,vue}']
 | 新增/修改领域类型、ProjectConfig schema | `src/model/types/`（按领域拆分，`index.ts` 统一导出） | 全层共享的唯一类型源；对外始终 `import ... from '@/model/types'` |
 | 新增浏览器/桌面能力（文件、下载、Tauri、Monaco） | `src/services/` | 只做宿主适配，不持有业务状态、不 import 视图 |
 | 新增跨视图共享的状态或动作（选中项、脏标记、保存） | `src/controllers/project.ts` | 单一 store；getter 组装 config/conflicts，action 负责改状态 + `markDirty()` |
-| 新增需要确认/撤回的破坏性操作 | 复用 `src/model/pins/pinOverwrite.ts`（deps 注入） | 覆盖已有配置一律走 `requestOverwrite`；批量重置后 `clearUndo()` |
+| 新增需要确认/撤回的破坏性操作 | 复用 `src/components/pinout/usePinOverwrite.ts` | 调用 `requestOverwrite` 发起确认，由工程 store 执行覆盖并维护撤回记录 |
 | 新增页面（Tab/视图） | `src/views/` + 在 `App.vue`/`TabStrip`/`IconRail` 注册 | 页面级布局；业务面板拆到 components |
 | 新增可复用面板/对话框/控件 | `src/components/` | 无领域依赖的原子控件放 `src/components/common/` |
 | 新增组合式逻辑（需要 store + 生命周期） | 优先放 `src/controllers/`；确属展示逻辑可留在组件内 | 不要把 store 访问塞进 model |
@@ -176,7 +142,7 @@ layerBoundary('app/layer-controllers', ['src/controllers/**/*.{ts,mts,tsx,vue}']
 | `controllers/` 里 `import X from '@/components/X.vue'` | 控制层耦合视图 | store 只暴露状态与 action，视图自行渲染 |
 | 组件里手写芯片差异 `if (chip === 'CH32V003F4P6')` | 破坏数据驱动 | 把差异写进 `data/devices/**`，用字段表达 |
 | 视图各自 `ref()` 一份配置 | 多状态源、难同步 | 统一读 `useProjectStore()` |
-| 覆盖引脚不弹确认、不入撤回栈 | 用户误操作不可恢复 | 一律走 `usePinOverwrite`；批量重置后 `clearUndo()` |
+| 覆盖引脚不弹确认、不入撤回栈 | 用户误操作不可恢复 | 一律走 `usePinOverwrite`，撤回记录随工程更新 |
 
 ## 8. 门禁与检查清单
 
@@ -184,7 +150,7 @@ layerBoundary('app/layer-controllers', ['src/controllers/**/*.{ts,mts,tsx,vue}']
 
 ```bash
 npx vue-tsc --noEmit   # 类型
-npx vitest run         # 单元测试（当前 380 用例）
+npx vitest run         # 单元测试
 npx eslint .           # 含分层边界规则，0 error
 ```
 

@@ -410,10 +410,10 @@ describe('ADC 节点：raw 不编造 MHz / 枚举映射 / CK32M', () => {
     expect(n.actualMhz).toBeNull()
   })
 
-  it('X035 raw：输入=SYSCLK/8（现有 CLK_DIV 缺省模型 6MHz），actual=null', () => {
+  it('X035 raw：输入来自固定 48MHz SYSCLK，CLK_DIV 编码未经证实，输出留空', () => {
     const { nodes } = run(x035)
     const n = node(nodes, 'ADC1')
-    expect(n.inMhz).toBe(6)
+    expect(n.inMhz).toBe(48)
     expect(n.requested).toBe(3)
     expect(n.dividerLabel).toBe('raw 3 (0b0011)')
     expect(n.actualMhz).toBeNull()
