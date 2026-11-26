@@ -162,6 +162,38 @@ export interface PeripheralsData {
   spi: SpiInstance[]
   i2c: I2cInstance[]
   adc: AdcInstance[]
+  /** M19：片上 BLE 外设能力（无 AF 引脚分配；仅声明实例、后端与占用资源）。 */
+  ble?: BleCapability
+}
+
+/** BLE 生成后端：同一份 BleConfig 可落到不同协议栈实现。 */
+export interface BleBackendSpec {
+  /** 稳定标识（shim = 现有 WCH blob 封装；wchble = Controller+Trouble） */
+  id: string
+  label: string
+  /** 当前生成器是否已能导出该后端（false = 接入中，仅展示/预览） */
+  exportable: boolean
+  notes?: string
+}
+
+/** M19：数据驱动的 BLE 外设实例与资源声明。 */
+export interface BleCapability {
+  /** 外设实例 id（Peripherals 列表/工作区使用），如 "BLE" */
+  instance: string
+  /** 分类标签，缺省 Wireless */
+  category?: string
+  /** 支持的 GAP 角色（与 BleConfig.role 枚举一致） */
+  roles: string[]
+  backends: BleBackendSpec[]
+  /** 占用的中断（如 BLEB/BLEL），用于冲突与资源展示 */
+  interrupts: string[]
+  /** 占用的 LLE 计时器（如 TMR0/TMR1/TMR2） */
+  timers?: string[]
+  /** 占用的 DMA/内存资源说明 */
+  dma?: string[]
+  /** 运行前置条件 */
+  requires?: { lse?: boolean; embassy?: boolean }
+  notes?: string
 }
 
 export interface IrqEntry {

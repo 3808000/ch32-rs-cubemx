@@ -65,12 +65,41 @@ export function isValidBleMac(mac: string | undefined): boolean {
 }
 
 export function runBleRules(ctx: ConflictContext): void {
-  const { config, pins, peripherals, push } = ctx
+  const { config, data, pins, peripherals, push } = ctx
 
   // 未启用 BLE → 零冲突（所有 BLE 规则的前置条件）
   if (!config.features?.ble) return
 
   const ble = config.ble ?? DEFAULT_BLE_CONFIG
+  const cap = data.peripherals.ble
+
+  // ---- M19：数据声明的实例能力与资源 ----
+  if (cap) {
+    if (!cap.roles.includes(ble.role)) {
+      push({
+        code: 'BLE_ROLE_UNSUPPORTED',
+        level: 'error',
+        message: `${data.chip.chip} 的 BLE 后端不支持角色「${ble.role}」（可用：${cap.roles.join('、')}）`,
+      })
+    }
+    const disabledIrqs = (config.interrupts ?? [])
+      .filter((i) => cap.interrupts.includes(i.irq) && !i.enabled)
+      .map((i) => i.irq)
+    if (disabledIrqs.length > 0) {
+      push({
+        code: 'BLE_IRQ_DISABLED',
+        level: 'error',
+        message: `BLE 依赖 ${disabledIrqs.join('、')} 中断，但 NVIC 配置已将其禁用；请恢复中断或关闭 BLE`,
+      })
+    }
+    if (cap.requires?.lse && (ble.clock32k ?? 'lse') === 'lsi') {
+      push({
+        code: 'BLE_LSI_CLOCK',
+        level: 'warning',
+        message: 'BLE 32K 选择 LSI（内部 RC）：未移植 LSI 校准，连接稳定性未保证；建议改用 LSE 外部 32.768kHz 晶振',
+      })
+    }
+  }
 
   // ---- D2 运行时耦合：ble ⇒ embassy（生成期兜底；导入不一致的工程会报错） ----
   if (!config.features.embassy) {

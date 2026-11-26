@@ -186,3 +186,4 @@
 - 目标按 CubeMX 交付验收。先做 19.2 的 `wchble` 连接控制器和 19.3 的 Trouble GATT，再联合验收 19.1、19.4 的 Peripherals 工作区和 Rust 导出。复用 `features.ble`/`BleConfig` 与工程持久化。默认切换走 19.5 的配对、安全、内存及兼容门禁。见 [M19 正式接入契约](M19_NATIVE_BLE_CONTRACT.md)。
 - [wchble PR #34](https://github.com/ch32-rs/wchble/pull/34) 已提交。`927bf9e` 的最终镜像由 BlueZ 独立发现，CH582M 37/38/39 各 175 次 TX 完成，受控对端 RX 标记 4/2/6。该提交覆盖轮询 1M，连接和 CH583M 实机单列。完整镜像哈希及验证步骤在 PR 正文。
 - CubeMX 现有 shim 的定向回归 170 项通过，`npm run verify:build -- --chip CH582M --ble` 成功。`ble-native/` 已退役，新固件与回归统一走 `wchble`。[原生 BLE 历史基线](m19-native-ble-baseline.md)
+- **19.1 入口（2026-11-26）**：`peripherals.ble` 数据声明 + Peripherals Wireless/BLE 列表 + `BleWorkspaceView`（GAP/32K/MAC/UUID/后端资源，Enable/Deactivate）+ 数据驱动设置页可见性 + BLE 资源/角色/时钟冲突规则；浏览器实测启用与设置跳转；`wchble` 导出与实机 GATT 仍待 19.2–19.4。

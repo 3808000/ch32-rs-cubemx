@@ -57,7 +57,9 @@ const allIds = computed(() => derivePeriCategories(store.deviceData).flatMap((c)
 
 // 概览统计
 const activeCount = computed(
-  () => derivePeripheralUsage(store.config, store.deviceData).filter((u) => u.enabled).length,
+  () =>
+    derivePeripheralUsage(store.config, store.deviceData).filter((u) => u.enabled).length +
+    (store.deviceData.peripherals.ble && store.config.features.ble ? 1 : 0),
 )
 
 function collapseAll() {

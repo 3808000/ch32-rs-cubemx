@@ -106,5 +106,18 @@
       }
     }
   ],
-  "notes": "实例名与 remap 全部来自 ch58x-hal（commit 611954e）各驱动 pin_trait_impl/impl_pin（UART0-3、SPI0、I2C、ADC），与数据手册引脚复用一致（PB12/PB13 同时承载 SPI0 remap1 与 I2C remap0，PB20/PB21 同时承载 UART3 remap1 与 I2C remap1，属 CH582 真实复用）。参数名逐字对应 ch58x-hal Config 字段/枚举变体：uart.rs Config{baudrate, data_bits: DataBits(DataBits5-8), stop_bits: StopBits(STOP1/STOP2), parity: Parity(ParityNone/Even/Odd/Mark/Space)}（默认 115200/8/STOP1/None，上限 6Mbps 来自数据手册 §9，min=300 为 UI 保护值、手册未规定下限）；spi.rs Config{clock_polarity: Polarity(IdleLow/IdleHigh), bit_order: BitOrder(MsbFirst/LsbFirst), frequency}（SCK 上限=系统主频一半，数据手册 §1）；i2c.rs Config{frequency(默认 100k), duty: Duty(Duty2_1/Duty16_9)，100k/400k 两速度模式为数据手册 §16 口径}；adc.rs Config{clk: SamplingClock(_3_2MHz/_8MHz/_5_33MHz/_4MHz，Config::default 取 _3_2MHz), pga_gain: Gain(GAIN1_4/GAIN1_2/GAIN1/GAIN2)}。ADC 通道号取自 impl_adc_pin!（PA4=ch0…PA9=ch13），与数据手册 AIN0-AIN13 一致；内部通道 Temperature/Vbat（AdcPin for Temperature/Vbat）与 bool 型 Config 字段（diff_en/buf_en、I2C sda_pullup/scl_pullup）未建模。M17：ch5xx-hal（875651b6）adc.rs impl_channel! 的 PA4=ch0…PA9=ch13 与本表逐项一致（PA0=9/PA1=8/PA2=7/PA3=6 顺序为 HAL 定义，数据层 ADC_IN6…IN9 亦一致）；ch5xx I2C 配置无 sda_pullup/scl_pullup 字段（构造时内部上拉输入，外部上拉必需），本数据层无上拉参数，无需忽略；ch5xx 的 I2C 外设在 HAL/metapac 中名为 I2C0（数据层 id 仍为 ch58x 的 I2C，生成器映射到 p.I2C0）。"
+  "notes": "实例名与 remap 全部来自 ch58x-hal（commit 611954e）各驱动 pin_trait_impl/impl_pin（UART0-3、SPI0、I2C、ADC），与数据手册引脚复用一致（PB12/PB13 同时承载 SPI0 remap1 与 I2C remap0，PB20/PB21 同时承载 UART3 remap1 与 I2C remap1，属 CH582 真实复用）。参数名逐字对应 ch58x-hal Config 字段/枚举变体：uart.rs Config{baudrate, data_bits: DataBits(DataBits5-8), stop_bits: StopBits(STOP1/STOP2), parity: Parity(ParityNone/Even/Odd/Mark/Space)}（默认 115200/8/STOP1/None，上限 6Mbps 来自数据手册 §9，min=300 为 UI 保护值、手册未规定下限）；spi.rs Config{clock_polarity: Polarity(IdleLow/IdleHigh), bit_order: BitOrder(MsbFirst/LsbFirst), frequency}（SCK 上限=系统主频一半，数据手册 §1）；i2c.rs Config{frequency(默认 100k), duty: Duty(Duty2_1/Duty16_9)，100k/400k 两速度模式为数据手册 §16 口径}；adc.rs Config{clk: SamplingClock(_3_2MHz/_8MHz/_5_33MHz/_4MHz，Config::default 取 _3_2MHz), pga_gain: Gain(GAIN1_4/GAIN1_2/GAIN1/GAIN2)}。ADC 通道号取自 impl_adc_pin!（PA4=ch0…PA9=ch13），与数据手册 AIN0-AIN13 一致；内部通道 Temperature/Vbat（AdcPin for Temperature/Vbat）与 bool 型 Config 字段（diff_en/buf_en、I2C sda_pullup/scl_pullup）未建模。M17：ch5xx-hal（875651b6）adc.rs impl_channel! 的 PA4=ch0…PA9=ch13 与本表逐项一致（PA0=9/PA1=8/PA2=7/PA3=6 顺序为 HAL 定义，数据层 ADC_IN6…IN9 亦一致）；ch5xx I2C 配置无 sda_pullup/scl_pullup 字段（构造时内部上拉输入，外部上拉必需），本数据层无上拉参数，无需忽略；ch5xx 的 I2C 外设在 HAL/metapac 中名为 I2C0（数据层 id 仍为 ch58x 的 I2C，生成器映射到 p.I2C0）。",
+  "ble": {
+    "instance": "BLE",
+    "category": "Wireless",
+    "roles": ["peripheral", "broadcaster", "observer"],
+    "backends": [
+      { "id": "shim", "label": "ch5xx-ble shim（WCH blob）", "exportable": true, "notes": "现有生成路径；ch5xx-hal 包装 LIBCH58xBLE.a" },
+      { "id": "wchble", "label": "wchble + Trouble（无 blob）", "exportable": false, "notes": "M19 接入中：CH582M LinkRadio + 软 HCI + Trouble Host；实机验收后开放导出" }
+    ],
+    "interrupts": ["BLEB", "BLEL"],
+    "timers": ["TMR0", "TMR1", "TMR2"],
+    "requires": { "lse": true, "embassy": true },
+    "notes": "CH582/583 片上 BLE：无 AF 引脚；32K 低频域独立，LSE 为连接稳定性缺省。"
+  }
 }

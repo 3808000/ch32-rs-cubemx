@@ -30,8 +30,8 @@ const backend = computed(() => store.effectiveHalBackend)
 const isCh5xx = computed(() => backend.value === 'ch5xx-hal')
 /** legacy ch58x 后端被选中（仅 CH582 等声明 legacyHalBackend 的芯片可能为 true）。 */
 const isCh58x = computed(() => backend.value === 'ch58x-hal')
-/** 芯片是否有 BLE 能力（CH58x 家族）：与当前选择的后端无关，BLE 节可见性使用。 */
-const supportsBle = computed(() => !!chip.value.legacyHalBackend || (chip.value.halBackend ?? '') === 'ch58x-hal')
+/** M19：芯片是否有 BLE 能力由数据声明（peripherals.ble）决定，与当前 HAL 后端无关。 */
+const supportsBle = computed(() => !!store.deviceData.peripherals.ble)
 const toolchain = computed(() => {
   // ch5xx：nightly + rust-src（[unstable] build-std=core，三档一致）
   if (isCh5xx.value) return 'nightly + rust-src（build-std=core）'
@@ -61,7 +61,7 @@ const embassySupported = computed(() => !(chip.value.unsupportedFeatures ?? []).
 /** ch5xx/ch58x 都属于 CH58x 家族后端：Runtime 面板显示额外能力边界标注。 */
 const isCh58xFamily = computed(() => isCh5xx.value || isCh58x.value)
 
-// ---- BLE（M12，仅 ch58x-hal 后端显示；数据驱动写 store.ble） ----
+// ---- BLE（M12/M19：数据声明的片上外设；数据驱动写 store.ble） ----
 const BLE_GAP_NAME_MAX = 248
 const bleEnabled = computed(() => store.features.ble)
 const bleNameBytes = computed(() => new TextEncoder().encode(store.ble.deviceName ?? '').length)
@@ -87,7 +87,7 @@ function setDebugPrint(v: boolean) {
   store.setFeatures({ debugPrint: v })
 }
 
-// ---- BLE（M12，仅 ch58x-hal 后端显示；数据驱动写 store.ble） ----
+// ---- BLE（M12/M19：数据声明的片上外设；数据驱动写 store.ble） ----
 const bleRoleOptions: { value: BleConfig['role']; label: string; desc: string }[] = [
   { value: 'peripheral', label: 'peripheral', desc: '可连接从机：广播 + 简单 GATT 服务（read/notify + write）' },
   { value: 'broadcaster', label: 'broadcaster', desc: '只广播不连接：adv 短名 + 厂商数据 + 扫描响应完整名' },

@@ -382,7 +382,7 @@
 | # | 交付 | 验收 |
 |---|---|---|
 | 19.0 | `wchble` CH582M 1M 轮询 RF PR | 最终 ELF 校验烧录，BlueZ 发现广播，三信道收到受控对端，提交上游评审 |
-| 19.1 | CubeMX BLE 外设入口（与 `wchble` 导出联调） | Peripherals 启停、参数、工程往返、冲突、导出和 CH582M GATT 实机 |
+| 19.1 | CubeMX BLE 外设入口（与 `wchble` 导出联调） | ✅ 数据声明/列表/工作区/启停/冲突/浏览器验收（2026-11-26）；⏳ `wchble` 导出与 CH582M GATT 实机待 19.2–19.4 |
 | 19.2 | CH582M `LinkRadio` 与 LLE 调度 | CONNECT_IND、625 µs 时基、CSA#1、SN/ACK、30 分钟连接与超时恢复 |
 | 19.3 | 软 HCI、Trouble GATT 与 RAM | ATT MTU 64 逐字节验收、断连清理、重连及 RAM 高水位 |
 | 19.4 | CubeMX 可选无 blob 后端 | Web ZIP、目录与 CLI 真实导出编译，生成固件通过 CH582M 实机验收 |

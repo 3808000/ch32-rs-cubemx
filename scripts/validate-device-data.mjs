@@ -192,6 +192,35 @@ function validateDevice(dir) {
 
   // ---- 4. exti.json ----
   const irqNames = new Set(interrupts.irqs.map((i) => i.name))
+
+  // ---- 3b. BLE 能力声明（可选；M19 数据驱动外设入口） ----
+  if (peripherals.ble !== undefined) {
+    const ble = peripherals.ble
+    const ids = new Set(
+      [...(peripherals.usart ?? []), ...(peripherals.spi ?? []), ...(peripherals.i2c ?? []), ...(peripherals.adc ?? [])].map(
+        (i) => i.id,
+      ),
+    )
+    if (typeof ble.instance !== 'string' || ble.instance.trim() === '') err('peripherals.json', 'ble.instance 必须是非空字符串')
+    else if (ids.has(ble.instance)) err('peripherals.json', `ble.instance ${ble.instance} 与已有外设 id 重复`)
+    const roles = ['peripheral', 'broadcaster', 'observer']
+    if (!Array.isArray(ble.roles) || ble.roles.length === 0) err('peripherals.json', 'ble.roles 必须是非空数组')
+    else for (const r of ble.roles) if (!roles.includes(r)) err('peripherals.json', `ble.roles 含非法角色 ${r}`)
+    if (!Array.isArray(ble.backends) || ble.backends.length === 0) err('peripherals.json', 'ble.backends 必须是非空数组')
+    else
+      for (const b of ble.backends) {
+        if (typeof b.id !== 'string' || b.id.trim() === '') err('peripherals.json', 'ble.backends[].id 必须是非空字符串')
+        if (typeof b.label !== 'string' || b.label.trim() === '') err('peripherals.json', `ble.backends ${b.id}: label 必须是非空字符串`)
+        if (typeof b.exportable !== 'boolean') err('peripherals.json', `ble.backends ${b.id}: exportable 必须是布尔`)
+      }
+    if (!Array.isArray(ble.interrupts) || ble.interrupts.length === 0) err('peripherals.json', 'ble.interrupts 必须是非空数组')
+    else for (const irq of ble.interrupts) if (!irqNames.has(irq)) err('peripherals.json', `ble 中断 ${irq} 不在 interrupts.json`)
+    if (ble.requires !== undefined) {
+      if (typeof ble.requires !== 'object') err('peripherals.json', 'ble.requires 必须是对象')
+      else for (const [k, v] of Object.entries(ble.requires)) if (typeof v !== 'boolean') err('peripherals.json', `ble.requires.${k} 必须是布尔`)
+    }
+    ok(`BLE ${ble.instance}: ${ble.roles.length} 角色 / ${ble.backends.length} 后端 / 中断 ${ble.interrupts.join(',')}`)
+  }
   for (const e of exti.entries) {
     const pin = pinByName.get(e.pin)
     if (!pin) {

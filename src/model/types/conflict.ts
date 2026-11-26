@@ -41,6 +41,9 @@ export type ConflictCode =
   | 'BLE_LOG_SERIAL_UNAVAILABLE'
   | 'BLE_NAME_TOO_LONG'
   | 'BLE_MAC_INVALID'
+  | 'BLE_ROLE_UNSUPPORTED'
+  | 'BLE_IRQ_DISABLED'
+  | 'BLE_LSI_CLOCK'
 
 export interface Conflict {
   code: ConflictCode

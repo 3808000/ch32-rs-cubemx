@@ -7,6 +7,7 @@ import { useProjectStore } from '@/controllers/project'
 import { categoryOfPeripheral } from '@/model/device'
 import { derivePeripheralUsage } from '@/model/peripherals'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import BleWorkspaceView from './BleWorkspaceView.vue'
 import PeripheralConfigCard from '@/components/PeripheralConfigCard.vue'
 import {
   findPeripheralInstance,
@@ -23,6 +24,9 @@ const props = defineProps<{ id: string }>()
 
 const store = useProjectStore()
 const cardRef = ref<PeripheralConfigCardApi | null>(null)
+
+/** M19：BLE 无 AF 引脚，走独立工作区（数据声明存在才启用）。 */
+const isBle = computed(() => store.deviceData.peripherals.ble?.instance === props.id)
 
 const instance = computed(() => findPeripheralInstance(store.deviceData.peripherals, props.id))
 const usage = computed(() => derivePeripheralUsage(store.config, store.deviceData).find((u) => u.id === props.id) ?? null)
@@ -112,7 +116,8 @@ async function confirmDeactivate() {
 </script>
 
 <template>
-  <div class="ws-view">
+  <BleWorkspaceView v-if="isBle" :id="id" />
+  <div v-else class="ws-view">
     <!-- 页头：返回 + 分类/名称 + 状态 + mode + 文档 + Deactivate -->
     <div class="ws-head">
       <div class="ws-head-left">

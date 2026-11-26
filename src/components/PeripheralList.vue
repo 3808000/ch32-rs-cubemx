@@ -33,6 +33,9 @@ export function derivePeriCategories(data: DeviceData): PeriCategory[] {
 
   const out: PeriCategory[] = []
   if (connectivity.length) out.push({ key: 'connectivity', label: 'Connectivity', ids: connectivity })
+  // M19：片上 BLE（无 AF 引脚，实例与后端来自数据；未声明 ble 的芯片不显示入口）
+  const ble = data.peripherals.ble
+  if (ble) out.push({ key: 'wireless', label: ble.category ?? 'Wireless', ids: [ble.instance] })
   if (analog.length) out.push({ key: 'analog', label: 'Analog', ids: analog })
   const timers = extras.get('timers') ?? []
   if (timers.length) out.push({ key: 'timers', label: 'Timers', ids: [...timers].sort() })
@@ -67,6 +70,8 @@ const categories = computed(() => derivePeriCategories(store.deviceData))
 const enabledMap = computed(() => {
   const m = new Map<string, boolean>()
   for (const u of derivePeripheralUsage(store.config, store.deviceData)) m.set(u.id, u.enabled)
+  const ble = store.deviceData.peripherals.ble
+  if (ble) m.set(ble.instance, store.config.features.ble === true)
   return m
 })
 

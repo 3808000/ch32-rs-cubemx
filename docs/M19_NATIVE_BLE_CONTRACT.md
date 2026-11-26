@@ -35,6 +35,12 @@
 
 主线顺序为 19.2 → 19.3 → 19.1 与 19.4 联合验收。主动扫描、Central、多连接、2M/Coded、无外部 32K 晶振的运行、扩展广播、RF 温补／DTM及其他芯片按各自验证情况排期。
 
+### 19.1 进展（2026-11-26）
+
+- 已完成：`data/devices/ch582m/peripherals.json` 的 `ble` 能力声明（instance / roles / backends / interrupts / timers / requires）；Peripherals 列表新增 **Wireless → BLE**（数据驱动，无 BLE 声明的芯片不显示）；新 `BleWorkspaceView` 复用 `features.ble` / `BleConfig`，覆盖角色、设备名、广播间隔、32K、MAC、UUID、后端与资源展示，并支持 Enable/Deactivate；Project Settings 的 BLE 节可见性改为数据驱动；冲突规则新增 `BLE_ROLE_UNSUPPORTED` / `BLE_IRQ_DISABLED` / `BLE_LSI_CLOCK`；`validate-device-data` 校验 ble 节 schema。
+- 浏览器实测：CH582M 工程 → Peripherals → Wireless/BLE → Enable BLE 后状态 Active、GAP/后端资源表单完整、可跳转 Project Settings BLE 节。
+- 待完成：`wchble` 生成后端的导出接线（19.4）与 ZIP/目录导出 → 烧录 → BlueZ FFE0/FFE1/FFE2 实机联调（依赖 19.2/19.3）。
+
 ## 4. 代码落点与验收记录
 
 | 领域 | 接入点与验证 |

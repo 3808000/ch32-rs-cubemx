@@ -16,6 +16,8 @@ const categories = computed(() => derivePeriCategories(store.deviceData))
 const enabledMap = computed(() => {
   const m = new Map<string, boolean>()
   for (const u of derivePeripheralUsage(store.config, store.deviceData)) m.set(u.id, u.enabled)
+  const ble = store.deviceData.peripherals.ble
+  if (ble) m.set(ble.instance, store.config.features.ble === true)
   return m
 })
 
