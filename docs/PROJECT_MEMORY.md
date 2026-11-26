@@ -187,4 +187,6 @@
 - [wchble PR #34](https://github.com/ch32-rs/wchble/pull/34) 已提交。`927bf9e` 的最终镜像由 BlueZ 独立发现，CH582M 37/38/39 各 175 次 TX 完成，受控对端 RX 标记 4/2/6。该提交覆盖轮询 1M，连接和 CH583M 实机单列。完整镜像哈希及验证步骤在 PR 正文。
 - CubeMX 现有 shim 的定向回归 170 项通过，`npm run verify:build -- --chip CH582M --ble` 成功。`ble-native/` 已退役，新固件与回归统一走 `wchble`。[原生 BLE 历史基线](m19-native-ble-baseline.md)
 - **19.1 入口（2026-11-26）**：`peripherals.ble` 数据声明 + Peripherals Wireless/BLE 列表 + `BleWorkspaceView`（GAP/32K/MAC/UUID/后端资源，Enable/Deactivate）+ 数据驱动设置页可见性 + BLE 资源/角色/时钟冲突规则；浏览器实测启用与设置跳转；`wchble` 导出与实机 GATT 仍待 19.2–19.4。
+- **19.2 PASS（2026-11-26）**：预置 TX（wchble e06ffce）后 CH582M 30 分钟空闲 ACL 1800.06 s；late 4.8%（1528/32067）、retry 53.5%、err=0；宿主退出后 `closed=0x08`。WCH halt 不可靠 → 一次性 silence-test 固件注入 6 s 静默，板端 `closed=0x08@8.08s`，重新广播，第二连接 10.01 s。
+- **19.3 阻塞（2026-11-26）**：Trouble GATT 固件启动到 `wch582-gatt ready` 后 panic 于 `embassy-sync Channel::lock`（re-entrant try_borrow_mut）；link-flash + SoftRunner 栈化把静态 RAM 从 27.8 KiB 降到 9.2 KiB、栈 4.9→23.0 KiB，证明内存不是瓶颈；待修 HCI/Trouble pump 借用顺序。
 - **19.4 后端字段（2026-11-26）**：`BleConfig.backend`（shim/wchble，缺省 shim 且旧工程不写字段）+ 工作区/设置页后端选择（wchble 置灰）+ `BLE_BACKEND_UNSUPPORTED`；wchble 生成模板/导出待 19.2/19.3。

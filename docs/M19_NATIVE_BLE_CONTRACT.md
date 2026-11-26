@@ -28,8 +28,8 @@
 |---|---|---|
 | **19.0 射频贡献** | 已提交 [wchble #34](https://github.com/ch32-rs/wchble/pull/34)。提交含三点调谐、轮询 DMA、停止确认、校准超时及可复现 smoke。 | PR 等待上游评审。留存最终 ELF 哈希、UART、独立 BlueZ 发现与逐信道 RX；硬件异常路径与逐信道 TX 时间继续单列。 |
 | **19.1 CubeMX 外设入口** | 在设备数据声明 BLE 实例和兼容路径。接入 Peripherals 列表、启用/停用、单实例工作区、状态、冲突和预览。复用设置页现有字段，与 19.4 的 `wchble` 生成链联调。 | CH582M 新旧工程往返；未支持的芯片不显示入口；停用后的导出移除 BLE；浏览器实际 ZIP 或目录导出、构建并烧录，用 BlueZ 验证 FFE0/FFE1/FFE2 发现、读写、通知与断连后恢复广播。 |
-| **19.2 CH582M 连接控制器** | 将现有 2 MHz LLE 计数、TMR0/1 时基、TMR2 截止、RX 捕获和 BLEL 接入 `LinkRadio` 与单连接引擎。以 1250 个计数表达 625 µs，保持半微秒时间戳分辨率及跨回绕计算。 | BlueZ 复验 CONNECT_IND、首锚点、CSA#1、SN/ACK 与 30 分钟空闲连接。注入链路静默验证监督超时、广播恢复和再次连接，记录漏收、CRC、重传及迟发。 |
-| **19.3 上层服务与资源** | 将单连接控制器接软 HCI 与 Trouble Host。先在 `wchble` 的 CH582M 固件跑通 GATT 回归，再固定导出所需的初始化、队列、设备地址和 GATT 接口。 | 实机服务发现、ATT MTU 64、61 字节 Write Request、13 字节 Write Command、回读与通知逐字节匹配；取消订阅与断连清理、重连正确。提交链接映射及高水位，合计静态区、`.highcode`、队列、DMA 及栈峰值并给出 CH582M 32 KiB 下的剩余空间。 |
+| **19.2 CH582M 连接控制器** | 将现有 2 MHz LLE 计数、TMR0/1 时基、TMR2 截止、RX 捕获和 BLEL 接入 `LinkRadio` 与单连接引擎。以 1250 个计数表达 625 µs，保持半微秒时间戳分辨率及跨回绕计算。 | ✅ 1800.06 s 空闲 ACL PASS（late 4.8%、retry 53.5% 记录）；silence-test 注入 `closed=0x08` 后重连 10.01 s PASS（2026-11-26） |
+| **19.3 上层服务与资源** | 将单连接控制器接软 HCI 与 Trouble Host。先在 `wchble` 的 CH582M 固件跑通 GATT 回归，再固定导出所需的初始化、队列、设备地址和 GATT 接口。 | ⛔ **阻塞**：固件启动到 `wch582-gatt ready` 后于 embassy-sync Channel 重入借用 panic，未广播；静态 RAM 9.2 KiB / 栈 23.0 KiB，待修 HCI/Trouble pump。GATT 判据未通过（2026-11-26） |
 | **19.4 无 blob 外设后端可用** | 加入可选后端、数据驱动能力校验、相应 UI 说明、生成模板、依赖打包及验证矩阵。生成物覆盖本地配置声明的地址、广播间隔、设备名和服务 UUID。 | Web ZIP、目录导出和同源 CLI 产物在与开发者 reference 无关的路径构建。按相同配置在 CH582M 实机复跑 19.2、19.3 的关键验收，检查 ELF 无 WCH BLE 库。旧 cube.json、原有 shim、BLE 关闭及非 BLE 芯片回归通过。此处是无 blob 正式可选的发布点。 |
 | **19.5 评估默认切换** | 验证 Legacy 与 LE Secure Connections 的配对、加密 GATT、RAM 绑定和重连。核实板端随机来源、运行时延迟、内存余量及端侧兼容性。只评估已具备能力的 CH582M 新建配置。 | 至少 BlueZ 与一台移动端通过核心连接/GATT 行为；明文访问受保护特征失败，配对和绑定重连成功，掉电行为符合 RAM 绑定声明；复跑混合外设负载、较长连接及重连，并验证旧工程显式迁移和回退。 |
 
@@ -40,6 +40,13 @@
 - 已完成：`data/devices/ch582m/peripherals.json` 的 `ble` 能力声明（instance / roles / backends / interrupts / timers / requires）；Peripherals 列表新增 **Wireless → BLE**（数据驱动，无 BLE 声明的芯片不显示）；新 `BleWorkspaceView` 复用 `features.ble` / `BleConfig`，覆盖角色、设备名、广播间隔、32K、MAC、UUID、后端与资源展示，并支持 Enable/Deactivate；Project Settings 的 BLE 节可见性改为数据驱动；冲突规则新增 `BLE_ROLE_UNSUPPORTED` / `BLE_IRQ_DISABLED` / `BLE_LSI_CLOCK`；`validate-device-data` 校验 ble 节 schema。
 - 浏览器实测：CH582M 工程 → Peripherals → Wireless/BLE → Enable BLE 后状态 Active、GAP/后端资源表单完整、可跳转 Project Settings BLE 节。
 - 待完成：`wchble` 生成后端的导出接线（19.4）与 ZIP/目录导出 → 烧录 → BlueZ FFE0/FFE1/FFE2 实机联调（依赖 19.2/19.3）。
+
+### 19.2/19.3 进展（2026-11-26）
+
+- **19.2 PASS（CH582M + AX210 + BlueZ 5.88）**：wchble 本地分支 `ch582-m19-main` 的预置 TX（e06ffce）后，宿主空闲 ACL **1800.06 s**；板端 events=41445 / rx=33454 / late=1528（4.8%）/ retry=17140（53.5%）/ err=0；宿主退出后板端按监督超时 `closed=0x08`（1802.9 s）。
+- **监督注入 PASS**：WCH-Link 的 `halt` 不可靠，改用一次性 `silence-test` 固件（36ed8a8）：首次连接静默 6 s（>4 s 监督超时）→ 板端 `closed=0x08`（8.08 s）→ 重新广播 → 第二次连接保持 **10.01 s**。
+- **19.3 阻塞（未验收）**：CH582M Trouble GATT 示例（1fd14d9/89a0f9c/36ed8a8）可启动并打印 `wch582-gatt ready`，但首次 poll 在 `embassy-sync Channel::lock` panic（re-entrant `try_borrow_mut`），尚未广播。`link-flash` + `SoftRunner` 栈化后静态 RAM **9.2 KiB**、栈余量 **23.0 KiB**，内存已不是瓶颈；待修 HCI/Trouble pump 的借用/轮询顺序。
+- **已知质量项**：19.2 的 retry≈53%（修复前 late≈30%；现 late≈4.8%），契约只要求记录；19.3 修复后再评估对 GATT 吞吐的影响。
 
 ### 19.4 进展（2026-11-26）
 

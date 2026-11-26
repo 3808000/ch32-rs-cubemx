@@ -383,8 +383,8 @@
 |---|---|---|
 | 19.0 | `wchble` CH582M 1M 轮询 RF PR | 最终 ELF 校验烧录，BlueZ 发现广播，三信道收到受控对端，提交上游评审 |
 | 19.1 | CubeMX BLE 外设入口（与 `wchble` 导出联调） | ✅ 数据声明/列表/工作区/启停/冲突/浏览器验收（2026-11-26）；⏳ `wchble` 导出与 CH582M GATT 实机待 19.2–19.4 |
-| 19.2 | CH582M `LinkRadio` 与 LLE 调度 | CONNECT_IND、625 µs 时基、CSA#1、SN/ACK、30 分钟连接与超时恢复 |
-| 19.3 | 软 HCI、Trouble GATT 与 RAM | ATT MTU 64 逐字节验收、断连清理、重连及 RAM 高水位 |
+| 19.2 | CH582M `LinkRadio` 与 LLE 调度 | ✅ 1800.06 s 空闲 ACL + silence 注入 `closed=0x08` + 重连 10.01 s（2026-11-26）；late 4.8%/retry 53.5% 记录 |
+| 19.3 | 软 HCI、Trouble GATT 与 RAM | ⛔ 启动后 embassy-sync Channel panic（未广播）；RAM 已降至 9.2 KiB 静态/23.0 KiB 栈，待修 pump（2026-11-26） |
 | 19.4 | CubeMX 可选无 blob 后端 | ⏳ 后端字段/能力校验/UI 选择完成（2026-11-26）；wchble 生成模板、依赖打包与 ZIP/目录导出联调待 19.2/19.3 |
 | 19.5 | 默认后端切换评估 | 配对与绑定重连、受保护 GATT、跨端兼容、资源余量及显式迁移回退 |
 
