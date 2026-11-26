@@ -92,6 +92,16 @@ export function runBleRules(ctx: ConflictContext): void {
         message: `BLE 依赖 ${disabledIrqs.join('、')} 中断，但 NVIC 配置已将其禁用；请恢复中断或关闭 BLE`,
       })
     }
+    if (ble.backend) {
+      const backend = cap.backends.find((b) => b.id === ble.backend)
+      if (!backend || !backend.exportable) {
+        push({
+          code: 'BLE_BACKEND_UNSUPPORTED',
+          level: 'error',
+          message: `BLE 后端「${ble.backend}」当前不可导出（${backend?.notes ?? '未在器件数据中声明'}）；请选择 shim 或等待接入完成`,
+        })
+      }
+    }
     if (cap.requires?.lse && (ble.clock32k ?? 'lse') === 'lsi') {
       push({
         code: 'BLE_LSI_CLOCK',

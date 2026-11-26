@@ -44,6 +44,7 @@ export type ConflictCode =
   | 'BLE_ROLE_UNSUPPORTED'
   | 'BLE_IRQ_DISABLED'
   | 'BLE_LSI_CLOCK'
+  | 'BLE_BACKEND_UNSUPPORTED'
 
 export interface Conflict {
   code: ConflictCode

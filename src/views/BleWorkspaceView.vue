@@ -38,6 +38,9 @@ const roleOptions = computed(() =>
 )
 const roleDesc = computed(() => roleOptions.value.find((o) => o.value === store.ble.role)?.desc ?? '')
 
+const backends = computed(() => cap.value?.backends ?? [])
+const backend = computed(() => store.ble.backend ?? 'shim')
+
 const macOptions: { value: BleConfig['macSource']; label: string; desc: string }[] = [
   { value: 'factory', label: '出厂 MAC（推荐）', desc: '读取 ISP ROM 中的唯一地址' },
   { value: 'default', label: 'HAL 固定值', desc: '11:22:33:44:55:66（仅调试）' },
@@ -59,6 +62,9 @@ function setEnabled(v: boolean) {
 
 function setRole(role: BleConfig['role']) {
   store.setBle({ role })
+}
+function setBackend(id: string) {
+  store.setBle({ backend: id as BleConfig['backend'] })
 }
 function setName(name: string) {
   store.setBle({ deviceName: name })
@@ -254,7 +260,12 @@ function setUuid(field: 'serviceUuid16' | 'notifyUuid16' | 'writeUuid16', text: 
             <div class="ble-row">
               <div class="ble-label">生成后端</div>
               <div class="ble-value ble-backends">
-                <div v-for="b in cap.backends" :key="b.id" class="ble-backend">
+                <el-radio-group :model-value="backend" size="small" @change="setBackend($event as string)">
+                  <el-radio-button v-for="b in backends" :key="b.id" :value="b.id" :disabled="!b.exportable">
+                    {{ b.label }}
+                  </el-radio-button>
+                </el-radio-group>
+                <div v-for="b in backends" :key="`${b.id}-note`" class="ble-backend">
                   <span class="ble-backend-name">{{ b.label }}</span>
                   <el-tag size="small" :type="b.exportable ? 'success' : 'info'">
                     {{ b.exportable ? '可导出' : '接入中' }}

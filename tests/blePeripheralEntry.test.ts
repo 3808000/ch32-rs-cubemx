@@ -5,6 +5,7 @@ import { DEFAULT_BLE_CONFIG } from '@/model/types/project'
 import { getDeviceData } from '@/model/device'
 import { derivePeriCategories } from '@/components/PeripheralList.vue'
 import { checkConflicts } from '@/model/conflicts'
+import { parseProjectFile, serializeProjectFile } from '@/services/projectFile'
 
 const ch582 = getDeviceData('CH582M')
 const v003 = getDeviceData('CH32V003F4P6')
@@ -58,6 +59,20 @@ describe('Peripherals 列表', () => {
   })
 })
 
+describe('BLE 后端字段往返', () => {
+  it('缺省不写 backend；显式 wchble 可往返，非法值忽略', () => {
+    const base = config()
+    expect(serializeProjectFile(base)).not.toContain('"backend"')
+    const wch = { ...base, ble: { ...DEFAULT_BLE_CONFIG, backend: 'wchble' as const } }
+    const parsed = parseProjectFile(serializeProjectFile(wch))
+    expect('config' in parsed && parsed.config.ble?.backend).toBe('wchble')
+    const raw = JSON.parse(serializeProjectFile(base))
+    raw.ble.backend = 'bogus'
+    const invalid = parseProjectFile(JSON.stringify(raw))
+    expect('config' in invalid && invalid.config.ble?.backend).toBeUndefined()
+  })
+})
+
 describe('BLE 资源冲突', () => {
   it('BLE 开启但 BLEL 中断被禁用 → BLE_IRQ_DISABLED error', () => {
     const out = checkConflicts(
@@ -95,6 +110,19 @@ describe('BLE 资源冲突', () => {
     expect(lsi.filter((x) => x.code === 'BLE_LSI_CLOCK')).toHaveLength(1)
     const lse = checkConflicts(config(), ch582)
     expect(lse.filter((x) => x.code === 'BLE_LSI_CLOCK')).toHaveLength(0)
+  })
+
+  it('backend=wchble（未开放导出）→ BLE_BACKEND_UNSUPPORTED error', () => {
+    const out = checkConflicts(config({ ble: bleConfig({ backend: 'wchble' }) }), ch582)
+    const c = out.filter((x) => x.code === 'BLE_BACKEND_UNSUPPORTED')
+    expect(c).toHaveLength(1)
+    expect(c[0].level).toBe('error')
+    expect(c[0].message).toContain('wchble')
+  })
+
+  it('backend=shim 或缺省 → 无 BLE_BACKEND_UNSUPPORTED', () => {
+    expect(checkConflicts(config({ ble: bleConfig({ backend: 'shim' }) }), ch582).filter((x) => x.code === 'BLE_BACKEND_UNSUPPORTED')).toHaveLength(0)
+    expect(checkConflicts(config(), ch582).filter((x) => x.code === 'BLE_BACKEND_UNSUPPORTED')).toHaveLength(0)
   })
 
   it('BLE 关闭时资源规则不触发', () => {

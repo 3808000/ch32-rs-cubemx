@@ -91,6 +91,9 @@ export interface ProjectConfig {
  * 约束：BLE 必须 embassy 运行时 + LSE 32.768kHz 晶振（HAL SelRTCClock=0 硬编码）；
  * central 角色上游无示例，本期不开放。
  */
+/** M19：BLE 生成后端。缺省/undefined = shim（保持旧工程行为）。 */
+export type BleBackendId = 'shim' | 'wchble'
+
 export interface BleConfig {
   /** GAP 角色：peripheral 含生成的简单 GATT 服务（read/notify + write 特征） */
   role: 'peripheral' | 'broadcaster' | 'observer'
@@ -113,6 +116,8 @@ export interface BleConfig {
    * 实机连接建立已验证）；lsi=内部 32K（无晶振板回退；SelRTCClock=1，未移植 LSI 校准，连接稳定性未保证）。
    * 可选字段，旧 cube.json 缺省按 lse 处理。 */
   clock32k?: 'lse' | 'lsi'
+  /** M19：生成后端；缺省 = shim（现有 ch5xx-ble shim 路径）。 */
+  backend?: BleBackendId
 }
 
 /** BLE 缺省配置（M12）：peripheral + 出厂 MAC + 100ms 广播 + FFE0/FFE1/FFE2 服务（对齐上游 ble-blinky 示例 UUID）。 */

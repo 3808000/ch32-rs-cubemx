@@ -84,6 +84,7 @@ function asString(value: unknown, fallback = ''): string {
 /** BLE 配置的合法枚举（与 types 的 BleConfig 保持一致）。 */
 const BLE_ROLES: readonly BleConfig['role'][] = ['peripheral', 'broadcaster', 'observer']
 const BLE_MAC_SOURCES: readonly BleConfig['macSource'][] = ['factory', 'custom', 'default']
+const BLE_BACKENDS: readonly NonNullable<BleConfig['backend']>[] = ['shim', 'wchble']
 
 /** BLE 数值边界（广播间隔按 BLE 规范 20..10240ms；UUID16 为 0..0xFFFF）。 */
 export const BLE_ADV_INTERVAL_MIN_MS = 20
@@ -121,6 +122,9 @@ export function parseBleConfig(raw: unknown): BleConfig | undefined {
     clock32k: raw.clock32k === 'lsi' ? 'lsi' : 'lse',
   }
   if (typeof raw.mac === 'string') ble.mac = raw.mac
+  if (BLE_BACKENDS.includes(raw.backend as NonNullable<BleConfig['backend']>)) {
+    ble.backend = raw.backend as NonNullable<BleConfig['backend']>
+  }
   return ble
 }
 

@@ -101,6 +101,8 @@ const bleMacSourceOptions: { value: BleConfig['macSource']; label: string; desc:
 ]
 
 const bleRoleDesc = computed(() => bleRoleOptions.find((o) => o.value === store.ble.role)?.desc ?? '')
+const bleBackends = computed(() => store.deviceData.peripherals.ble?.backends ?? [])
+const bleBackend = computed(() => store.ble.backend ?? 'shim')
 const bleMacSourceDesc = computed(
   () => bleMacSourceOptions.find((o) => o.value === store.ble.macSource)?.desc ?? '',
 )
@@ -125,6 +127,10 @@ function setHalBackend(value: string) {
 
 function setBleRole(role: BleConfig['role']) {
   store.setBle({ role })
+}
+
+function setBleBackend(id: string) {
+  store.setBle({ backend: id as BleConfig['backend'] })
 }
 
 function setBleName(name: string) {
@@ -529,6 +535,17 @@ function onGenerate() {
             固定 ATT MTU 23、TX 6dBm、无绑定存储（SNV）；GPIO 异步等待本期 BLE 档不提供。详见 README 与契约文档。
           </p>
           <div class="ps-rows">
+            <div class="ps-row">
+              <div class="ps-label">生成后端</div>
+              <div class="ps-value ps-ble-value">
+                <el-radio-group :model-value="bleBackend" size="small" @change="setBleBackend($event as string)">
+                  <el-radio-button v-for="b in bleBackends" :key="b.id" :value="b.id" :disabled="!b.exportable">
+                    {{ b.label }}
+                  </el-radio-button>
+                </el-radio-group>
+                <span class="ps-note">wchble 接入中：CH582M LinkRadio + Trouble Host 实机验收后开放导出</span>
+              </div>
+            </div>
             <div class="ps-row">
               <div class="ps-label">GAP 角色</div>
               <div class="ps-value ps-ble-value">
