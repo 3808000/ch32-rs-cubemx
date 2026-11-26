@@ -93,7 +93,7 @@ M18 的原始对照与许可评估见 [M18 spike](docs/m18-cleanroom-spike.md)�
 
 ## CH582M BLE 外设接入（M19）
 
-CubeMX 已在 Project Settings 提供 BLE 配置。M19 的新增外设及 Rust 导出接入以 `wchble` 和 Trouble Host 为实现路径，面向 CH582M。[M19 正式接入契约](docs/M19_NATIVE_BLE_CONTRACT.md)
+CubeMX 已在 Project Settings 提供 BLE 配置，Peripherals 现已包含 **Wireless → BLE** 数据驱动实例（启停、GAP/32K/MAC/UUID 与后端/资源展示；wchble 导出仍标为接入中）。M19 的新增外设及 Rust 导出接入以 `wchble` 和 Trouble Host 为实现路径，面向 CH582M。[M19 正式接入契约](docs/M19_NATIVE_BLE_CONTRACT.md)
 
 [wchble PR #34](https://github.com/ch32-rs/wchble/pull/34) 提供 CH582M LE 1M 射频基础。连接验收使用 `wchble` 的 CH582M 示例。`ble-native/` 已退役，原有实机与许可记录见 [历史基线](docs/m19-native-ble-baseline.md)。
 

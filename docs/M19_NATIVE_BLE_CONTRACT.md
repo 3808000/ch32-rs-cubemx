@@ -41,6 +41,13 @@
 - 浏览器实测：CH582M 工程 → Peripherals → Wireless/BLE → Enable BLE 后状态 Active、GAP/后端资源表单完整、可跳转 Project Settings BLE 节。
 - 待完成：`wchble` 生成后端的导出接线（19.4）与 ZIP/目录导出 → 烧录 → BlueZ FFE0/FFE1/FFE2 实机联调（依赖 19.2/19.3）。
 
+### 19.4 进展（2026-11-26）
+
+- `BleConfig.backend?: 'shim' | 'wchble'`：缺省 undefined = shim，旧 cube.json 与导出不写该字段；导入忽略非法值。
+- Peripherals BLE 工作区与 Project Settings 均提供后端选择；选项来自 `peripherals.ble.backends`，`exportable=false`（wchble 接入中）置灰。
+- 冲突规则 `BLE_BACKEND_UNSUPPORTED` 拦截不可导出后端，避免静默回退 shim。
+- 待 19.2/19.3 实机通过后接入 wchble 生成模板、依赖打包与 ZIP/目录导出联调。
+
 ## 4. 代码落点与验收记录
 
 | 领域 | 接入点与验证 |
