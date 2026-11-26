@@ -28,6 +28,8 @@ pub fn print_fmt(args: fmt::Arguments<'_>) {
     unsafe {
         if let Some(serial) = (*core::ptr::addr_of_mut!(SERIAL)).as_mut() {
             let _ = serial.write_fmt(args);
+            // 进入 WFI 前排空 UART；CH582 空闲时 UART 发送会停顿。
+            let _ = serial.blocking_flush();
         }
     }
 }

@@ -1,10 +1,9 @@
 //! Shared power-on sequence for the native binaries.
 
 use ch5xx_hal as hal;
-use hal::delay::Delay;
 
 /// Clock tree, 32 kHz source, UART log and radio calibration.
-pub fn init() -> Delay {
+pub fn init() {
     let _peripherals = hal::init(hal::Config {
         rcc: hal::rcc::Config::PLL_60MHZ,
     });
@@ -15,5 +14,4 @@ pub fn init() -> Delay {
 
     crate::rf::init(crate::rf::TX_POWER_0_DBM);
     crate::println!("rf init done (0 dBm, LSE)");
-    Delay
 }

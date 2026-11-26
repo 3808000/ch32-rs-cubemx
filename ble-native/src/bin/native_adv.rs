@@ -15,7 +15,7 @@ use qingke_rt::entry;
 
 #[entry]
 fn main() -> ! {
-    let mut delay = board::init();
+    board::init();
 
     let mut ad = [0u8; 31];
     let mut n = 0;
@@ -25,15 +25,20 @@ fn main() -> ! {
     let mut pdu = [0u8; 40];
     let pdu_len = adv::build_adv_nonconn(&mut pdu, &MAC_LSB, &ad[..n]).expect("adv fits");
 
-    println!(
-        "native adv: name {} pdu {} bytes",
-        ADV_NAME, pdu_len
-    );
+    println!("native adv: name {} pdu {} bytes", ADV_NAME, pdu_len);
 
     let mut rounds = 0u32;
+    let mut next = rf::now();
     loop {
+        rf::wait(next, || false);
+        next = next.after_slots(160);
         for channel in [37u8, 38, 39] {
-            if !rf::tx(adv::ACCESS_ADDRESS, &mut pdu[..pdu_len], channel, rf::Phy::M1) {
+            rf::tx_prepare(rf::Link::advertising(channel), &pdu[..pdu_len]);
+            rf::wait(rf::now().after_us(100), || false);
+            rf::tx_start();
+            rf::wait(rf::now().after_us(5_000), || rf::tx_end().is_some());
+            if rf::tx_end().is_none() {
+                rf::stop();
                 println!("tx failed on channel {}", channel);
             }
         }
@@ -41,6 +46,5 @@ fn main() -> ! {
         if rounds % 10 == 0 {
             println!("adv rounds {}", rounds);
         }
-        delay.delay_ms(100);
     }
 }

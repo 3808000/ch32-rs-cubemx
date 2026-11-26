@@ -10,7 +10,23 @@ publish = false
 # No `ch5xx-ble` dependency: this crate must link without LIBCH58xBLE.a.
 # The RF/LLE register driver is an independent Rust implementation derived
 # from the MIT-licensed ch32fun iSLER register facts (see NOTICE).
+[features]
+default = ["hardware"]
+hardware = []
+pairing = ["dep:aes", "dep:ccm", "dep:cmac", "dep:p256", "dep:rand_chacha", "dep:rand_core", "dep:subtle", "dep:zeroize"]
+legacy-only = ["pairing"]
+
 [dependencies]
+aes = { optional = true, version = "0.8.4", default-features = false, features = ["zeroize"] }
+cmac = { optional = true, version = "0.7.2", default-features = false }
+ccm = { optional = true, version = "0.5.0", default-features = false }
+p256 = { optional = true, version = "0.13.2", default-features = false, features = ["ecdh"] }
+rand_chacha = { optional = true, version = "0.3.1", default-features = false }
+rand_core = { optional = true, version = "0.6.4", default-features = false }
+subtle = { optional = true, version = "2.6.1", default-features = false }
+zeroize = { optional = true, version = "1.8", default-features = false }
+
+[target.'cfg(target_arch = "riscv32")'.dependencies]
 ch5xx-hal = { path = "../../reference/ch5xx-hal", default-features = false, features = ["ch582", "rt", "memory-x"] }
 qingke-rt = { version = "0.8.4", features = ["highcode"] }
 panic-halt = "1.0"
@@ -18,6 +34,36 @@ critical-section = "1.0"
 
 [profile.release]
 panic = "abort"
-opt-level = "s"
+opt-level = 3
 lto = "thin"
 codegen-units = 1
+
+# Firmware binaries are riscv32-only. `test = false` keeps `cargo test` on the
+# host from trying to link them (their imports are target-gated).
+[[bin]]
+name = "native_adv"
+path = "src/bin/native_adv.rs"
+required-features = ["hardware"]
+test = false
+bench = false
+
+[[bin]]
+name = "native_scan"
+path = "src/bin/native_scan.rs"
+required-features = ["hardware"]
+test = false
+bench = false
+
+[[bin]]
+name = "diag_rx37"
+path = "src/bin/diag_rx37.rs"
+required-features = ["hardware"]
+test = false
+bench = false
+
+[[bin]]
+name = "native_peripheral"
+path = "src/bin/native_peripheral.rs"
+required-features = ["hardware"]
+test = false
+bench = false

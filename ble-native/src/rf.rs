@@ -10,16 +10,16 @@
 //! Frame layout expected by the hardware (identical to iSLER):
 //! `[PDU header, payload length, payload...]` — the baseband prepends the
 //! preamble and access address and appends the CRC. The CRC init is written
-//! as 0x555555 because the hardware stores it bit-reversed relative to the
-//! over-the-air 0xAAAAAA.
+//! as 0x555555, the Bluetooth advertising CRC preset.
 //!
-//! Timing note: TX/RX/stop and the interrupt body are placed in `.highcode`
-//! (RAM) because they run inside the radio event path.
+//! TX/RX 触发和 RF 停止操作放在 `.highcode`（RAM）以便及时换向。
 
 use core::sync::atomic::{fence, AtomicU32, Ordering};
 
 use ch5xx_hal::interrupt::InterruptExt as _;
 use qingke_rt::highcode;
+
+use crate::schedule::Instant;
 
 // --- register bases (CH582/583) -------------------------------------------
 
@@ -48,6 +48,16 @@ const LL_STATUS: usize = 2;
 const LL_INT_EN: usize = 3;
 const LL_CTRL_MOD: usize = 20;
 const LL_TMR0: usize = 25;
+const LL_TMR1: usize = 26;
+const LL_TMR2: usize = 27;
+const TMR0_EXPIRED: u32 = 1 << 13;
+const TMR2_EXPIRED: u32 = 1 << 15;
+
+// 两只倒数计时器交错运行。CPU 应答一次到期时，另一只仍在计数，
+// 重装的时间基于另一只的剩余时间，避免把 IRQ 延迟累积进时基。
+const CLOCK_SPAN: u32 = 0x1000_0000;
+static mut CLOCK_END: [u32; 2] = [CLOCK_SPAN, 2 * CLOCK_SPAN];
+static mut CLOCK_FIRST: usize = 0;
 const LL_TX_BUF: usize = 28;
 const LL_RX_BUF: usize = 29;
 
@@ -60,7 +70,6 @@ const RF11: usize = 11;
 const RF_TXTUNE_CTRL: usize = 14;
 const RF20: usize = 20;
 const RF22: usize = 22;
-const RF26: usize = 26;
 const RF_TXCTUNE_CO_CTRL: usize = 36;
 const RF_TXCTUNE_GA_CTRL: usize = 37;
 const RF_RXTUNE: usize = 39;
@@ -71,6 +80,8 @@ const RF_TXCTUNE_GA: usize = 50;
 const LL_RX: u32 = 0x01;
 const LL_TX: u32 = 0x02;
 const LL_STOP: u32 = 0x08;
+// CH582 DMA 附在 PDU 后的状态字节中，bit 4 表示 CRC 校验失败。
+const RX_CRC_ERROR: u8 = 1 << 4;
 const CTRL_MOD_RFSTOP: u32 = 0xffff_fff8;
 
 // Device modes (CH582/583 encoding).
@@ -100,12 +111,18 @@ pub enum Phy {
 
 static TX_DONE: AtomicU32 = AtomicU32::new(0);
 static RX_READY: AtomicU32 = AtomicU32::new(0);
+static RX_END: AtomicU32 = AtomicU32::new(0);
+static TX_END: AtomicU32 = AtomicU32::new(0);
 
 #[repr(align(4))]
 struct LleBuffer([u32; 0x110]);
 
 /// RX frame buffer written by the link-layer engine.
 static mut LLE_BUF: LleBuffer = LleBuffer([0; 0x110]);
+
+#[repr(align(4))]
+struct TxBuffer([u8; 257]);
+static mut TX_BUF: TxBuffer = TxBuffer([0; 257]);
 
 #[inline(always)]
 fn lle_buf_ptr() -> *mut u32 {
@@ -149,6 +166,57 @@ unsafe fn rf_w(i: usize, v: u32) {
     wr(RF_BASE, i, v)
 }
 
+// --- LLE 时钟 -------------------------------------------------------------
+
+// 调用方持有临界区，或正在执行 BLEL ISR。
+#[inline(always)]
+unsafe fn clock_now() -> Instant {
+    let first = CLOCK_FIRST;
+    let remaining = ll_r(LL_TMR0 + first);
+    if remaining != 0 {
+        Instant(CLOCK_END[first].wrapping_sub(remaining))
+    } else {
+        Instant(CLOCK_END[first ^ 1].wrapping_sub(ll_r(LL_TMR0 + (first ^ 1))))
+    }
+}
+
+/// 当前 LLE 硬件时刻。
+pub fn now() -> Instant {
+    critical_section::with(|_| unsafe { clock_now() })
+}
+
+#[inline(always)]
+unsafe fn reload_clock(status: u32) {
+    let first = CLOCK_FIRST;
+    if status & (TMR0_EXPIRED << first) != 0 {
+        let other = first ^ 1;
+        ll_w(LL_TMR0 + first, ll_r(LL_TMR0 + other) + CLOCK_SPAN);
+        CLOCK_END[first] = CLOCK_END[other].wrapping_add(CLOCK_SPAN);
+        CLOCK_FIRST = other;
+    }
+}
+
+/// 等待定时截止或射频完成。返回时由调用方根据时间戳决定先处理哪件事。
+/// `ready` 只读取已锁存的事件，可在禁止中断的临界区内调用。
+pub fn wait(deadline: Instant, ready: impl Fn() -> bool) {
+    loop {
+        let done = critical_section::with(|_| unsafe {
+            let current = clock_now();
+            if ready() || current.reached(deadline) {
+                return true;
+            }
+            ll_w(LL_STATUS, TMR2_EXPIRED);
+            ll_w(LL_TMR2, deadline.elapsed_ticks(current).min(CLOCK_SPAN));
+            // SEVONPEND 让检查条件后、WFI 前发生的 IRQ 也能唤醒 CPU。
+            core::arch::asm!("wfi", options(nostack));
+            false
+        });
+        if done {
+            return;
+        }
+    }
+}
+
 // --- interrupts -----------------------------------------------------------
 
 /// Link-layer engine interrupt (`BLEL`, IRQ 21).
@@ -159,17 +227,21 @@ unsafe fn rf_w(i: usize, v: u32) {
 fn BLEL() {
     unsafe {
         let status = ll_r(LL_STATUS);
+        let end = clock_now();
         // CH582/583 acknowledge by writing the status back.
         ll_w(LL_STATUS, status);
         fence(Ordering::SeqCst);
 
         if status & LL_TX != 0 {
+            TX_END.store(end.0, Ordering::Relaxed);
             TX_DONE.store(status, Ordering::Release);
         } else if status & LL_RX != 0 {
             bb_w(BB_CTRL_TX, bb_r(BB_CTRL_TX) | 1);
             stop();
+            RX_END.store(end.0, Ordering::Relaxed);
             RX_READY.store(status, Ordering::Release);
         }
+        reload_clock(status);
     }
 }
 
@@ -198,8 +270,7 @@ unsafe fn txctune(channel: u8) -> u32 {
     rf_w(RF1, rf_r(RF1) | 1);
 
     ll_w(LL_TMR0, 8000);
-    while (rf_r(RF_TXCTUNE_CO_CTRL) & (1 << 25)) == 0
-        || (rf_r(RF_TXCTUNE_GA_CTRL) & (1 << 26)) == 0
+    while (rf_r(RF_TXCTUNE_CO_CTRL) & (1 << 25)) == 0 || (rf_r(RF_TXCTUNE_GA_CTRL) & (1 << 26)) == 0
     {
         if ll_r(LL_TMR0) == 0 {
             break;
@@ -279,7 +350,10 @@ unsafe fn tx_tune() {
     rf_w(RF1, rf_r(RF1) & !1);
     rf_w(RF10, rf_r(RF10) | 0x1000);
     rf_w(RF11, rf_r(RF11) | 0x10);
-    rf_w(RF_TXTUNE_CTRL, (rf_r(RF_TXTUNE_CTRL) & 0xffff_ffc0) | (t2440 & 0x3f));
+    rf_w(
+        RF_TXTUNE_CTRL,
+        (rf_r(RF_TXTUNE_CTRL) & 0xffff_ffc0) | (t2440 & 0x3f),
+    );
     rf_w(
         RF_TXTUNE_CTRL,
         (rf_r(RF_TXTUNE_CTRL) & 0x80ff_ffff) | (t2440 & 0x7f00_0000),
@@ -326,16 +400,16 @@ unsafe fn set_channel(channel: u8) {
 }
 
 #[highcode]
-unsafe fn link_config(access: u32, channel: u8, phy: Phy, txbuf: *mut u8) {
+unsafe fn link_config(link: Link) {
+    let Link {
+        access,
+        crc_init,
+        channel,
+        phy,
+    } = link;
     set_channel(channel);
-
-    if !txbuf.is_null() {
-        ll_w(LL_TX_BUF, txbuf as u32);
-    }
-
     bb_w(BB_ACCESSADDRESS1, access);
-    // Over-the-air 0xAAAAAA, bit-reversed in the register.
-    bb_w(BB_CRCINIT1, 0x55_5555);
+    bb_w(BB_CRCINIT1, crc_init);
 
     let cfg = bb_r(BB_CTRL_CFG);
     let cfg = match phy {
@@ -371,32 +445,14 @@ unsafe fn link_config(access: u32, channel: u8, phy: Phy, txbuf: *mut u8) {
     ll_w(LL1, ll_r(LL1) & !1);
 }
 
+/// 结束调谐并启动已准备的发送，由调度器选择启动时刻。
 #[highcode]
-unsafe fn link_tx() {
-    stop();
-    set_mode(DEVMODE_TX);
-
-    // Wait for the PLL settle flag; bounded so a chip that never raises it
-    // (iSLER marks this bit as unverified on CH582) costs at most ~100 us.
-    let mut delay = ch5xx_hal::delay::Delay;
-    let mut timeout = 0;
-    while (rf_r(RF26) & 0x0100_0000) == 0 && timeout < 100 {
-        delay.delay_us(1);
-        timeout += 1;
+pub fn tx_start() {
+    unsafe {
+        bb_w(BB_CTRL_CFG, bb_r(BB_CTRL_CFG) | 0x0080_0000);
+        bb_w(BB_CTRL_TX, bb_r(BB_CTRL_TX) & !3);
+        ll_w(LL0, LL_TX);
     }
-
-    TX_DONE.store(0, Ordering::Release);
-    bb_w(BB_CTRL_CFG, bb_r(BB_CTRL_CFG) | 0x0080_0000);
-    bb_w(BB_CTRL_TX, bb_r(BB_CTRL_TX) & !3);
-    ll_w(LL0, LL_TX);
-}
-
-#[highcode]
-unsafe fn link_rx() {
-    stop();
-    set_mode(DEVMODE_RX);
-    ll_w(LL0, LL_RX);
-    RX_READY.store(0, Ordering::Release);
 }
 
 /// Stop any in-flight TX/RX and park the radio.
@@ -434,64 +490,105 @@ pub fn init(tx_power: u8) {
         bb_w(BB8, 0x0009_0083);
     }
 
-    unsafe { tune() };
-
     unsafe {
+        tune();
+        ll_w(LL_TMR0, CLOCK_SPAN);
+        ll_w(LL_TMR1, ll_r(LL_TMR0) + CLOCK_SPAN);
+        ll_w(LL_STATUS, 0xffff_ffff);
+
+        let mut sctlr = ch5xx_hal::pac::PFIC.sctlr().read();
+        sctlr.set_sevonpend(true);
+        ch5xx_hal::pac::PFIC.sctlr().write_value(sctlr);
         ch5xx_hal::interrupt::Interrupt::BLEL.enable();
     }
 }
 
-/// Transmit one PDU and wait for completion.
-///
-/// `pdu` is `[header, length, payload...]`; the length byte is written from
-/// the slice length. Returns `false` on timeout (5 ms).
-pub fn tx(access: u32, pdu: &mut [u8], channel: u8, phy: Phy) -> bool {
-    if pdu.len() < 2 || pdu.len() > 257 {
+/// 单次收发使用的连接参数。CRC 初值采用空口字节序。
+#[derive(Clone, Copy)]
+pub struct Link {
+    pub access: u32,
+    pub crc_init: u32,
+    pub channel: u8,
+    pub phy: Phy,
+}
+
+impl Link {
+    pub const fn advertising(channel: u8) -> Self {
+        Self {
+            access: crate::adv::ACCESS_ADDRESS,
+            crc_init: 0x55_5555,
+            channel,
+            phy: Phy::M1,
+        }
+    }
+}
+
+/// 把 PDU 复制到驱动持有的 DMA 缓冲，启动发送调谐。
+/// 同一时刻只有一个收发操作；需在 TX 完成或取消后才准备下一帧。
+pub fn tx_prepare(link: Link, pdu: &[u8]) -> bool {
+    if !(2..=257).contains(&pdu.len()) || link.channel >= 40 {
         return false;
     }
-    pdu[1] = (pdu.len() - 2) as u8;
+    critical_section::with(|_| unsafe {
+        stop();
+        ll_w(LL_STATUS, LL_RX | LL_TX);
+        TX_DONE.store(0, Ordering::Relaxed);
+        let txbuf = core::ptr::addr_of_mut!(TX_BUF.0).cast::<u8>();
+        core::ptr::copy_nonoverlapping(pdu.as_ptr(), txbuf, pdu.len());
+        txbuf.add(1).write((pdu.len() - 2) as u8);
+        ll_w(LL_TX_BUF, txbuf as u32);
+        link_config(link);
+        set_mode(DEVMODE_TX);
+    });
+    true
+}
 
-    unsafe {
-        link_config(access, channel, phy, pdu.as_mut_ptr());
-        link_tx();
-    }
+/// 发送完成的 LLE 中断时间戳。
+pub fn tx_end() -> Option<Instant> {
+    (TX_DONE.load(Ordering::Acquire) != 0).then(|| Instant(TX_END.load(Ordering::Relaxed)))
+}
 
-    let mut delay = ch5xx_hal::delay::Delay;
-    for _ in 0..500 {
-        if TX_DONE.load(Ordering::Acquire) != 0 {
-            return true;
+/// 在指定频点开启一次接收。
+#[highcode]
+pub fn rx_start(link: Link) {
+    critical_section::with(|_| unsafe {
+        stop();
+        ll_w(LL_STATUS, LL_RX | LL_TX);
+        RX_READY.store(0, Ordering::Relaxed);
+        link_config(link);
+        set_mode(DEVMODE_RX);
+        ll_w(LL0, LL_RX);
+    });
+}
+
+/// 接收完成的 LLE 中断时间戳。
+pub fn rx_end() -> Option<Instant> {
+    (RX_READY.load(Ordering::Acquire) != 0).then(|| Instant(RX_END.load(Ordering::Relaxed)))
+}
+
+/// 单次接收结果。PDU 存入调用方的缓冲，射频重臂后仍可使用。
+pub struct RxFrame<'a> {
+    pub pdu: &'a [u8],
+    pub rssi: i8,
+    pub end: Instant,
+    pub crc_ok: bool,
+}
+
+pub fn take_rx(out: &mut [u8]) -> Option<RxFrame<'_>> {
+    critical_section::with(|_| unsafe {
+        let status = RX_READY.swap(0, Ordering::Relaxed);
+        if status == 0 {
+            return None;
         }
-        delay.delay_us(10);
-    }
-    false
-}
-
-/// Arm the receiver on one channel.
-pub fn rx_start(access: u32, channel: u8, phy: Phy) {
-    unsafe {
-        link_config(access, channel, phy, core::ptr::null_mut());
-        link_rx();
-    }
-}
-
-/// Non-blocking RX completion check.
-pub fn rx_ready() -> bool {
-    RX_READY.load(Ordering::Acquire) != 0
-}
-
-/// Clear a latched RX completion.
-pub fn rx_clear() {
-    RX_READY.store(0, Ordering::Release);
-}
-
-/// Received signal strength of the last frame, in dBm.
-pub fn rssi() -> i8 {
-    unsafe { ((bb_r(BB_RSSI) >> 15) & 0xff) as u8 as i8 }
-}
-
-/// Raw link-layer receive buffer: `[PDU header, length, payload...]`.
-pub fn rx_buf() -> &'static [u8] {
-    unsafe {
-        core::slice::from_raw_parts(lle_buf_ptr() as *const u8, 0x110 * 4)
-    }
+        let src = lle_buf_ptr().cast::<u8>();
+        let len = 2 + usize::from(src.add(1).read_volatile());
+        let dst = out.get_mut(..len)?;
+        core::ptr::copy_nonoverlapping(src, dst.as_mut_ptr(), len);
+        Some(RxFrame {
+            pdu: dst,
+            rssi: ((bb_r(BB_RSSI) >> 15) & 0xff) as u8 as i8,
+            end: Instant(RX_END.load(Ordering::Relaxed)),
+            crc_ok: src.add(len + 3).read_volatile() & RX_CRC_ERROR == 0,
+        })
+    })
 }

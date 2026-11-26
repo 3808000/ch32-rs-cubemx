@@ -1,6 +1,6 @@
 # ch32-rs-CubeMX 项目记忆
 
-> 供编码 Agent 使用：修改代码前先读本文件。最后更新：2026-11-19。
+> 供编码 Agent 使用：修改代码前先读本文件。最后更新：2026-11-24。
 
 ## 1. 概述
 
@@ -168,3 +168,21 @@
 - **边界**：仅被动扫描（无 SCAN_REQ/T_IFS）、无连接/L2CAP/ATT/GATT/SM、固定 0 dBm + 静态调谐、仅 CH582/583 1M、MAC 常量、窗口无硬件时基。Phase B 起需 625 µs 调度（LLE TMR）。
 - **门禁**：`ble-native` 三 bin cargo 绿；前端/生成器未改，仓库门禁不回归。
 
+
+## 15. M19 Phase B 的原生 LL 连接（2026-11-23）
+
+- **时基**。LLE TMR0/1 交错倒数，TMR2 按绝对截止时间唤醒。BLE 参数采用 625 µs 时隙，射频时间戳精度为 0.5 µs。Phase A 广播和扫描已迁移，实机双向回归通过。
+- **连接**。`native_peripheral` 在 CH582M 上支持 legacy CONNECT_IND、锚点/窗口、CSA#1、SN/NESN、控制 PDU 和监督超时。连接 CRC 初值按请求原值写入 BB。建立链路时要补偿本板的 RF 起发和 LLE 唤醒时间。
+- **验收**。BlueZ 5.88 空闲 LE ACL 连续 1800.03 s。UART 的漏收窗口、CRC、重复及重传计数可用于后续 A/B。细节见 [M19 历史基线 D7](m19-native-ble-baseline.md#d7-phase-b-的-lle-调度与单连接-peripheral)。
+
+
+## 16. M19 Phase C 的原生 GATT（2026-11-24）
+
+- `native_peripheral` 以 `M19-GATT` 广播。ATT 固定信道走 L2CAP Basic Frame，27 字节 LL 载荷上重组和发送分片，默认 ATT MTU 23，协商上限 64。
+- CH582M + BlueZ 5.88 两轮通过发现、61 字节 Write Request、13 字节 Write Command、回读与对应通知。取消订阅和重连后的 CCCD 已回读核实。验收细节见 [M19 历史基线 D8](m19-native-ble-baseline.md#d8-phase-c-的-l2capatt-与-gatt-服务端)。
+
+## 17. M19 CH582M BLE 外设正式接入（2026-11-24）
+
+- 目标按 CubeMX 交付验收。先做 19.2 的 `wchble` 连接控制器和 19.3 的 Trouble GATT，再联合验收 19.1、19.4 的 Peripherals 工作区和 Rust 导出。复用 `features.ble`/`BleConfig` 与工程持久化。默认切换走 19.5 的配对、安全、内存及兼容门禁。见 [M19 正式接入契约](M19_NATIVE_BLE_CONTRACT.md)。
+- [wchble PR #34](https://github.com/ch32-rs/wchble/pull/34) 已提交。`927bf9e` 的最终镜像由 BlueZ 独立发现，CH582M 37/38/39 各 175 次 TX 完成，受控对端 RX 标记 4/2/6。该提交覆盖轮询 1M，连接和 CH583M 实机单列。完整镜像哈希及验证步骤在 PR 正文。
+- CubeMX 现有 shim 的定向回归 170 项通过，`npm run verify:build -- --chip CH582M --ble` 成功。`ble-native/` 已退役，新固件与回归统一走 `wchble`。[原生 BLE 历史基线](m19-native-ble-baseline.md)

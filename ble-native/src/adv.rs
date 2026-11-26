@@ -27,12 +27,21 @@ pub const AD_NAME_COMPLETE: u8 = 0x09;
 /// Returns the PDU length (header + length + payload), or `None` if the
 /// advertising data does not fit in the 31-byte legacy budget.
 pub fn build_adv_nonconn(out: &mut [u8], addr: &[u8; 6], ad: &[u8]) -> Option<usize> {
+    build_legacy(out, PDU_ADV_NONCONN_IND, addr, ad)
+}
+
+/// 构造 public AdvA 的可连接广播。ChSel 保持为 0，选择 CSA#1。
+pub fn build_adv_ind(out: &mut [u8], addr: &[u8; 6], ad: &[u8]) -> Option<usize> {
+    build_legacy(out, PDU_ADV_IND, addr, ad)
+}
+
+fn build_legacy(out: &mut [u8], pdu_type: u8, addr: &[u8; 6], ad: &[u8]) -> Option<usize> {
     let payload = 6 + ad.len();
     if payload > 37 || out.len() < payload + 2 {
         return None;
     }
-    out[0] = PDU_ADV_NONCONN_IND;
-    out[1] = payload as u8; // rewritten by `rf::tx` as well
+    out[0] = pdu_type;
+    out[1] = payload as u8;
     out[2..8].copy_from_slice(addr);
     out[8..8 + ad.len()].copy_from_slice(ad);
     Some(payload + 2)
@@ -82,7 +91,8 @@ pub fn parse(buf: &[u8], rssi: i8, channel: u8) -> Option<Report<'_>> {
     // Directed, scannable, connectable and non-connectable legacy adv PDUs all
     // start with AdvA. Scan responses do too. Other types are ignored.
     let addr = match pdu_type {
-        PDU_ADV_IND | PDU_ADV_DIRECT_IND | PDU_ADV_NONCONN_IND | PDU_ADV_SCAN_IND | PDU_SCAN_RSP => {
+        PDU_ADV_IND | PDU_ADV_DIRECT_IND | PDU_ADV_NONCONN_IND | PDU_ADV_SCAN_IND
+        | PDU_SCAN_RSP => {
             let mut a = [0u8; 6];
             a.copy_from_slice(&payload[..6]);
             a

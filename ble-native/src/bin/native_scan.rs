@@ -21,8 +21,8 @@ use ble_native::{board, println, rf};
 use panic_halt as _;
 use qingke_rt::entry;
 
-/// Listen window per channel. 100 ms at 100 us polling granularity.
-const WINDOW_POLLS: u32 = 1000;
+/// 每个广播信道驻留 100 ms。
+const WINDOW_SLOTS: u32 = 160;
 /// Address cache size for log deduplication.
 const SEEN_MAX: usize = 64;
 
@@ -73,31 +73,36 @@ fn should_log(addr: &[u8; 6], has_name: bool) -> bool {
 
 #[entry]
 fn main() -> ! {
-    let mut delay = board::init();
+    board::init();
     println!("native scan: legacy adv on 37/38/39");
 
     let mut cycles = 0u32;
+    let mut deadline = rf::now();
+    let mut pdu = [0u8; 257];
     loop {
         for channel in [37u8, 38, 39] {
-            rf::rx_start(adv::ACCESS_ADDRESS, channel, rf::Phy::M1);
+            deadline = deadline.after_slots(WINDOW_SLOTS);
+            let link = rf::Link::advertising(channel);
+            rf::rx_start(link);
 
-            // Stay on this channel for the whole window: after every frame the
-            // ISR parks the radio, so re-arm instead of hopping away. Aborting
-            // on the first frame (an earlier version) left the receiver on each
-            // channel for well under a millisecond in a dense environment and
-            // systematically missed sparse advertisers.
-            let mut remaining = WINDOW_POLLS;
-            while remaining > 0 {
-                if rf::rx_ready() {
-                    // The ISR already stopped the radio; RSSI remains latched.
-                    let rssi = rf::rssi();
-                    let raw = rf::rx_buf();
-                    if let Some(report) = adv::parse(raw, rssi, channel) {
+            // 窗口截止时间独立于帧率。每帧后原地重臂，直到轮到下个信道。
+            loop {
+                rf::wait(deadline, || rf::rx_end().is_some());
+                if rf::now().reached(deadline) {
+                    break;
+                }
+                if let Some(frame) = rf::take_rx(&mut pdu) {
+                    rf::rx_start(link);
+                    if let Some(report) = adv::parse(frame.pdu, frame.rssi, channel) {
                         FRAMES.fetch_add(1, Ordering::Relaxed);
                         let name = adv::find_name(report.adv_data)
                             .and_then(|n| str::from_utf8(n).ok())
                             .unwrap_or("");
-                        if should_log(&report.addr, !name.is_empty()) {
+                        // 给 115200 波特率的诊断日志预留一整行的发送时间。
+                        let now = rf::now();
+                        if !now.after_us(15_000).reached(deadline)
+                            && should_log(&report.addr, !name.is_empty())
+                        {
                             let mut addr = [0u8; 17];
                             adv::format_addr(&report.addr, &mut addr);
                             let count = LOGGED.fetch_add(1, Ordering::Relaxed) + 1;
@@ -120,15 +125,9 @@ fn main() -> ! {
                             );
                         }
                     }
-                    rf::rx_clear();
-                    rf::rx_start(adv::ACCESS_ADDRESS, channel, rf::Phy::M1);
-                } else {
-                    delay.delay_us(100);
-                    remaining -= 1;
                 }
             }
             rf::stop();
-            rf::rx_clear();
         }
 
         cycles += 1;

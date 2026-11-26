@@ -374,23 +374,21 @@
 
 ---
 
-## M19（v0.19 Phase A）原生 BLE 协议栈起步：无 WCH blob 的 Rust LLE + 广播/扫描 ✅ 实机闭环（2026-11-23）
+## M19（v0.19）CH582M BLE 外设正式接入（2026-11-24）
 
-> **立项**：用户裁决「接下来该用 RUST 重构蓝牙协议栈」。M18 spike 的 G1/G5 硬阻塞（RF 寄存器/校准文档）由公开 **MIT** 项目 [ch32fun iSLER](https://github.com/cnlohr/ch32fun/tree/master/examples_ch5xx/iSLER) 解除：其给出 CH582/583 BB/LLE/RF 寄存器与三频点调谐序列并在同芯片实测收发；**未使用 WCH 反编译/NDA**，许可与来源留痕在 `ble-native/NOTICE` + `LICENSE-ch32fun`。
-> **交付**：新 crate `ble-native/`（**不依赖 `ch5xx-ble`、不链接 `LIBCH58xBLE.a`**）：`rf.rs`（寄存器/初始化/TX-RX 调谐/BLEL ISR）、`adv.rs`（ADV_NONCONN_IND 构造 + legacy PDU/AD 解析）、`clock/log/board`；bins `native_adv` / `native_scan` / `diag_rx37`。
-> **实机（诚实分级）**：原生广播 → BlueZ 见 `0C:3D:5E:A6:62:94 / M18-NATIVE / −50 dBm / Connectable no`；原生被动扫描 → 受控 BlueZ 对端 `E0:3A:AA:B5:AD:73` 的 ADV_IND（厂商标记 `FF FF "M18-ADV"`）+ SCAN_RSP（name `M18-ADV`），15 s 3184 帧；同刻 WCH blob `evt_observer` 作 A/B 证明对端在空口。`nm` 三 bin 中 WCH blob 符号 **0 命中**。
-> **已定位缺陷**：扫描器首版「收到首帧即跳信道」在密集环境下每信道驻留 <1 ms，系统性漏收稀疏广播；改为整窗 100 ms 驻留 + 每帧原地重臂后通过（锁信道 `diag_rx37` 先证明 RX 解调本身正常）。
-> **边界**：仅被动扫描（无 SCAN_REQ/T_IFS）、仅广播/扫描（无连接/L2CAP/ATT/GATT/SM）、固定 0 dBm + 初始化静态调谐、仅 CH582/583 1M、扫描窗口无硬件时基。下一阶段见 [M19_NATIVE_BLE_CONTRACT.md](M19_NATIVE_BLE_CONTRACT.md) D6。
-> **门禁**：`cargo build --release --bins` 绿；仓库前端门禁不回归（本期未改前端/生成器）。
+> **产品目标**。在 CubeMX 的 Peripherals 中启用和配置 BLE，保存、预览、导出并把生成固件烧到 CH582M。首版新增外设和导出接入 `wchble` 与 Trouble Host，使用无 WCH BLE blob 的 CH582M 路径。完整范围、工作量和门禁见 [M19 正式接入契约](M19_NATIVE_BLE_CONTRACT.md)。
+> **当前基线**。CubeMX 已有设置页、配置持久化、冲突校验和 shim 导出，BLE 定向 170 项测试及 CH582M 生成工程编译通过。`wchble` 的 CH582M 射频贡献已提交 [PR #34](https://github.com/ch32-rs/wchble/pull/34)，等待评审。自研 A–D 证据保存在 [历史基线](m19-native-ble-baseline.md)。
 
-| # | 任务 | 改动落点 | 验收 |
-|---|---|---|---|
-| 19.1 | G1/G5 解除与许可取证 | docs/M19_NATIVE_BLE_CONTRACT.md、ble-native/{NOTICE,LICENSE-ch32fun} | MIT 来源/寄存器事实/实机复验 |
-| 19.2 | 无 blob 的 LLE/RF 驱动 | ble-native/src/rf.rs | TX/RX/ISR/调谐；nm 无 blob 符号 |
-| 19.3 | legacy 广播/扫描 | ble-native/src/adv.rs + native_adv/native_scan | BlueZ 双向实机 PASS |
-| 19.4 | 扫描驻留缺陷定位与修复 | native_scan.rs、diag_rx37.rs | 受控对端 marker/名称稳定命中 |
+| # | 交付 | 验收 |
+|---|---|---|
+| 19.0 | `wchble` CH582M 1M 轮询 RF PR | 最终 ELF 校验烧录，BlueZ 发现广播，三信道收到受控对端，提交上游评审 |
+| 19.1 | CubeMX BLE 外设入口（与 `wchble` 导出联调） | Peripherals 启停、参数、工程往返、冲突、导出和 CH582M GATT 实机 |
+| 19.2 | CH582M `LinkRadio` 与 LLE 调度 | CONNECT_IND、625 µs 时基、CSA#1、SN/ACK、30 分钟连接与超时恢复 |
+| 19.3 | 软 HCI、Trouble GATT 与 RAM | ATT MTU 64 逐字节验收、断连清理、重连及 RAM 高水位 |
+| 19.4 | CubeMX 可选无 blob 后端 | Web ZIP、目录与 CLI 真实导出编译，生成固件通过 CH582M 实机验收 |
+| 19.5 | 默认后端切换评估 | 配对与绑定重连、受保护 GATT、跨端兼容、资源余量及显式迁移回退 |
 
-**候选**：Phase B LL 连接（625 µs 时基/锚点/CSA#1/SN-ACK）→ C ATT/GATT → D SM → E active scan → F 温补/DTM。上游 PR 重启条件不变。
+当前先完成 19.2 的 `wchble` 连接控制器及 19.3 的 Trouble GATT。随后联合验收 19.1 和 19.4 的配置、导出与实机。自研 `ble-native/` 已退役。
 
 ---
 

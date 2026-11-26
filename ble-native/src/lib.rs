@@ -1,6 +1,6 @@
 //! Rust-native CH582/583 BLE link layer (no WCH BLE blob).
 //!
-//! M19 milestone: raw LLE/BB/RF driver, legacy advertising and scanning.
+//! M19：BLE 射频驱动、广播/扫描、单连接 LL 与 GATT 服务端。
 //! The register-level facts (addresses, bit fields and the TX/RX calibration
 //! sequences) are ported from the MIT-licensed ch32fun `iSLER` project; see
 //! `NOTICE` and `docs/M19_NATIVE_BLE_CONTRACT.md` for provenance. No WCH
@@ -16,14 +16,31 @@
 #![no_std]
 #![allow(static_mut_refs)]
 
+#[cfg(target_arch = "riscv32")]
 pub use ch5xx_hal as hal;
+#[cfg(target_arch = "riscv32")]
 pub use qingke_rt;
 
 pub mod adv;
+pub mod att;
+#[cfg(target_arch = "riscv32")]
 pub mod board;
+#[cfg(target_arch = "riscv32")]
 pub mod clock;
+#[cfg(feature = "pairing")]
+mod crypto;
+pub mod gatt;
+pub mod l2cap;
+pub mod ll;
+#[cfg(target_arch = "riscv32")]
 pub mod log;
+#[cfg(target_arch = "riscv32")]
 pub mod rf;
+pub mod schedule;
+#[cfg(feature = "pairing")]
+pub mod security;
+#[cfg(feature = "pairing")]
+mod sm;
 
 /// Factory MAC `0C:3D:5E:A6:62:94` in over-the-air (LSB-first) order.
 ///

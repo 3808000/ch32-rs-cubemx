@@ -16,38 +16,28 @@ use qingke_rt::entry;
 
 #[entry]
 fn main() -> ! {
-    let mut delay = board::init();
+    board::init();
     println!("diag rx37 raw probe");
 
     let mut n = 0u32;
+    let mut pdu = [0u8; 257];
+    let link = rf::Link::advertising(37);
+    rf::rx_start(link);
     loop {
-        rf::rx_start(adv::ACCESS_ADDRESS, 37, rf::Phy::M1);
-        let mut got = false;
-        for _ in 0..1000 {
-            if rf::rx_ready() {
-                got = true;
-                break;
-            }
-            delay.delay_us(100);
-        }
-        if got {
-            let rssi = rf::rssi();
-            let raw = rf::rx_buf();
-            let len = raw[1] as usize;
+        rf::wait(rf::now().after_slots(160), || rf::rx_end().is_some());
+        if let Some(frame) = rf::take_rx(&mut pdu) {
+            rf::rx_start(link);
             let mut hex = [0u8; 96];
-            let hn = adv::hex_preview(&raw[..2 + len.min(30)], &mut hex);
+            let hn = adv::hex_preview(frame.pdu, &mut hex);
             n += 1;
             println!(
                 "#{} rssi {} hdr {:02x} len {} raw \"{}\"",
                 n,
-                rssi,
-                raw[0],
-                len,
+                frame.rssi,
+                frame.pdu[0],
+                frame.pdu[1],
                 str::from_utf8(&hex[..hn]).unwrap_or("?")
             );
-        } else {
-            rf::stop();
         }
-        rf::rx_clear();
     }
 }

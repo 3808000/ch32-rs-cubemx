@@ -89,16 +89,13 @@ cd ble-evt-tests && cargo build --release --bins   # nightly + rust-src（build-
 # 宿主判据：/tmp/m18-ble-host/run_case.sh <case> --name ... --notify uuid:period_ms:count
 ```
 
-上游 BLE PR 暂缓至 clean-room Rust 重写完成（裁决与可行性见 `docs/m18-cleanroom-spike.md`）。
+M18 的原始对照与许可评估见 [M18 spike](docs/m18-cleanroom-spike.md)。
 
-## 原生 BLE 协议栈（M19 Phase A，无 WCH blob）
+## CH582M BLE 外设接入（M19）
 
-`ble-native/` 是从零实现的 CH582/583 BLE 链路层起步件：直接操作 BB/LLE/RF 寄存器，**不依赖 `ch5xx-ble`、不链接 `LIBCH58xBLE.a`**。当前覆盖 legacy 广播（ADV_NONCONN_IND）与被动扫描，实机通过 BlueZ 双向验证（宿主见 `M18-NATIVE`；板端见 `M18-ADV`）。寄存器事实与调谐序列来自 MIT 许可的 [ch32fun iSLER](https://github.com/cnlohr/ch32fun/tree/master/examples_ch5xx/iSLER)，来源/许可见 `ble-native/NOTICE`、`ble-native/LICENSE-ch32fun`；设计与边界见 `docs/M19_NATIVE_BLE_CONTRACT.md`。
+CubeMX 已在 Project Settings 提供 BLE 配置。M19 的新增外设及 Rust 导出接入以 `wchble` 和 Trouble Host 为实现路径，面向 CH582M。[M19 正式接入契约](docs/M19_NATIVE_BLE_CONTRACT.md)
 
-```bash
-cd ble-native && cargo build --release --bins   # nightly + rust-src（build-std=core）
-# 烧录：openocd -f wch-riscv.cfg -c "program <abs elf> verify reset exit"
-```
+[wchble PR #34](https://github.com/ch32-rs/wchble/pull/34) 提供 CH582M LE 1M 射频基础。连接验收使用 `wchble` 的 CH582M 示例。`ble-native/` 已退役，原有实机与许可记录见 [历史基线](docs/m19-native-ble-baseline.md)。
 
 ## 验证命令
 
